@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "burp-mcp-bridge": {
+      "command": "node",
+      "args": [
+        "/PATH-TO/burp-mcp/bridge/index.js"
+      ]
+    },
+"playwright": {
+    "type": "stdio",
+    "command": "npx",
+    "args": ["-y","@playwright/mcp","--proxy-server=http://localhost:8080"
+    ],
+"env": {
+      "MAX_MCP_OUTPUT_TOKENS": "100000"
+    },
+    "maxTokens": 100000
+  }
+ }
+}

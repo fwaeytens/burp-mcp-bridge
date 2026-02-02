@@ -1,0 +1,72 @@
+# Java
+*.class
+*.log
+*.jar
+*.war
+*.ear
+*.zip
+*.tar.gz
+*.rar
+
+# Maven
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+
+# IDE
+.idea/
+*.iws
+*.iml
+*.ipr
+.vscode/
+.settings/
+.project
+.classpath
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Burp specific
+lib/montoya-api-*.jar
+*.burp
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Local configuration
+*.local
+.env
+.env.local
+.mcp.json
+
+# Temporary files
+*.tmp
+*.temp
+*~
+
+# Build artifacts
+build/
+dist/
+out/
+
+# Generated certificates
+bridge/certs/
+
+# Claude local settings
+.claude/
