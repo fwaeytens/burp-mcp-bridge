@@ -42,6 +42,33 @@ function getBridgeVersion() {
   }
 }
 
+/**
+ * Auto-fix Content-Length in raw HTTP requests.
+ * LLMs frequently miscount body bytes, causing servers to hang waiting for data.
+ */
+function fixContentLength(rawRequest) {
+  const separator = '\r\n\r\n';
+  const sepIndex = rawRequest.indexOf(separator);
+  if (sepIndex === -1) return rawRequest;
+
+  const headersPart = rawRequest.substring(0, sepIndex);
+  const body = rawRequest.substring(sepIndex + separator.length);
+
+  if (!body) return rawRequest;
+
+  const actualLength = Buffer.byteLength(body, 'utf-8');
+
+  const clRegex = /^Content-Length:\s*\d+$/mi;
+  let fixedHeaders;
+  if (clRegex.test(headersPart)) {
+    fixedHeaders = headersPart.replace(clRegex, `Content-Length: ${actualLength}`);
+  } else {
+    fixedHeaders = headersPart + `\r\nContent-Length: ${actualLength}`;
+  }
+
+  return fixedHeaders + separator + body;
+}
+
 /** Parse integer envs safely with default; trims and handles empty strings. */
 function toInt(v, def) {
   const n = Number.parseInt(String(v ?? '').trim(), 10);
@@ -162,10 +189,21 @@ class BurpMcpBridge {
       try {
         this.logDebug(`[${rid}] Calling tool: ${toolName}`);
 
+        // Auto-fix Content-Length for burp_custom_http requests
+        const args = { ...(request.params.arguments || {}) };
+        if (toolName === 'burp_custom_http') {
+          if (typeof args.request === 'string') {
+            args.request = fixContentLength(args.request);
+          }
+          if (Array.isArray(args.requests)) {
+            args.requests = args.requests.map(r => typeof r === 'string' ? fixContentLength(r) : r);
+          }
+        }
+
         // Forward tool call to Burp extension (async handling)
         const response = await this.callBurpExtension(
           'tools/call',
-          { name: toolName, arguments: request.params.arguments || {} },
+          { name: toolName, arguments: args },
           { rid, toolName }
         );
 

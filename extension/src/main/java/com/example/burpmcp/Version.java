@@ -7,7 +7,7 @@ package com.example.burpmcp;
 public class Version {
     
     // Version components
-    public static final String VERSION = "2.1.1";
+    public static final String VERSION = "2.1.2";
     public static final String BUILD_DATE = "2026-01-27";
     public static final String RELEASE_NAME = "MCP Annotations";
 
@@ -54,7 +54,7 @@ public class Version {
      * Get detailed changelog for this version.
      */
     public static String getChangelog() {
-        return "## Version 2.1.1 - MCP Annotations (2026-01-27)\n\n" +
+        return "## Version 2.1.2 - Content-Length Auto-Fix (2026-02-26)\n\n" +
                "### 🤖 MCP Protocol 2025-06-18 Compliance\n" +
                "- ✅ **TOOL ANNOTATIONS**: Added MCP standard annotations to all 22 tools\n" +
                "  - `readOnlyHint`: Indicates tools that don't modify state\n" +

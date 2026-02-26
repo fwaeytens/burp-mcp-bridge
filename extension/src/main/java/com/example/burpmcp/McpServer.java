@@ -320,7 +320,7 @@ public class McpServer {
 
                 Map<String, Object> serverInfo = new HashMap<>();
                 serverInfo.put("name", "burp-mcp-bridge");
-                serverInfo.put("version", "2.1.1");
+                serverInfo.put("version", "2.1.2");
                 result.put("serverInfo", serverInfo);
                 break;
                 
