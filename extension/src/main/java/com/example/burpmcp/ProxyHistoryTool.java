@@ -318,7 +318,18 @@ public class ProxyHistoryTool implements McpTool {
         modifiedOnlyProperty.put("description", "Show only requests that were modified");
         modifiedOnlyProperty.put("default", false);
         properties.put("modifiedOnly", modifiedOnlyProperty);
-        
+
+        // Entry ID range filtering
+        Map<String, Object> afterEntryProperty = new HashMap<>();
+        afterEntryProperty.put("type", "integer");
+        afterEntryProperty.put("description", "Only return entries with ID strictly greater than this value");
+        properties.put("afterEntry", afterEntryProperty);
+
+        Map<String, Object> beforeEntryProperty = new HashMap<>();
+        beforeEntryProperty.put("type", "integer");
+        beforeEntryProperty.put("description", "Only return entries with ID strictly less than this value");
+        properties.put("beforeEntry", beforeEntryProperty);
+
         inputSchema.put("properties", properties);
         tool.put("inputSchema", inputSchema);
         return tool;
@@ -657,7 +668,11 @@ public class ProxyHistoryTool implements McpTool {
         String statusClass = arguments.has("statusClass") ? arguments.get("statusClass").asText() : null;
         String parameterType = arguments.has("parameterType") ? arguments.get("parameterType").asText() : null;
         boolean modifiedOnly = arguments.has("modifiedOnly") ? arguments.get("modifiedOnly").asBoolean() : false;
-        
+
+        // Entry ID range parameters
+        Integer afterEntry = arguments.has("afterEntry") ? arguments.get("afterEntry").asInt() : null;
+        Integer beforeEntry = arguments.has("beforeEntry") ? arguments.get("beforeEntry").asInt() : null;
+
         // Keyword analysis parameters
         List<String> keywords = new ArrayList<>();
         if (arguments.has("keywords") && arguments.get("keywords").isArray()) {
@@ -725,6 +740,9 @@ public class ProxyHistoryTool implements McpTool {
             ProxyHttpRequestResponse entry = proxyHistory.get(i);
             try {
                 // Apply all filters
+                int entryId = i + 1;
+                if (afterEntry != null && entryId <= afterEntry) continue;
+                if (beforeEntry != null && entryId >= beforeEntry) continue;
                 if (hostname != null && !entry.host().toLowerCase().contains(hostname.toLowerCase())) continue;
                 if (method != null && !entry.method().equals(method)) {
                     String filterMsg = "ProxyHistoryTool: Entry #" + (i+1) + " filtered out - method " + entry.method() + " != " + method;
