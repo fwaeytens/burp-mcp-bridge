@@ -351,28 +351,32 @@ public class ProxyHistoryTool implements McpTool {
         FilteredResults results = applyFilters(arguments);
         List<ProxyHttpRequestResponse> filtered = results.entries;
         List<Integer> originalIndices = results.originalIndices;
-        
+
         boolean recent = arguments.has("recent") ? arguments.get("recent").asBoolean() : true;
         int limit = arguments.has("limit") ? arguments.get("limit").asInt() : 100;
-        
-        if (recent) {
-            java.util.Collections.reverse(filtered);
-        }
-        
-        if (limit > 0 && filtered.size() > limit) {
-            filtered = filtered.subList(0, limit);
-        }
-        
+        int total = filtered.size();
+        int showing = Math.min(total, limit);
+
         StringBuilder result = new StringBuilder();
         result.append("📋 **PROXY HISTORY LIST**\n\n");
-        result.append(String.format("**Total:** %d entries | **Showing:** %d\n\n", 
-                                  filtered.size(), Math.min(filtered.size(), limit)));
-        
+        result.append(String.format("**Total:** %d entries | **Showing:** %d\n\n", total, showing));
+
         result.append("```\n");
         result.append(String.format("%-5s | %-7s | %-6s | %s\n", "ID", "Method", "Status", "URL"));
         result.append("------|---------|--------|--------------------------------------------\n");
-        
-        for (int i = 0; i < filtered.size(); i++) {
+
+        int start, end, step;
+        if (recent) {
+            start = filtered.size() - 1;
+            end = Math.max(-1, filtered.size() - 1 - showing);
+            step = -1;
+        } else {
+            start = 0;
+            end = Math.min(filtered.size(), showing);
+            step = 1;
+        }
+
+        for (int i = start; i != end; i += step) {
             ProxyHttpRequestResponse entry = filtered.get(i);
             int originalId = originalIndices.get(i);
             int status = entry.hasResponse() ? entry.response().statusCode() : 0;
@@ -381,8 +385,8 @@ public class ProxyHistoryTool implements McpTool {
             if (url.length() > 60) {
                 url = url.substring(0, 57) + "...";
             }
-            
-            result.append(String.format("%-5d | %-7s | %-6s | %s\n", 
+
+            result.append(String.format("%-5d | %-7s | %-6s | %s\n",
                                       originalId, entry.method(), statusStr, url));
         }
         result.append("```\n\n");
@@ -847,14 +851,6 @@ public class ProxyHistoryTool implements McpTool {
             } catch (Exception e) {
                 // Skip problematic entries
             }
-        }
-        
-        // Apply sorting (reverse both lists together to maintain correspondence)
-        boolean sortRecent = arguments.has("recent") ? arguments.get("recent").asBoolean() : true;
-        if (sortRecent) {
-            // Reverse both lists to maintain index correspondence
-            java.util.Collections.reverse(filtered);
-            java.util.Collections.reverse(originalIndices);
         }
         
         return new FilteredResults(filtered, originalIndices);
