@@ -35,7 +35,7 @@
 
     <dependencies>
         <dependency>
-            <groupId>net.portswigger.burp.extender</groupId>
+            <groupId>net.portswigger.burp.extensions</groupId>
             <artifactId>montoya-api</artifactId>
             <version>2025.12</version>
             <scope>provided</scope>

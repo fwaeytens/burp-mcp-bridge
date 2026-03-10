@@ -86,15 +86,8 @@ OpenAI/Gemini → HTTP/SSE MCP → Node.js Bridge → HTTP → Burp Extension �
 git clone https://github.com/fwaeytens/burp-mcp-bridge.git
 cd burp-mcp-bridge
 
-# Install Montoya API to local Maven repository (required first time only)
-cd extension
-mvn install:install-file -Dfile=lib/montoya-api-2025.12.jar \
-    -DgroupId=net.portswigger.burp.extender \
-    -DartifactId=montoya-api \
-    -Dversion=2025.12 \
-    -Dpackaging=jar
-
 # Build the extension
+cd extension
 mvn clean package
 ```
 
@@ -105,7 +98,7 @@ mvn clean package
 3. Click **Add** → Select **Extension type: Java**
 4. Choose `extension/target/burp-mcp-bridge-2.1.2.jar`
 5. ✅ **VERIFY**: Look for these messages in the output:
-   - "Burp Extension HTTP server listening on http://localhost:8081"
+   - "MCP Server listening on http://127.0.0.1:8081"
    - "=== Available MCP Tools ==="
    - "burp_help appears first"
    - "Total: 22 tools available"
@@ -485,21 +478,9 @@ burp-mcp-bridge/
 | `MCP_HTTP_PORT` | `3000` | HTTPS/HTTP port for MCP Bridge (when using http mode) |
 | `MCP_USE_HTTPS` | `true` | Enable HTTPS for MCP Bridge (set to false for HTTP) |
 
-### Maven Build Fails
-The Montoya API JAR must be installed to your local Maven repository first:
-```bash
-cd extension
-mvn install:install-file -Dfile=lib/montoya-api-2025.12.jar \
-    -DgroupId=net.portswigger.burp.extender \
-    -DartifactId=montoya-api \
-    -Dversion=2025.12 \
-    -Dpackaging=jar
-```
-
 ### Extension Not Loading
 - Ensure Java 17+ is installed
 - Check Burp Suite Extensions → Errors tab
-- Verify `montoya-api-2025.12.jar` in lib/ directory
 
 ## 📚 Documentation
 
