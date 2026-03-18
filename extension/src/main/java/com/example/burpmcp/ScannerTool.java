@@ -192,7 +192,7 @@ public class ScannerTool implements McpTool {
 
         Map<String, Object> useHttpsProperty = new HashMap<>();
         useHttpsProperty.put("type", "boolean");
-        useHttpsProperty.put("description", "Use HTTPS (default: false)");
+        useHttpsProperty.put("description", "Use HTTPS — required, must be set explicitly to true or false");
         properties.put("useHttps", useHttpsProperty);
         autoEnableProperty.put("default", true);
         properties.put("autoEnable", autoEnableProperty);
@@ -1048,8 +1048,11 @@ public class ScannerTool implements McpTool {
             throw new IllegalArgumentException("Cannot determine target host: provide 'host' parameter or include a Host header in the request");
         }
 
-        // Determine useHttps
-        boolean secure = arguments.has("useHttps") ? arguments.get("useHttps").asBoolean() : false;
+        // Determine useHttps — required, no default
+        if (!arguments.has("useHttps")) {
+            throw new IllegalArgumentException("useHttps is required — set to true for HTTPS or false for HTTP");
+        }
+        boolean secure = arguments.get("useHttps").asBoolean();
 
         // Determine port: argument > Host header > default from scheme
         int port;
