@@ -209,6 +209,25 @@ public class ScannerTool implements McpTool {
         urlFilterProperty.put("description", "URL pattern filter with wildcards (for FILTER_ISSUES/GET_ISSUES)");
         properties.put("urlFilter", urlFilterProperty);
 
+        // Pagination parameters for GET_ISSUES/FILTER_ISSUES
+        Map<String, Object> limitProperty = new HashMap<>();
+        limitProperty.put("type", "integer");
+        limitProperty.put("description", "Max issues to return in summary mode (default: 50)");
+        limitProperty.put("default", 50);
+        properties.put("limit", limitProperty);
+
+        Map<String, Object> offsetProperty = new HashMap<>();
+        offsetProperty.put("type", "integer");
+        offsetProperty.put("description", "Number of issues to skip in summary mode (default: 0)");
+        offsetProperty.put("default", 0);
+        properties.put("offset", offsetProperty);
+
+        Map<String, Object> issueIndexProperty = new HashMap<>();
+        issueIndexProperty.put("type", "array");
+        issueIndexProperty.put("description", "1-based issue indices for detail mode (e.g., [1, 3, 5]). Omit for summary mode.");
+        issueIndexProperty.put("items", Map.of("type", "integer"));
+        properties.put("issueIndex", issueIndexProperty);
+
         // Parameters for headers and cookies (START_SCAN, CRAWL_ONLY)
         Map<String, Object> headersProperty = new HashMap<>();
         headersProperty.put("type", "object");
@@ -515,15 +534,13 @@ public class ScannerTool implements McpTool {
         if (scanId == null || scanId.isEmpty()) {
             return createErrorResponse("scanId is required for GET_ISSUES");
         }
-        
+
         Audit audit = activeAudits.get(scanId);
         if (audit == null) {
             return createErrorResponse("No active audit found with ID: " + scanId);
         }
-        
+
         try {
-            // Note: audit.issues() may not be supported in all Burp versions
-            // Fallback to siteMap issues if needed
             List<AuditIssue> issues;
             try {
                 issues = audit.issues();
@@ -532,61 +549,23 @@ public class ScannerTool implements McpTool {
                 issues = api.siteMap().issues();
             }
 
-            StringBuilder result = new StringBuilder();
-            result.append("🔒 **Security Issues Report**\n");
-            result.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
-            result.append("**Scan ID:** `").append(scanId).append("`\n");
-            result.append("**Total Issues:** ").append(issues.size()).append("\n\n");
-            
-            if (issues.isEmpty()) {
-                result.append("✅ No security issues found yet.\n");
-                result.append("\nNote: Scan may still be in progress. Use GET_STATUS to check.\n");
-            } else {
-                // Group issues by severity
-                Map<AuditIssueSeverity, List<AuditIssue>> bySeverity = issues.stream()
-                    .collect(Collectors.groupingBy(AuditIssue::severity));
-                
-                // Sort by severity (HIGH -> MEDIUM -> LOW -> INFO)
-                List<AuditIssueSeverity> severityOrder = Arrays.asList(
-                    AuditIssueSeverity.HIGH,
-                    AuditIssueSeverity.MEDIUM,
-                    AuditIssueSeverity.LOW,
-                    AuditIssueSeverity.INFORMATION
-                );
-                
-                for (AuditIssueSeverity severity : severityOrder) {
-                    List<AuditIssue> severityIssues = bySeverity.get(severity);
-                    if (severityIssues != null && !severityIssues.isEmpty()) {
-                        String icon = getSeverityIcon(severity.name());
-                        result.append("## ").append(icon).append(" ").append(severity.name())
-                            .append(" (").append(severityIssues.size()).append(")\n\n");
-                        
-                        for (AuditIssue issue : severityIssues) {
-                            result.append("### ").append(issue.name()).append("\n");
-                            result.append("**URL:** ").append(issue.baseUrl()).append("\n");
-                            result.append("**Confidence:** ").append(issue.confidence().name()).append("\n");
-                            
-                            // Add detail if available
-                            String detail = issue.detail();
-                            if (detail != null && !detail.isEmpty()) {
-                                // Truncate if too long
-                                if (detail.length() > 500) {
-                                    detail = detail.substring(0, 497) + "...";
-                                }
-                                result.append("**Details:** ").append(detail).append("\n");
-                            }
-                            
-                            result.append("\n");
-                        }
-                    }
-                }
-                
-                result.append("## Summary\n");
-                result.append("Use GENERATE_REPORT action to export full details to HTML/XML.\n");
+            issues = new ArrayList<>(applyIssueFilters(issues, arguments));
+            sortIssuesBySeverity(issues);
+
+            String title = "Scan Issues (ID: " + scanId + ")";
+
+            // Detail mode if issueIndex is provided
+            if (arguments.has("issueIndex") && arguments.get("issueIndex").isArray()) {
+                List<Integer> indices = new ArrayList<>();
+                arguments.get("issueIndex").forEach(node -> indices.add(node.asInt()));
+                return formatIssueDetail(issues, indices, title);
             }
-            
-            return createTextResponse(result.toString());
-            
+
+            // Summary mode with pagination
+            int limit = arguments.has("limit") ? arguments.get("limit").asInt() : 50;
+            int offset = arguments.has("offset") ? arguments.get("offset").asInt() : 0;
+            return formatIssueSummary(issues, limit, offset, title);
+
         } catch (Exception e) {
             return createErrorResponse("Failed to retrieve issues: " + e.getMessage());
         }
@@ -907,6 +886,151 @@ public class ScannerTool implements McpTool {
         }
     }
     
+    /**
+     * Apply severity and URL filters to a list of issues.
+     */
+    private List<AuditIssue> applyIssueFilters(List<AuditIssue> issues, JsonNode arguments) {
+        String severityFilter = arguments.has("severity") ? arguments.get("severity").asText().toUpperCase() : null;
+        String urlFilter = arguments.has("urlFilter") ? arguments.get("urlFilter").asText() : null;
+
+        if (severityFilter == null && urlFilter == null) {
+            return issues;
+        }
+
+        AuditIssueSeverity parsedSeverity = null;
+        if (severityFilter != null) {
+            try {
+                parsedSeverity = AuditIssueSeverity.valueOf(severityFilter);
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException("Invalid severity: " + severityFilter +
+                    ". Valid values: HIGH, MEDIUM, LOW, INFORMATION, FALSE_POSITIVE");
+            }
+        }
+
+        List<AuditIssue> filtered = new ArrayList<>();
+        for (AuditIssue issue : issues) {
+            if (parsedSeverity != null && issue.severity() != parsedSeverity) continue;
+            if (urlFilter != null && !urlFilter.isEmpty()) {
+                String pattern = urlFilter.replace("*", ".*");
+                if (!issue.baseUrl().matches(pattern)) continue;
+            }
+            filtered.add(issue);
+        }
+        return filtered;
+    }
+
+    /**
+     * Sort issues by severity (HIGH first) then by name.
+     */
+    private List<AuditIssue> sortIssuesBySeverity(List<AuditIssue> issues) {
+        List<AuditIssueSeverity> order = List.of(
+            AuditIssueSeverity.HIGH,
+            AuditIssueSeverity.MEDIUM,
+            AuditIssueSeverity.LOW,
+            AuditIssueSeverity.INFORMATION,
+            AuditIssueSeverity.FALSE_POSITIVE
+        );
+        issues.sort(Comparator.<AuditIssue, Integer>comparing(
+            issue -> {
+                int idx = order.indexOf(issue.severity());
+                return idx >= 0 ? idx : order.size();
+            }
+        ).thenComparing(AuditIssue::name));
+        return issues;
+    }
+
+    /**
+     * Format issues as a compact summary table with pagination.
+     */
+    private Object formatIssueSummary(List<AuditIssue> issues, int limit, int offset, String title) {
+        if (offset < 0) {
+            return createErrorResponse("offset must be >= 0, got: " + offset);
+        }
+        if (limit < 1) {
+            return createErrorResponse("limit must be >= 1, got: " + limit);
+        }
+
+        int total = issues.size();
+
+        StringBuilder result = new StringBuilder();
+        result.append("**").append(title).append("**\n");
+
+        if (total == 0) {
+            result.append("**Total:** 0\n\nNo issues found.\n");
+            return createTextResponse(result.toString());
+        }
+
+        if (offset >= total) {
+            return createErrorResponse("offset " + offset + " is beyond total issue count " + total);
+        }
+
+        int end = Math.min(offset + limit, total);
+        List<AuditIssue> page = issues.subList(offset, end);
+
+        result.append(String.format("**Total:** %d | **Showing:** %d-%d\n\n", total, offset + 1, end));
+
+        result.append("```\n");
+        result.append(String.format("%-5s | %-15s | %-10s | %-30s | %s\n", "#", "Severity", "Confidence", "Name", "URL"));
+        result.append("------|-----------------|------------|--------------------------------|---------------------------\n");
+
+        for (int i = 0; i < page.size(); i++) {
+            AuditIssue issue = page.get(i);
+            int idx = offset + i + 1; // 1-based
+            String name = issue.name();
+            if (name.length() > 30) name = name.substring(0, 27) + "...";
+            String url = issue.baseUrl();
+            if (url.length() > 50) url = url.substring(0, 47) + "...";
+            result.append(String.format("%-5d | %-15s | %-10s | %-30s | %s\n",
+                idx, issue.severity().name(), issue.confidence().name(), name, url));
+        }
+        result.append("```\n");
+
+        if (end < total) {
+            result.append(String.format("\nUse `offset: %d` to see next page.\n", end));
+        }
+        result.append("Use `issueIndex: [1, 2, ...]` to get full details for specific issues.\n");
+        result.append("Note: indices may shift if the scan is still in progress.\n");
+
+        return createTextResponse(result.toString());
+    }
+
+    /**
+     * Format full details for issues at specific 1-based indices.
+     */
+    private Object formatIssueDetail(List<AuditIssue> issues, List<Integer> indices, String title) {
+        StringBuilder result = new StringBuilder();
+        result.append("**").append(title).append("** (Detail)\n\n");
+
+        for (int idx : indices) {
+            if (idx < 1 || idx > issues.size()) {
+                result.append(String.format("Issue #%d not found (valid: 1-%d)\n\n", idx, issues.size()));
+                continue;
+            }
+            AuditIssue issue = issues.get(idx - 1);
+            String icon = getSeverityIcon(issue.severity().name());
+            result.append(String.format("### %s #%d: %s\n", icon, idx, issue.name()));
+            result.append(String.format("**URL:** %s\n", issue.baseUrl()));
+            result.append(String.format("**Severity:** %s\n", issue.severity().name()));
+            result.append(String.format("**Confidence:** %s\n", issue.confidence().name()));
+
+            String detail = issue.detail();
+            if (detail != null && !detail.isEmpty()) {
+                if (detail.length() > 500) detail = detail.substring(0, 497) + "...";
+                result.append(String.format("**Details:** %s\n", detail));
+            }
+
+            String remediation = issue.remediation();
+            if (remediation != null && !remediation.isEmpty()) {
+                if (remediation.length() > 500) remediation = remediation.substring(0, 497) + "...";
+                result.append(String.format("**Remediation:** %s\n", remediation));
+            }
+
+            result.append("\n");
+        }
+
+        return createTextResponse(result.toString());
+    }
+
     private String getSeverityIcon(String severity) {
         switch (severity.toUpperCase()) {
             case "HIGH":
@@ -1134,76 +1258,27 @@ public class ScannerTool implements McpTool {
     }
 
     private Object getFilteredIssues(JsonNode arguments) {
-        String severityFilter = arguments.has("severity") ? arguments.get("severity").asText().toUpperCase() : null;
-        String urlFilter = arguments.has("urlFilter") ? arguments.get("urlFilter").asText() : null;
+        try {
+            List<AuditIssue> issues = new ArrayList<>(applyIssueFilters(api.siteMap().issues(), arguments));
+            sortIssuesBySeverity(issues);
 
-        List<AuditIssue> allIssues = api.siteMap().issues();
-        List<AuditIssue> filteredIssues = new ArrayList<>();
+            String title = "Site Map Issues";
 
-        for (AuditIssue issue : allIssues) {
-            // Filter by severity
-            if (severityFilter != null) {
-                try {
-                    AuditIssueSeverity severity = AuditIssueSeverity.valueOf(severityFilter);
-                    if (issue.severity() != severity) {
-                        continue;
-                    }
-                } catch (IllegalArgumentException e) {
-                    // Invalid severity, skip filter
-                }
+            // Detail mode if issueIndex is provided
+            if (arguments.has("issueIndex") && arguments.get("issueIndex").isArray()) {
+                List<Integer> indices = new ArrayList<>();
+                arguments.get("issueIndex").forEach(node -> indices.add(node.asInt()));
+                return formatIssueDetail(issues, indices, title);
             }
 
-            // Filter by URL pattern
-            if (urlFilter != null && !urlFilter.isEmpty()) {
-                String url = issue.baseUrl();
-                String pattern = urlFilter.replace("*", ".*");
-                if (!url.matches(pattern)) {
-                    continue;
-                }
-            }
+            // Summary mode with pagination
+            int limit = arguments.has("limit") ? arguments.get("limit").asInt() : 50;
+            int offset = arguments.has("offset") ? arguments.get("offset").asInt() : 0;
+            return formatIssueSummary(issues, limit, offset, title);
 
-            filteredIssues.add(issue);
+        } catch (Exception e) {
+            return createErrorResponse("Failed to retrieve filtered issues: " + e.getMessage());
         }
-
-        StringBuilder result = new StringBuilder();
-        result.append("🔍 **FILTERED SCAN ISSUES**\n");
-        result.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
-
-        if (severityFilter != null) {
-            result.append(String.format("**Severity Filter**: %s\n", severityFilter));
-        }
-        if (urlFilter != null) {
-            result.append(String.format("**URL Filter**: %s\n", urlFilter));
-        }
-        result.append(String.format("**Total Matches**: %d\n\n", filteredIssues.size()));
-
-        // Group by severity
-        Map<AuditIssueSeverity, List<AuditIssue>> bySeverity = filteredIssues.stream()
-            .collect(Collectors.groupingBy(AuditIssue::severity));
-
-        for (AuditIssueSeverity severity : AuditIssueSeverity.values()) {
-            List<AuditIssue> issues = bySeverity.get(severity);
-            if (issues != null && !issues.isEmpty()) {
-                String icon = switch (severity) {
-                    case HIGH -> "🔴";
-                    case MEDIUM -> "🟠";
-                    case LOW -> "🟡";
-                    case INFORMATION -> "🔵";
-                    case FALSE_POSITIVE -> "⚪";
-                };
-
-                result.append(String.format("## %s %s (%d)\n\n", icon, severity, issues.size()));
-
-                for (AuditIssue issue : issues) {
-                    result.append(String.format("- **%s**\n", issue.name()));
-                    result.append(String.format("  - URL: %s\n", issue.baseUrl()));
-                    result.append(String.format("  - Confidence: %s\n", issue.confidence()));
-                    result.append("\n");
-                }
-            }
-        }
-
-        return createTextResponse(result.toString());
     }
 
     /**
