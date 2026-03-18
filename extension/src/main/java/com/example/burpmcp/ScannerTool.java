@@ -179,17 +179,17 @@ public class ScannerTool implements McpTool {
         autoEnableProperty.put("type", "boolean");
         autoEnableProperty.put("description", "Auto-enable imported BCheck");
         
-        // Properties for SCAN_SPECIFIC_REQUEST
+        // Properties for SCAN_SPECIFIC_REQUEST and ADD_TO_SCAN (raw request)
         Map<String, Object> hostProperty = new HashMap<>();
         hostProperty.put("type", "string");
-        hostProperty.put("description", "Target host for SCAN_SPECIFIC_REQUEST");
+        hostProperty.put("description", "Target host (for SCAN_SPECIFIC_REQUEST, or ADD_TO_SCAN with raw request). If omitted, parsed from Host header.");
         properties.put("host", hostProperty);
-        
+
         Map<String, Object> portProperty = new HashMap<>();
         portProperty.put("type", "integer");
-        portProperty.put("description", "Target port (default: 80 for HTTP, 443 for HTTPS)");
+        portProperty.put("description", "Target port. If omitted, parsed from Host header (default: 443 for HTTPS, 80 for HTTP)");
         properties.put("port", portProperty);
-        
+
         Map<String, Object> useHttpsProperty = new HashMap<>();
         useHttpsProperty.put("type", "boolean");
         useHttpsProperty.put("description", "Use HTTPS (default: false)");
@@ -722,10 +722,9 @@ public class ScannerTool implements McpTool {
         // Check for raw request with optional insertion points
         if (arguments.has("request")) {
             String requestStr = arguments.get("request").asText();
-            
+
             try {
-                // Parse the raw request
-                HttpRequest request = HttpRequest.httpRequest(requestStr);
+                HttpRequest request = buildScanRequest(requestStr, arguments);
                 
                 // Check for insertion points
                 if (arguments.has("insertionPoints")) {
@@ -929,28 +928,12 @@ public class ScannerTool implements McpTool {
         if (requestStr == null || requestStr.isEmpty()) {
             return createErrorResponse("request parameter is required for SCAN_SPECIFIC_REQUEST");
         }
-        
-        String host = arguments.has("host") ? arguments.get("host").asText() : null;
-        if (host == null || host.isEmpty()) {
-            return createErrorResponse("host parameter is required for SCAN_SPECIFIC_REQUEST");
-        }
-        
-        // Optional parameters with defaults
-        int port = arguments.has("port") ? arguments.get("port").asInt() : -1;
-        boolean useHttps = arguments.has("useHttps") ? arguments.get("useHttps").asBoolean() : false;
-        
-        // Auto-detect port if not specified
-        if (port == -1) {
-            port = useHttps ? 443 : 80;
-        }
-        
+
         String mode = arguments.has("mode") ? arguments.get("mode").asText().toUpperCase() : "ACTIVE";
         String config = arguments.has("config") ? arguments.get("config").asText().toUpperCase() : "MEDIUM";
-        
+
         try {
-            // Create HttpService and HttpRequest
-            HttpService service = HttpService.httpService(host, port, useHttps);
-            HttpRequest request = HttpRequest.httpRequest(service, requestStr);
+            HttpRequest request = buildScanRequest(requestStr, arguments);
             
             // Generate scan ID
             String scanId = UUID.randomUUID().toString();
@@ -973,14 +956,15 @@ public class ScannerTool implements McpTool {
             audit.addRequest(request);
             
             // Store metadata
+            HttpService svc = request.httpService();
             List<String> urls = new ArrayList<>();
-            urls.add(String.format("%s://%s:%d%s", 
-                useHttps ? "https" : "http", 
-                host, 
-                port,
+            urls.add(String.format("%s://%s:%d%s",
+                svc.secure() ? "https" : "http",
+                svc.host(),
+                svc.port(),
                 request.path()));
             scanMetadata.put(scanId, new ScanMetadata(scanId, "AUDIT", mode, config, urls));
-            
+
             // Build response
             StringBuilder result = new StringBuilder();
             result.append("🎯 **Single Request Scan Initiated**\n");
@@ -989,8 +973,8 @@ public class ScannerTool implements McpTool {
             result.append("• **Scan ID:** `").append(scanId).append("`\n");
             result.append("• **Type:** ").append(mode).append(" Audit (Single Request)\n");
             result.append("• **Configuration:** ").append(config).append("\n");
-            result.append("• **Target:** ").append(host).append(":").append(port).append("\n");
-            result.append("• **Protocol:** ").append(useHttps ? "HTTPS" : "HTTP").append("\n");
+            result.append("• **Target:** ").append(svc.host()).append(":").append(svc.port()).append("\n");
+            result.append("• **Protocol:** ").append(svc.secure() ? "HTTPS" : "HTTP").append("\n");
             result.append("• **Method:** ").append(request.method()).append("\n");
             result.append("• **Path:** ").append(request.path()).append("\n");
             result.append("\n**Important:** This scan will ONLY test the specific request provided.\n");
@@ -1007,6 +991,86 @@ public class ScannerTool implements McpTool {
         }
     }
     
+    /**
+     * Build an HttpRequest with a proper HttpService from a raw request string.
+     * Parses host/port from the Host header if not provided as arguments.
+     * Normalizes absolute-form URLs to origin-form.
+     * Requires useHttps to be set explicitly.
+     */
+    private HttpRequest buildScanRequest(String requestStr, JsonNode arguments) {
+        // Normalize line endings to CRLF
+        requestStr = requestStr.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\r\n");
+
+        String[] lines = requestStr.split("\r\n", -1);
+
+        // Normalize absolute-form URL to origin-form (e.g. GET https://host/path -> GET /path)
+        if (lines.length > 0) {
+            String[] parts = lines[0].split(" ", 3);
+            if (parts.length >= 2) {
+                String url = parts[1];
+                String lowerUrl = url.toLowerCase();
+                if (lowerUrl.startsWith("https://") || lowerUrl.startsWith("http://")) {
+                    int schemeSeparator = url.indexOf("://");
+                    String afterScheme = url.substring(schemeSeparator + 3);
+                    int slashIndex = afterScheme.indexOf('/');
+                    parts[1] = slashIndex >= 0 ? afterScheme.substring(slashIndex) : "/";
+                    lines[0] = String.join(" ", parts);
+                }
+            }
+        }
+
+        // Extract Host header
+        String hostHeader = null;
+        for (String line : lines) {
+            if (line.toLowerCase().startsWith("host:")) {
+                hostHeader = line.substring(5).trim();
+                break;
+            }
+        }
+
+        // Determine host: argument > Host header
+        String host = arguments.has("host") ? arguments.get("host").asText() : null;
+        if ((host == null || host.isEmpty()) && hostHeader != null) {
+            // Parse host from Host header (strip port if present)
+            int colonIdx = hostHeader.lastIndexOf(':');
+            if (colonIdx > 0) {
+                String potentialPort = hostHeader.substring(colonIdx + 1);
+                if (potentialPort.matches("\\d+")) {
+                    host = hostHeader.substring(0, colonIdx);
+                } else {
+                    host = hostHeader;
+                }
+            } else {
+                host = hostHeader;
+            }
+        }
+        if (host == null || host.isEmpty()) {
+            throw new IllegalArgumentException("Cannot determine target host: provide 'host' parameter or include a Host header in the request");
+        }
+
+        // Determine useHttps
+        boolean secure = arguments.has("useHttps") ? arguments.get("useHttps").asBoolean() : false;
+
+        // Determine port: argument > Host header > default from scheme
+        int port;
+        if (arguments.has("port")) {
+            port = arguments.get("port").asInt();
+        } else if (hostHeader != null && hostHeader.lastIndexOf(':') > 0) {
+            String potentialPort = hostHeader.substring(hostHeader.lastIndexOf(':') + 1);
+            if (potentialPort.matches("\\d+")) {
+                port = Integer.parseInt(potentialPort);
+            } else {
+                port = secure ? 443 : 80;
+            }
+        } else {
+            port = secure ? 443 : 80;
+        }
+
+        requestStr = String.join("\r\n", lines);
+        HttpService service = HttpService.httpService(host, port, secure);
+        return HttpRequest.httpRequest(service, requestStr);
+    }
+
     private List<Map<String, Object>> createTextResponse(String text) {
         // Return the content array directly, not wrapped in a Map
         List<Map<String, Object>> content = new ArrayList<>();
