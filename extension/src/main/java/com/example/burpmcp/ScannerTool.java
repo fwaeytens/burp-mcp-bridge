@@ -250,41 +250,7 @@ public class ScannerTool implements McpTool {
         inputSchema.put("properties", properties);
         inputSchema.put("required", List.of("action"));
 
-        // Action-specific required parameters
-        List<Map<String, Object>> allOf = new ArrayList<>();
-        allOf.add(Map.of(
-            "if", Map.of("properties", Map.of("action", Map.of("const", "START_SCAN"))),
-            "then", Map.of("required", List.of("urls"))
-        ));
-        allOf.add(Map.of(
-            "if", Map.of("properties", Map.of("action", Map.of("const", "CRAWL_ONLY"))),
-            "then", Map.of("required", List.of("urls"))
-        ));
-        allOf.add(Map.of(
-            "if", Map.of("properties", Map.of("action", Map.of("const", "GET_STATUS"))),
-            "then", Map.of("required", List.of("scanId"))
-        ));
-        allOf.add(Map.of(
-            "if", Map.of("properties", Map.of("action", Map.of("const", "CANCEL_SCAN"))),
-            "then", Map.of("required", List.of("scanId"))
-        ));
-        allOf.add(Map.of(
-            "if", Map.of("properties", Map.of("action", Map.of("const", "ADD_TO_SCAN"))),
-            "then", Map.of("required", List.of("scanId", "request", "useHttps"))
-        ));
-        allOf.add(Map.of(
-            "if", Map.of("properties", Map.of("action", Map.of("const", "GENERATE_REPORT"))),
-            "then", Map.of("required", List.of("outputPath"))
-        ));
-        allOf.add(Map.of(
-            "if", Map.of("properties", Map.of("action", Map.of("const", "IMPORT_BCHECK"))),
-            "then", Map.of("required", List.of("definition"))
-        ));
-        allOf.add(Map.of(
-            "if", Map.of("properties", Map.of("action", Map.of("const", "SCAN_SPECIFIC_REQUEST"))),
-            "then", Map.of("required", List.of("request", "useHttps"))
-        ));
-        inputSchema.put("allOf", allOf);
+        // Action-specific required parameters validated at runtime (allOf removed for Claude API compatibility)
 
         tool.put("inputSchema", inputSchema);
 

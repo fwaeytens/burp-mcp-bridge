@@ -146,13 +146,6 @@ public class SiteMapAnalysisTool implements McpTool {
         inputSchema.put("properties", properties);
         inputSchema.put("required", new String[]{"action"});
 
-        // Action-specific required parameters
-        List<Map<String, Object>> allOf = new ArrayList<>();
-        allOf.add(Map.of(
-            "if", Map.of("properties", Map.of("action", Map.of("const", "KEYWORD_ANALYSIS"))),
-            "then", Map.of("required", List.of("analyzeKeywords"))
-        ));
-        inputSchema.put("allOf", allOf);
 
         tool.put("inputSchema", inputSchema);
 

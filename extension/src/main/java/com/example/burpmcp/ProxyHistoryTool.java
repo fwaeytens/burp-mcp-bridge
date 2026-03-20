@@ -333,13 +333,6 @@ public class ProxyHistoryTool implements McpTool {
 
         inputSchema.put("properties", properties);
 
-        // Action-specific required parameters
-        List<Map<String, Object>> allOf = new ArrayList<>();
-        allOf.add(Map.of(
-            "if", Map.of("properties", Map.of("action", Map.of("const", "detail"))),
-            "then", Map.of("required", List.of("entryIds"))
-        ));
-        inputSchema.put("allOf", allOf);
 
         tool.put("inputSchema", inputSchema);
 

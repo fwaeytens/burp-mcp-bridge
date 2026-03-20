@@ -55,17 +55,6 @@ public class RepeaterTool implements McpTool {
         
         inputSchema.put("properties", properties);
         inputSchema.put("required", List.of("action"));
-        inputSchema.put("allOf", List.of(
-            Map.of(
-                "if", Map.of("properties", Map.of("action", Map.of("const", "SEND_TO_REPEATER"))),
-                "then", Map.of("required", List.of("url"))
-            ),
-            Map.of(
-                "if", Map.of("properties", Map.of("action", Map.of("const", "SEND_FROM_PROXY"))),
-                "then", Map.of("required", List.of("proxyUrl"))
-            )
-        ));
-        
         tool.put("inputSchema", inputSchema);
         return tool;
     }

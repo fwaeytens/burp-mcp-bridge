@@ -197,25 +197,7 @@ public class CustomHttpTool implements McpTool {
         inputSchema.put("properties", properties);
         inputSchema.put("required", Arrays.asList("action"));
 
-        // Action-specific required parameters
-        List<Map<String, Object>> allOf = new ArrayList<>();
-        allOf.add(Map.of(
-            "if", Map.of("properties", Map.of("action", Map.of("const", "SEND_REQUEST"))),
-            "then", Map.of("required", List.of("request"))
-        ));
-        allOf.add(Map.of(
-            "if", Map.of("properties", Map.of("action", Map.of("const", "SEND_PARALLEL"))),
-            "then", Map.of("required", List.of("requests"))
-        ));
-        allOf.add(Map.of(
-            "if", Map.of("properties", Map.of("action", Map.of("const", "TOGGLE_REQUEST_METHOD"))),
-            "then", Map.of("required", List.of("request"))
-        ));
-        allOf.add(Map.of(
-            "if", Map.of("properties", Map.of("action", Map.of("const", "ANALYZE_PROTOCOL"))),
-            "then", Map.of("required", List.of("url"))
-        ));
-        inputSchema.put("allOf", allOf);
+        // Action-specific required parameters validated at runtime (allOf removed for Claude API compatibility)
 
         tool.put("inputSchema", inputSchema);
 

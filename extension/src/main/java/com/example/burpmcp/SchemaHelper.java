@@ -99,32 +99,13 @@ public class SchemaHelper {
         schema.put("properties", allProperties);
         schema.put("required", List.of("action"));
 
-        // Build allOf with if/then blocks for action-specific requirements
+        // Merge action-specific properties (allOf removed for Claude API compatibility)
         if (actionSchemas != null && !actionSchemas.isEmpty()) {
-            List<Map<String, Object>> allOf = new ArrayList<>();
             for (Map.Entry<String, ActionDef> entry : actionSchemas.entrySet()) {
-                String action = entry.getKey();
                 ActionDef def = entry.getValue();
-
-                Map<String, Object> ifBlock = Map.of(
-                    "properties", Map.of("action", Map.of("const", action))
-                );
-
-                Map<String, Object> thenBlock = new HashMap<>();
-                if (def.required != null && !def.required.isEmpty()) {
-                    thenBlock.put("required", def.required);
-                }
                 if (def.properties != null && !def.properties.isEmpty()) {
-                    // Merge action-specific properties into allProperties
                     allProperties.putAll(def.properties);
                 }
-
-                if (!thenBlock.isEmpty()) {
-                    allOf.add(Map.of("if", ifBlock, "then", thenBlock));
-                }
-            }
-            if (!allOf.isEmpty()) {
-                schema.put("allOf", allOf);
             }
         }
 

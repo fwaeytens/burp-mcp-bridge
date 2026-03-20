@@ -442,21 +442,6 @@ public class ProxyInterceptorTool implements McpTool {
         inputSchema.put("properties", properties);
         inputSchema.put("required", Arrays.asList("action"));
 
-        // Action-specific required parameters
-        List<Map<String, Object>> allOf = new ArrayList<>();
-        allOf.add(Map.of(
-            "if", Map.of("properties", Map.of("action", Map.of("const", "modify_request"))),
-            "then", Map.of("required", List.of("request_id", "modifications"))
-        ));
-        allOf.add(Map.of(
-            "if", Map.of("properties", Map.of("action", Map.of("const", "forward_request"))),
-            "then", Map.of("required", List.of("request_id"))
-        ));
-        allOf.add(Map.of(
-            "if", Map.of("properties", Map.of("action", Map.of("const", "drop_request"))),
-            "then", Map.of("required", List.of("request_id"))
-        ));
-        inputSchema.put("allOf", allOf);
 
         tool.put("inputSchema", inputSchema);
         return tool;
