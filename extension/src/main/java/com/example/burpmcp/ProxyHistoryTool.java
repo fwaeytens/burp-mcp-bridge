@@ -1,6 +1,7 @@
 package com.example.burpmcp;
 
 import burp.api.montoya.MontoyaApi;
+import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.proxy.ProxyHttpRequestResponse;
 import burp.api.montoya.proxy.ProxyHistoryFilter;
 import burp.api.montoya.core.HighlightColor;
@@ -331,7 +332,24 @@ public class ProxyHistoryTool implements McpTool {
         properties.put("beforeEntry", beforeEntryProperty);
 
         inputSchema.put("properties", properties);
+
+        // Action-specific required parameters
+        List<Map<String, Object>> allOf = new ArrayList<>();
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "detail"))),
+            "then", Map.of("required", List.of("entryIds"))
+        ));
+        inputSchema.put("allOf", allOf);
+
         tool.put("inputSchema", inputSchema);
+
+        // Output schema
+        Map<String, Object> outputProps = new HashMap<>();
+        outputProps.put("total", SchemaHelper.intProp("Total matching entries"));
+        outputProps.put("showing", SchemaHelper.intProp("Number of entries returned"));
+        outputProps.put("entries", SchemaHelper.stringProp("Formatted entry list or details"));
+        tool.put("outputSchema", SchemaHelper.outputSchema(outputProps));
+
         return tool;
     }
 
@@ -392,13 +410,13 @@ public class ProxyHistoryTool implements McpTool {
             int originalId = originalIndices.get(i);
             int status = entry.hasResponse() ? entry.response().statusCode() : 0;
             String statusStr = status > 0 ? String.valueOf(status) : "---";
-            String url = entry.url();
+            String url = entry.finalRequest().url();
             if (url.length() > 60) {
                 url = url.substring(0, 57) + "...";
             }
 
             result.append(String.format("%-5d | %-7s | %-6s | %s\n",
-                                      originalId, entry.method(), statusStr, url));
+                                      originalId, entry.finalRequest().method(), statusStr, url));
         }
         result.append("```\n\n");
         
@@ -437,17 +455,18 @@ public class ProxyHistoryTool implements McpTool {
             result.append(String.format("## 📌 Entry #%d\n\n", id));
             
             // Basic info
-            result.append("**URL:** `").append(entry.url()).append("`\n");
-            result.append("**Method:** ").append(entry.method()).append("\n");
-            result.append("**Host:** ").append(entry.host()).append(":").append(entry.port()).append("\n");
-            result.append("**Protocol:** ").append(entry.secure() ? "HTTPS 🔒" : "HTTP 🔓").append("\n");
-            
+            HttpRequest req = entry.finalRequest();
+            result.append("**URL:** `").append(req.url()).append("`\n");
+            result.append("**Method:** ").append(req.method()).append("\n");
+            result.append("**Host:** ").append(req.httpService().host()).append(":").append(req.httpService().port()).append("\n");
+            result.append("**Protocol:** ").append(req.httpService().secure() ? "HTTPS 🔒" : "HTTP 🔓").append("\n");
+
             // Request
             result.append("\n### 📤 Request\n```http\n");
-            result.append(entry.request().toString());
+            result.append(req.toString());
             result.append("\n```\n");
-            
-            String reqBody = entry.requestBody();
+
+            String reqBody = req.bodyToString();
             if (reqBody != null && !reqBody.isEmpty()) {
                 result.append("\n**Request Body:**\n```\n");
                 result.append(reqBody);
@@ -551,8 +570,8 @@ public class ProxyHistoryTool implements McpTool {
             result.append(String.format("## 📌 Entry #%d of %d\n\n", entryNum, filtered.size()));
             
             // Full details similar to detail mode
-            result.append("**URL:** `").append(entry.url()).append("`\n");
-            result.append("**Method:** ").append(entry.method()).append("\n");
+            result.append("**URL:** `").append(entry.finalRequest().url()).append("`\n");
+            result.append("**Method:** ").append(entry.finalRequest().method()).append("\n");
             result.append("**Status:** ").append(entry.hasResponse() ? entry.response().statusCode() : "No Response").append("\n\n");
             
             // Add full request/response as in detail mode...
@@ -743,14 +762,15 @@ public class ProxyHistoryTool implements McpTool {
                 int entryId = i + 1;
                 if (afterEntry != null && entryId <= afterEntry) continue;
                 if (beforeEntry != null && entryId >= beforeEntry) continue;
-                if (hostname != null && !entry.host().toLowerCase().contains(hostname.toLowerCase())) continue;
-                if (method != null && !entry.method().equals(method)) {
-                    String filterMsg = "ProxyHistoryTool: Entry #" + (i+1) + " filtered out - method " + entry.method() + " != " + method;
+                HttpRequest req = entry.finalRequest();
+                if (hostname != null && !req.httpService().host().toLowerCase().contains(hostname.toLowerCase())) continue;
+                if (method != null && !req.method().equals(method)) {
+                    String filterMsg = "ProxyHistoryTool: Entry #" + (i+1) + " filtered out - method " + req.method() + " != " + method;
                     api.logging().logToOutput(filterMsg);
                     LogsTool.logOutput(filterMsg);
                     continue;
                 }
-                if (path != null && !entry.path().toLowerCase().contains(path.toLowerCase())) continue;
+                if (path != null && !req.path().toLowerCase().contains(path.toLowerCase())) continue;
                 if (statusCode != null && entry.hasResponse() && entry.response().statusCode() != statusCode) continue;
                 if (statusMin != null && statusMax != null && entry.hasResponse()) {
                     int status = entry.response().statusCode();
@@ -759,21 +779,21 @@ public class ProxyHistoryTool implements McpTool {
                 if (contains != null && !entry.contains(contains, false)) continue;
                 if (compiledRegex != null && !entry.contains(compiledRegex)) continue;
                 if (parameter != null) {
-                    String requestStr = entry.request().toString();
-                    String body = entry.requestBody();
+                    String requestStr = req.toString();
+                    String body = req.bodyToString();
                     boolean hasParam = requestStr.contains(parameter + "=") || 
                                      (body != null && body.contains(parameter + "="));
                     if (!hasParam) continue;
                 }
                 if (cookieName != null) {
-                    String cookies = entry.request().headers().stream()
+                    String cookies = req.headers().stream()
                         .filter(h -> h.name().equalsIgnoreCase("Cookie"))
                         .map(h -> h.value())
                         .collect(Collectors.joining("; "));
                     if (!cookies.contains(cookieName + "=")) continue;
                 }
-                if (inScopeOnly && !api.scope().isInScope(entry.url())) continue;
-                if (secure != null && entry.secure() != secure) continue;
+                if (inScopeOnly && !api.scope().isInScope(req.url())) continue;
+                if (secure != null && req.httpService().secure() != secure) continue;
                 if (hasResponse != null && entry.hasResponse() != hasResponse) continue;
                 if (mimeType != null && entry.hasResponse()) {
                     String entryMimeType = entry.mimeType().toString();

@@ -230,8 +230,53 @@ public class ScannerTool implements McpTool {
 
         inputSchema.put("properties", properties);
         inputSchema.put("required", List.of("action"));
-        
+
+        // Action-specific required parameters
+        List<Map<String, Object>> allOf = new ArrayList<>();
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "START_SCAN"))),
+            "then", Map.of("required", List.of("urls"))
+        ));
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "CRAWL_ONLY"))),
+            "then", Map.of("required", List.of("urls"))
+        ));
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "GET_STATUS"))),
+            "then", Map.of("required", List.of("scanId"))
+        ));
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "CANCEL_SCAN"))),
+            "then", Map.of("required", List.of("scanId"))
+        ));
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "ADD_TO_SCAN"))),
+            "then", Map.of("required", List.of("scanId", "request"))
+        ));
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "GENERATE_REPORT"))),
+            "then", Map.of("required", List.of("outputPath"))
+        ));
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "IMPORT_BCHECK"))),
+            "then", Map.of("required", List.of("definition"))
+        ));
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "SCAN_SPECIFIC_REQUEST"))),
+            "then", Map.of("required", List.of("request", "host"))
+        ));
+        inputSchema.put("allOf", allOf);
+
         tool.put("inputSchema", inputSchema);
+
+        // Output schema
+        Map<String, Object> outputProps = new HashMap<>();
+        outputProps.put("scanId", SchemaHelper.stringProp("Scan identifier for tracking"));
+        outputProps.put("status", SchemaHelper.stringProp("Scan status (running, completed, cancelled)"));
+        outputProps.put("progress", SchemaHelper.intProp("Scan progress percentage"));
+        outputProps.put("issues", SchemaHelper.objectProp("Array of discovered vulnerabilities"));
+        tool.put("outputSchema", SchemaHelper.outputSchema(outputProps));
+
         return tool;
     }
 

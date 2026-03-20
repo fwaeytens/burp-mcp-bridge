@@ -70,6 +70,21 @@ public class WebSocketTool implements McpTool {
         
         inputSchema.put("properties", properties);
         inputSchema.put("required", List.of("action"));
+
+        List<Map<String, Object>> allOf = new ArrayList<>();
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "create"))),
+            "then", Map.of("required", List.of("url"))
+        ));
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "send"))),
+            "then", Map.of("required", List.of("connectionId", "message"))
+        ));
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "close"))),
+            "then", Map.of("required", List.of("connectionId"))
+        ));
+        inputSchema.put("allOf", allOf);
         
         tool.put("inputSchema", inputSchema);
         return tool;

@@ -134,7 +134,31 @@ public class SessionManagementTool implements McpTool {
         
         inputSchema.put("properties", properties);
         inputSchema.put("required", List.of("action"));
-        
+
+        // Action-specific required parameters
+        List<Map<String, Object>> allOf = new ArrayList<>();
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "COOKIE_JAR_SET"))),
+            "then", Map.of("required", List.of("tokenName", "tokenValue", "domain"))
+        ));
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "COOKIE_JAR_DELETE"))),
+            "then", Map.of("required", List.of("tokenName", "domain"))
+        ));
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "SET_TOKEN"))),
+            "then", Map.of("required", List.of("tokenName", "tokenValue"))
+        ));
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "ENABLE_AUTO_SESSION"))),
+            "then", Map.of("required", List.of("url"))
+        ));
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "TEST_SESSION"))),
+            "then", Map.of("required", List.of("url"))
+        ));
+        inputSchema.put("allOf", allOf);
+
         tool.put("inputSchema", inputSchema);
         return tool;
     }

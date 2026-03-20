@@ -168,6 +168,32 @@ public class AnnotateTool implements McpTool {
         
         inputSchema.put("properties", properties);
         inputSchema.put("required", List.of("action"));
+        inputSchema.put("allOf", List.of(
+            Map.of(
+                "if", Map.of("properties", Map.of("action", Map.of("const", "ANNOTATE_PROXY"))),
+                "then", Map.of("required", List.of("url"))
+            ),
+            Map.of(
+                "if", Map.of("properties", Map.of("action", Map.of("const", "ANNOTATE_TARGET"))),
+                "then", Map.of("required", List.of("url"))
+            ),
+            Map.of(
+                "if", Map.of("properties", Map.of("action", Map.of("const", "ANNOTATE_ORGANIZER"))),
+                "then", Map.of("required", List.of("url"))
+            ),
+            Map.of(
+                "if", Map.of("properties", Map.of("action", Map.of("const", "ANNOTATE_REPEATER"))),
+                "then", Map.of("required", List.of("url"))
+            ),
+            Map.of(
+                "if", Map.of("properties", Map.of("action", Map.of("const", "ANNOTATE_INTRUDER"))),
+                "then", Map.of("required", List.of("url"))
+            ),
+            Map.of(
+                "if", Map.of("properties", Map.of("action", Map.of("const", "ANNOTATE_BY_PATTERN"))),
+                "then", Map.of("required", List.of("pattern"))
+            )
+        ));
         
         tool.put("inputSchema", inputSchema);
         return tool;

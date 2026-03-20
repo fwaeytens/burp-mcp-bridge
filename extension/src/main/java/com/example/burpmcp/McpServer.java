@@ -320,7 +320,7 @@ public class McpServer {
 
                 Map<String, Object> serverInfo = new HashMap<>();
                 serverInfo.put("name", "burp-mcp-bridge");
-                serverInfo.put("version", "2.1.2");
+                serverInfo.put("version", "2.2.0");
                 result.put("serverInfo", serverInfo);
                 break;
                 
@@ -348,7 +348,7 @@ public class McpServer {
                 
                 McpTool tool = tools.get(toolName);
                 if (tool != null) {
-                    result.put("content", tool.execute(arguments));
+                    applyToolResult(result, tool.execute(arguments));
                 } else {
                     return createJsonRpcErrorResponse(request.get("id"), -32601, "Unknown tool: " + toolName);
                 }
@@ -406,7 +406,7 @@ public class McpServer {
             }
             
             Map<String, Object> result = new HashMap<>();
-            result.put("content", toolResult);
+            applyToolResult(result, toolResult);
             response.put("result", result);
             
             return objectMapper.valueToTree(response);
@@ -452,6 +452,26 @@ public class McpServer {
         error.put("message", message);
         response.put("error", error);
         return objectMapper.valueToTree(response);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void applyToolResult(Map<String, Object> result, Object toolResult) {
+        if (toolResult instanceof Map<?, ?> map &&
+            (map.containsKey("content") || map.containsKey("structuredContent") || map.containsKey("isError"))) {
+            Map<String, Object> wrapped = (Map<String, Object>) map;
+            if (wrapped.containsKey("content")) {
+                result.put("content", wrapped.get("content"));
+            }
+            if (wrapped.containsKey("structuredContent")) {
+                result.put("structuredContent", wrapped.get("structuredContent"));
+            }
+            if (wrapped.containsKey("isError")) {
+                result.put("isError", wrapped.get("isError"));
+            }
+            return;
+        }
+
+        result.put("content", toolResult);
     }
 
     private boolean isOriginAllowed(String originHeader) {

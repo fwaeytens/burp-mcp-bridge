@@ -49,6 +49,7 @@ public class CustomHttpTool implements McpTool {
         tool.put("description", "PRIMARY TOOL for sending HTTP requests and receiving responses programmatically. " +
             "CRITICAL: ALWAYS specify port in Host header - use 'Host: example.com:80' for HTTP or 'Host: example.com:443' for HTTPS. " +
             "Without explicit port, defaults to HTTPS:443 which causes timeouts on HTTP-only servers. " +
+            "Content-Length is automatically calculated - no need to specify it accurately. " +
             "Line endings are auto-normalized (LF to CRLF). " +
             "Actions: SEND_REQUEST (single request), SEND_PARALLEL (race condition testing with array of requests), " +
             "TOGGLE_REQUEST_METHOD (GET<>POST), ANALYZE_PROTOCOL (HTTP/HTTPS detection). " +
@@ -195,8 +196,36 @@ public class CustomHttpTool implements McpTool {
         inputSchema.put("type", "object");
         inputSchema.put("properties", properties);
         inputSchema.put("required", Arrays.asList("action"));
-        
+
+        // Action-specific required parameters
+        List<Map<String, Object>> allOf = new ArrayList<>();
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "SEND_REQUEST"))),
+            "then", Map.of("required", List.of("request"))
+        ));
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "SEND_PARALLEL"))),
+            "then", Map.of("required", List.of("requests"))
+        ));
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "TOGGLE_REQUEST_METHOD"))),
+            "then", Map.of("required", List.of("request"))
+        ));
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "ANALYZE_PROTOCOL"))),
+            "then", Map.of("required", List.of("url"))
+        ));
+        inputSchema.put("allOf", allOf);
+
         tool.put("inputSchema", inputSchema);
+
+        // Output schema
+        Map<String, Object> outputProps = new HashMap<>();
+        outputProps.put("success", SchemaHelper.boolProp("Whether the request was sent successfully"));
+        outputProps.put("request", SchemaHelper.objectProp("Request metadata (url, method, http_version)"));
+        outputProps.put("response", SchemaHelper.objectProp("Response data (status_code, headers, body, response_time_ms)"));
+        tool.put("outputSchema", SchemaHelper.outputSchema(outputProps));
+
         return tool;
     }
 

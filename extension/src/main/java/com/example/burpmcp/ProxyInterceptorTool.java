@@ -441,11 +441,28 @@ public class ProxyInterceptorTool implements McpTool {
         inputSchema.put("type", "object");
         inputSchema.put("properties", properties);
         inputSchema.put("required", Arrays.asList("action"));
-        
+
+        // Action-specific required parameters
+        List<Map<String, Object>> allOf = new ArrayList<>();
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "modify_request"))),
+            "then", Map.of("required", List.of("request_id", "modifications"))
+        ));
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "forward_request"))),
+            "then", Map.of("required", List.of("request_id"))
+        ));
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "drop_request"))),
+            "then", Map.of("required", List.of("request_id"))
+        ));
+        inputSchema.put("allOf", allOf);
+
         tool.put("inputSchema", inputSchema);
         return tool;
     }
     
+    @SuppressWarnings("unchecked")
     @Override
     public Object execute(JsonNode arguments) throws Exception {
         Map<String, Object> args = objectMapper.convertValue(arguments, Map.class);
@@ -588,6 +605,7 @@ public class ProxyInterceptorTool implements McpTool {
         return McpUtils.createSuccessResponse(result.toString());
     }
     
+    @SuppressWarnings("unchecked")
     private Object modifyRequest(Map<String, Object> args) {
         String requestId = (String) args.get("request_id");
         
@@ -788,6 +806,7 @@ public class ProxyInterceptorTool implements McpTool {
         return McpUtils.createSuccessResponse(result.toString());
     }
     
+    @SuppressWarnings("unchecked")
     private Object modifyResponse(Map<String, Object> args) {
         String responseId = (String) args.get("request_id");
         if (responseId == null) {

@@ -126,7 +126,39 @@ public class UtilitiesTool implements McpTool {
 
         inputSchema.put("properties", properties);
         inputSchema.put("required", List.of("action"));
-        
+
+        // Action-specific required parameters
+        List<Map<String, Object>> allOf = new ArrayList<>();
+        for (String encAction : List.of("base64_encode", "base64_decode", "url_encode", "url_decode",
+                "html_encode", "html_decode", "hash", "compress", "decompress",
+                "json_beautify", "json_validate", "hex_to_ascii", "ascii_to_hex")) {
+            allOf.add(Map.of(
+                "if", Map.of("properties", Map.of("action", Map.of("const", encAction))),
+                "then", Map.of("required", List.of("input"))
+            ));
+        }
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "json_path"))),
+            "then", Map.of("required", List.of("input", "jsonPath"))
+        ));
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "number_convert"))),
+            "then", Map.of("required", List.of("input", "fromBase", "toBase"))
+        ));
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "byte_search"))),
+            "then", Map.of("required", List.of("input", "searchPattern"))
+        ));
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "shell_execute"))),
+            "then", Map.of("required", List.of("command"))
+        ));
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "shell_execute_dangerous"))),
+            "then", Map.of("required", List.of("command"))
+        ));
+        inputSchema.put("allOf", allOf);
+
         tool.put("inputSchema", inputSchema);
         return tool;
     }

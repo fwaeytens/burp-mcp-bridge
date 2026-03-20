@@ -7,19 +7,19 @@ package com.example.burpmcp;
 public class Version {
     
     // Version components
-    public static final String VERSION = "2.1.2";
-    public static final String BUILD_DATE = "2026-01-27";
-    public static final String RELEASE_NAME = "MCP Annotations";
+    public static final String VERSION = "2.2.0";
+    public static final String BUILD_DATE = "2026-03-20";
+    public static final String RELEASE_NAME = "Montoya API 2026.2";
 
     // Feature tracking
     public static final int TOOL_COUNT = 22; // Total number of registered tools
     public static final boolean ASYNC_ENABLED = true;
     public static final boolean CONFIG_ENABLED = true;
-    
+
     // Compatibility
-    public static final String MIN_BURP_VERSION = "2025.12";
+    public static final String MIN_BURP_VERSION = "2026.2";
     public static final String MIN_JAVA_VERSION = "17";
-    public static final String MONTOYA_API_VERSION = "2025.12";
+    public static final String MONTOYA_API_VERSION = "2026.2";
     
     /**
      * Get complete version information.
@@ -54,33 +54,22 @@ public class Version {
      * Get detailed changelog for this version.
      */
     public static String getChangelog() {
-        return "## Version 2.1.2 - Content-Length Auto-Fix (2026-02-26)\n\n" +
-               "### 🤖 MCP Protocol 2025-06-18 Compliance\n" +
-               "- ✅ **TOOL ANNOTATIONS**: Added MCP standard annotations to all 22 tools\n" +
-               "  - `readOnlyHint`: Indicates tools that don't modify state\n" +
-               "  - `destructiveHint`: Warns about potentially destructive operations\n" +
-               "  - `idempotentHint`: Marks safely repeatable operations\n" +
-               "  - `openWorldHint`: Identifies tools that make external network requests\n" +
-               "- ✅ **TITLE FIELD**: Added human-friendly display names to all tools\n" +
-               "- ✅ **IMPROVED DESCRIPTIONS**: Enhanced tool descriptions with:\n" +
-               "  - What the tool does\n" +
-               "  - When to use it\n" +
-               "  - What it returns\n" +
-               "  - Important constraints and limitations\n" +
-               "- ✅ **TOOLS.JSON UPDATED**: Central tool registry with MCP 2.1 format\n" +
+        return "## Version 2.2.0 - Montoya API 2026.2 (2026-03-20)\n\n" +
+               "### 🔄 Montoya API Upgrade\n" +
+               "- ✅ **API VERSION**: Upgraded from Montoya API 2025.12 to 2026.2\n" +
+               "- ✅ **MIN BURP VERSION**: Now requires Burp Suite 2026.2+\n" +
+               "- ✅ **MAVEN CENTRAL**: Uses correct group ID net.portswigger.burp.extensions\n" +
                "\n" +
-               "### 📊 Technical Details\n" +
-               "- **MCP Version**: 2025-06-18 specification compliance\n" +
-               "- **Tools Updated**: All 22 tools (BurpHelpTool, ProxyHistoryTool, CustomHttpTool, etc.)\n" +
-               "- **Annotation Values**: Carefully assigned based on each tool's behavior\n" +
-               "- **AI Agent Optimization**: Better tool discovery and selection for LLM agents\n" +
-               "- **Backward Compatible**: Existing functionality unchanged\n" +
+               "### 🧹 Deprecated API Cleanup\n" +
+               "- ✅ **ProxyHistoryTool**: Replaced deprecated ProxyHttpRequestResponse convenience methods\n" +
+               "  - Uses finalRequest().url(), finalRequest().method(), finalRequest().httpService() etc.\n" +
+               "- ✅ **SiteMapAnalysisTool**: Replaced deprecated HttpRequestResponse convenience methods\n" +
+               "  - Uses request().url(), response().statusCode(), response().mimeType() etc.\n" +
+               "- ✅ **ZERO DEPRECATION WARNINGS**: Clean build against Montoya API 2026.2\n" +
                "\n" +
-               "### 🎯 Annotation Summary by Tool Type\n" +
-               "- **Read-only tools** (proxy_history, sitemap_analysis): readOnlyHint=true\n" +
-               "- **Network tools** (custom_http, scanner, collaborator): openWorldHint=true\n" +
-               "- **UI tools** (repeater, intruder): idempotentHint=true\n" +
-               "- **State-modifying tools** (scope, session_management): destructiveHint varies\n" +
+               "### 🔧 Bridge Improvements\n" +
+               "- ✅ **CONTENT-LENGTH AUTO-FIX**: Bridge auto-corrects Content-Length for burp_custom_http\n" +
+               "- ✅ **REMOVED OLD JAR**: Deleted bundled montoya-api-2025.12.jar (Maven Central used)\n" +
                "\n" +
                "## Version 2.0.5 - CustomHttpTool Fixes (2026-01-27)\n\n" +
                "### 🐛 Bug Fixes\n" +
@@ -244,7 +233,7 @@ public class Version {
                "- ✅ **RESPONSE VARIATIONS**: Uses ResponseVariationsAnalyzer to detect dynamic content\n" +
                "- ✅ **KEYWORD ANALYSIS**: Uses ResponseKeywordsAnalyzer for variant/invariant keywords\n" +
                "- ✅ **TIMING DATA**: Collects actual response times using TimingData API\n" +
-               "- ✅ **DIRECT API METHODS**: Uses entry.url(), statusCode(), contentType() directly\n" +
+               "- ✅ **DIRECT API METHODS**: Uses request().url(), response().statusCode(), response().mimeType()\n" +
                "- ✅ **ANNOTATIONS SUPPORT**: Detects and reports annotated entries\n" +
                "- ✅ **MARKERS DETECTION**: Identifies entries with request/response markers\n" +
                "- ✅ **ENHANCED PATTERNS**: More technology and sensitive data patterns\n" +

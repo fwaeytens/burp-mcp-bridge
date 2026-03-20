@@ -79,6 +79,36 @@ public class WebSocketInterceptorTool implements McpTool {
         
         inputSchema.put("properties", properties);
         inputSchema.put("required", List.of("action"));
+        inputSchema.put("allOf", List.of(
+            Map.of(
+                "if", Map.of("properties", Map.of("action", Map.of("const", "forward"))),
+                "then", Map.of("required", List.of("message_id"))
+            ),
+            Map.of(
+                "if", Map.of("properties", Map.of("action", Map.of("const", "drop"))),
+                "then", Map.of("required", List.of("message_id"))
+            ),
+            Map.of(
+                "if", Map.of("properties", Map.of("action", Map.of("const", "modify"))),
+                "then", Map.of("required", List.of("message_id", "new_payload"))
+            ),
+            Map.of(
+                "if", Map.of("properties", Map.of("action", Map.of("const", "add_filter"))),
+                "then", Map.of("required", List.of("filter_name", "filter_pattern"))
+            ),
+            Map.of(
+                "if", Map.of("properties", Map.of("action", Map.of("const", "remove_filter"))),
+                "then", Map.of("required", List.of("filter_name"))
+            ),
+            Map.of(
+                "if", Map.of("properties", Map.of("action", Map.of("const", "add_auto_modify"))),
+                "then", Map.of("required", List.of("rule_name", "search_pattern"))
+            ),
+            Map.of(
+                "if", Map.of("properties", Map.of("action", Map.of("const", "remove_auto_modify"))),
+                "then", Map.of("required", List.of("rule_name"))
+            )
+        ));
         
         tool.put("inputSchema", inputSchema);
         return tool;

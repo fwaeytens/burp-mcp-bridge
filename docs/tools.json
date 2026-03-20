@@ -1,0 +1,1576 @@
+{
+  "version": "2.2.0",
+  "mcpVersion": "2025-06-18",
+  "toolCount": 22,
+  "compatibility": {
+    "burpSuite": "2026.2+",
+    "java": "17+",
+    "node": "16+",
+    "license": "Professional"
+  },
+  "tools": [
+    {
+      "name": "burp_help",
+      "title": "Help & Discovery",
+      "category": "Documentation & Discovery",
+      "description": "Discover and learn about all Burp MCP capabilities. Use this tool to list available tools, search by capability, or get detailed help for a specific tool. Returns tool names, descriptions, and examples. Always start here when unsure which tool to use.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tool": {
+            "type": "string",
+            "description": "Specific tool name to get detailed help for (e.g., 'burp_scanner')"
+          },
+          "capability": {
+            "type": "string",
+            "description": "Search by what you want to do (e.g., 'scan for vulnerabilities', 'send HTTP requests')"
+          },
+          "list": {
+            "type": "boolean",
+            "description": "Set to true to list all available tools with summaries"
+          },
+          "section": {
+            "type": "string",
+            "enum": ["full", "examples", "parameters", "summary"],
+            "default": "full",
+            "description": "Which section to return: full (all info), examples (usage examples), parameters (input schema), summary (brief overview)"
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "burp_proxy_history",
+      "title": "Proxy History",
+      "category": "Core HTTP/Proxy",
+      "description": "Retrieve and filter HTTP proxy history captured by Burp Suite. Use this to analyze traffic patterns, find specific requests, or extract data from past sessions. Supports 25+ filters including hostname, method, status code, path, parameters, and regex patterns. Returns request/response pairs with timing data. Use 'list' mode for URLs only, 'detail' for full content, or 'iterate' for sequential browsing.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["list", "detail", "iterate"],
+            "default": "list",
+            "description": "Mode: list (URLs only), detail (full request/response for specific IDs), iterate (sequential browsing)"
+          },
+          "entryIds": {
+            "type": "array",
+            "items": {"type": "integer"},
+            "description": "Entry IDs for detail mode (e.g., [1, 5, 10])"
+          },
+          "startAt": {
+            "type": "integer",
+            "default": 1,
+            "description": "Starting entry for iterate mode"
+          },
+          "count": {
+            "type": "integer",
+            "default": 1,
+            "description": "Number of entries to return in iterate mode"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 100,
+            "description": "Maximum entries for list mode (no upper limit)"
+          },
+          "hostname": {
+            "type": "string",
+            "description": "Filter by hostname (partial match)"
+          },
+          "method": {
+            "type": "string",
+            "description": "Filter by HTTP method (GET, POST, etc.)"
+          },
+          "path": {
+            "type": "string",
+            "description": "Filter by URL path (partial match)"
+          },
+          "statusCode": {
+            "type": "integer",
+            "description": "Filter by exact status code"
+          },
+          "statusRange": {
+            "type": "string",
+            "description": "Filter by status range (e.g., '200-299')"
+          },
+          "statusClass": {
+            "type": "string",
+            "description": "Filter by status class (1XX, 2XX, 3XX, 4XX, 5XX)"
+          },
+          "contains": {
+            "type": "string",
+            "description": "Search text in request/response"
+          },
+          "regex": {
+            "type": "string",
+            "description": "Regex pattern search"
+          },
+          "parameter": {
+            "type": "string",
+            "description": "Filter by parameter name"
+          },
+          "parameterType": {
+            "type": "string",
+            "description": "Parameter location (URL, BODY, COOKIE, JSON, XML, MULTIPART)"
+          },
+          "cookieName": {
+            "type": "string",
+            "description": "Filter by cookie name"
+          },
+          "responseCookie": {
+            "type": "string",
+            "description": "Filter by response Set-Cookie name"
+          },
+          "inScopeOnly": {
+            "type": "boolean",
+            "default": false,
+            "description": "Only return items in target scope"
+          },
+          "secure": {
+            "type": "boolean",
+            "description": "Filter by protocol (true=HTTPS, false=HTTP)"
+          },
+          "hasResponse": {
+            "type": "boolean",
+            "description": "Filter by response presence"
+          },
+          "mimeType": {
+            "type": "string",
+            "description": "Filter by MIME type"
+          },
+          "contentType": {
+            "type": "string",
+            "description": "Filter by content type (JSON, XML, URL_ENCODED, MULTIPART, AMF)"
+          },
+          "fileExtension": {
+            "type": "string",
+            "description": "Filter by file extension (e.g., 'js', 'php', 'jpg')"
+          },
+          "httpVersion": {
+            "type": "string",
+            "description": "Filter by HTTP version (e.g., 'HTTP/1.1', 'HTTP/2')"
+          },
+          "queryString": {
+            "type": "string",
+            "description": "Filter by query string content"
+          },
+          "responseTimeMin": {
+            "type": "integer",
+            "description": "Minimum response time (ms)"
+          },
+          "responseTimeMax": {
+            "type": "integer",
+            "description": "Maximum response time (ms)"
+          },
+          "afterTime": {
+            "type": "string",
+            "description": "Filter requests after this time (ISO-8601 or relative like '1h', '30m', '7d')"
+          },
+          "beforeTime": {
+            "type": "string",
+            "description": "Filter requests before this time (ISO-8601 format)"
+          },
+          "editedOnly": {
+            "type": "boolean",
+            "default": false,
+            "description": "Show only edited requests"
+          },
+          "modifiedOnly": {
+            "type": "boolean",
+            "default": false,
+            "description": "Show only requests that were modified"
+          },
+          "hasNotes": {
+            "type": "boolean",
+            "default": false,
+            "description": "Filter entries with notes"
+          },
+          "highlightColor": {
+            "type": "string",
+            "description": "Filter by highlight color"
+          },
+          "listenerPort": {
+            "type": "integer",
+            "description": "Filter by listener port"
+          },
+          "recent": {
+            "type": "boolean",
+            "default": true,
+            "description": "Sort most recent first"
+          },
+          "showHeaders": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include headers in output"
+          },
+          "showBody": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include body in output"
+          },
+          "showAnnotations": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include annotations"
+          },
+          "showTiming": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include timing data"
+          },
+          "includeBase64": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include base64 encoding"
+          },
+          "keywords": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Keywords to count in responses"
+          },
+          "minKeywordCount": {
+            "type": "integer",
+            "description": "Minimum keyword count to match"
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "burp_repeater",
+      "title": "Repeater (UI Only)",
+      "category": "Core HTTP/Proxy",
+      "description": "Opens Burp Repeater UI tab for manual testing. WARNING: This tool CANNOT send HTTP requests programmatically - it only creates UI tabs for human interaction. To actually send and receive HTTP responses, use burp_custom_http instead. Use this only when preparing requests for manual testing in the Burp UI.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["SEND_TO_REPEATER", "SEND_FROM_PROXY"],
+            "default": "SEND_TO_REPEATER",
+            "description": "SEND_TO_REPEATER creates a new tab, SEND_FROM_PROXY sends existing proxy item"
+          },
+          "url": {
+            "type": "string",
+            "description": "Target URL for SEND_TO_REPEATER"
+          },
+          "method": {
+            "type": "string",
+            "default": "GET",
+            "description": "HTTP method"
+          },
+          "headers": {
+            "type": "string",
+            "description": "Custom headers (one per line)"
+          },
+          "body": {
+            "type": "string",
+            "description": "Request body"
+          },
+          "tabName": {
+            "type": "string",
+            "description": "Custom tab name in Repeater"
+          },
+          "proxyUrl": {
+            "type": "string",
+            "description": "URL from proxy history to send (for SEND_FROM_PROXY)"
+          }
+        },
+        "required": ["action"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "burp_proxy_interceptor",
+      "title": "Proxy Interceptor",
+      "category": "Core HTTP/Proxy",
+      "description": "Real-time proxy request interception and modification with event-driven control. Use this to intercept requests as they pass through Burp Proxy, inspect them, and decide to forward, drop, or modify. Actions: enable/disable (MCP interception), master_intercept_on/off (Burp UI button), get_queue (pending requests), modify/forward/drop_request. Note: Response modification not yet implemented.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["enable", "disable", "get_queue", "modify_request", "forward_request", "drop_request", "get_stats", "clear_stats", "master_intercept_on", "master_intercept_off", "master_intercept_status"],
+            "description": "Interception action to perform"
+          },
+          "request_id": {
+            "type": "string",
+            "description": "ID of the request to modify (from get_queue)"
+          },
+          "modifications": {
+            "type": "object",
+            "description": "Modifications to apply (add_headers, remove_headers, replace_body, method, path)"
+          },
+          "options": {
+            "type": "object",
+            "description": "Options (drop, intercept_ui, highlight_color, description)"
+          }
+        },
+        "required": ["action"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "burp_global_interceptor",
+      "title": "Global Interceptor",
+      "category": "Core HTTP/Proxy",
+      "description": "Global HTTP and WebSocket interceptor for ALL Burp tools (Scanner, Intruder, Repeater, etc.). Use this for global authentication injection, header modification across all tools, response manipulation, and WebSocket message interception. Supports rule-based automatic mode or event-driven manual control. Common use cases: add auth to Scanner, inject headers in WebSocket handshakes, WAF bypass testing.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["enable", "disable", "get_status", "set_auth", "clear_auth", "add_header", "remove_header", "list_headers", "add_request_rule", "add_response_rule", "remove_rule", "list_rules", "add_websocket_rule", "set_mode", "get_stats"],
+            "description": "Global interceptor action"
+          },
+          "auth_type": {
+            "type": "string",
+            "enum": ["bearer", "basic", "api_key", "custom"],
+            "description": "Authentication type to set"
+          },
+          "auth_value": {
+            "type": "string",
+            "description": "Authentication token or credentials"
+          },
+          "header_name": {
+            "type": "string",
+            "description": "Header name to add/remove"
+          },
+          "header_value": {
+            "type": "string",
+            "description": "Header value"
+          },
+          "rule_id": {
+            "type": "string",
+            "description": "Unique rule identifier"
+          },
+          "rule": {
+            "type": "object",
+            "description": "Rule definition (pattern, action, priority, etc.)"
+          },
+          "priority": {
+            "type": "integer",
+            "description": "Rule priority (lower numbers execute first)"
+          },
+          "mode": {
+            "type": "object",
+            "description": "Mode settings (intercept_requests, intercept_responses, use_event_queue, etc.)"
+          },
+          "tools": {
+            "type": "array",
+            "description": "List of tools to filter (PROXY, SCANNER, INTRUDER, etc.)"
+          },
+          "delay": {
+            "type": "integer",
+            "description": "Delay in milliseconds between requests"
+          },
+          "rules_data": {
+            "type": "object",
+            "description": "Exported rules data"
+          }
+        },
+        "required": ["action"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "burp_custom_http",
+      "title": "HTTP Client (Primary)",
+      "category": "Core HTTP/Proxy",
+      "description": "PRIMARY TOOL for sending HTTP requests and receiving responses programmatically. DEFAULT: HTTPS on port 443. For HTTP, use port 80 in Host header or http:// URL scheme. Actions: SEND_REQUEST (single request), SEND_PARALLEL (race condition testing), TOGGLE_REQUEST_METHOD (GET<>POST), ANALYZE_PROTOCOL (detect HTTP/HTTPS). Supports HTTP/1.1, HTTP/2, SNI, redirects, and connection reuse. Use this instead of burp_repeater for automated testing.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["SEND_REQUEST", "SEND_PARALLEL", "TOGGLE_REQUEST_METHOD", "ANALYZE_PROTOCOL"],
+            "description": "HTTP action to perform"
+          },
+          "request": {
+            "type": "string",
+            "description": "Raw HTTP request string with headers and body"
+          },
+          "requests": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Array of requests for SEND_PARALLEL (race condition testing)"
+          },
+          "http_mode": {
+            "type": "string",
+            "enum": ["HTTP_1", "HTTP_2", "HTTP_2_IGNORE_ALPN", "AUTO"],
+            "default": "AUTO",
+            "description": "HTTP protocol version"
+          },
+          "connection_id": {
+            "type": "string",
+            "description": "Unique identifier for connection reuse. Requests with same ID use same TCP connection"
+          },
+          "redirection_mode": {
+            "type": "string",
+            "enum": ["ALWAYS", "NEVER", "SAME_HOST", "IN_SCOPE"],
+            "default": "NEVER",
+            "description": "How to handle redirects"
+          },
+          "follow_redirects": {
+            "type": "boolean",
+            "description": "[DEPRECATED] Use redirection_mode instead. true=ALWAYS, false=NEVER"
+          },
+          "upstream_tls_verification": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable TLS certificate verification for upstream servers"
+          },
+          "allow_h2c": {
+            "type": "boolean",
+            "default": false,
+            "description": "Allow HTTP/2 cleartext (h2c) mode for non-TLS connections"
+          },
+          "add_to_sitemap": {
+            "type": "boolean",
+            "default": true,
+            "description": "Add request/response to Burp Site Map"
+          },
+          "use_cookie_jar": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include cookies from Burp's cookie jar. Request cookies take precedence"
+          },
+          "use_proxy_headers": {
+            "type": "boolean",
+            "default": true,
+            "description": "Copy headers from recent proxy history for realistic browser traffic"
+          },
+          "response_timeout": {
+            "type": "number",
+            "default": 30000,
+            "minimum": 100,
+            "maximum": 600000,
+            "description": "Max time to wait for response in milliseconds"
+          },
+          "server_name_indicator": {
+            "type": "string",
+            "description": "Custom SNI hostname for TLS connections"
+          },
+          "url": {
+            "type": "string",
+            "description": "URL to analyze (for ANALYZE_PROTOCOL action)"
+          }
+        },
+        "required": ["action"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "burp_scanner",
+      "title": "Vulnerability Scanner",
+      "category": "Scanning & Analysis",
+      "description": "Comprehensive vulnerability scanner and crawler with full automation. Use this to scan targets for security vulnerabilities, discover content via crawling, and retrieve scan results. Actions: START_SCAN (scan with optional crawl), CRAWL_ONLY (content discovery), GET_STATUS (check progress), GET_ISSUES (retrieve vulnerabilities), CANCEL_SCAN, LIST_SCANS, GENERATE_REPORT. Supports authenticated scanning via headers/cookies parameters. Use insertionPoints for targeted parameter testing.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["START_SCAN", "CRAWL_ONLY", "GET_STATUS", "GET_ISSUES", "CANCEL_SCAN", "LIST_SCANS", "ADD_TO_SCAN", "GENERATE_REPORT", "IMPORT_BCHECK", "CLEAR_ISSUES", "SCAN_SPECIFIC_REQUEST", "SCAN_METRICS", "FILTER_ISSUES"],
+            "description": "Scanner action to perform"
+          },
+          "urls": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "URLs to scan"
+          },
+          "scanId": {
+            "type": "string",
+            "description": "Scan ID for status/cancel operations"
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["ACTIVE", "PASSIVE"],
+            "default": "ACTIVE",
+            "description": "ACTIVE sends test payloads, PASSIVE only analyzes existing traffic"
+          },
+          "config": {
+            "type": "string",
+            "enum": ["LIGHT", "MEDIUM", "THOROUGH"],
+            "default": "MEDIUM",
+            "description": "Scan thoroughness level"
+          },
+          "crawl": {
+            "type": "boolean",
+            "default": false,
+            "description": "Also perform content discovery crawling"
+          },
+          "headers": {
+            "type": "object",
+            "description": "Custom headers for authenticated scanning"
+          },
+          "cookies": {
+            "type": "object",
+            "description": "Cookies for authenticated scanning"
+          },
+          "request": {
+            "type": "string",
+            "description": "HTTP request to add to scan"
+          },
+          "insertionPoints": {
+            "type": "array",
+            "description": "Insertion point ranges [{start: int, end: int}]"
+          },
+          "format": {
+            "type": "string",
+            "enum": ["HTML", "XML"],
+            "default": "HTML",
+            "description": "Report format: HTML or XML"
+          },
+          "outputPath": {
+            "type": "string",
+            "description": "Path to save report"
+          },
+          "definition": {
+            "type": "string",
+            "description": "BCheck definition YAML"
+          },
+          "autoEnable": {
+            "type": "boolean",
+            "default": true,
+            "description": "Auto-enable imported BCheck"
+          },
+          "host": {
+            "type": "string",
+            "description": "Target host for SCAN_SPECIFIC_REQUEST"
+          },
+          "port": {
+            "type": "integer",
+            "description": "Target port (default: 80 for HTTP, 443 for HTTPS)"
+          },
+          "useHttps": {
+            "type": "boolean",
+            "description": "Use HTTPS (default: false)"
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["HIGH", "MEDIUM", "LOW", "INFORMATION", "FALSE_POSITIVE"],
+            "description": "Filter by severity (for FILTER_ISSUES/GET_ISSUES)"
+          },
+          "urlFilter": {
+            "type": "string",
+            "description": "URL pattern filter with wildcards (for FILTER_ISSUES/GET_ISSUES)"
+          },
+          "useProxySession": {
+            "type": "boolean",
+            "default": true,
+            "description": "Automatically use authenticated session from proxy history (default: true). Finds the most recent valid request to the target URL and extracts all headers/cookies. Set to false to use basic unauthenticated requests."
+          }
+        },
+        "required": ["action"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "burp_intruder",
+      "title": "Intruder (UI Only)",
+      "category": "Scanning & Analysis",
+      "description": "Configures Burp Intruder UI for attack setup. WARNING: This tool CANNOT execute attacks programmatically - it only configures the UI. You must manually add payloads and click 'Start attack' in Burp UI. For automated parameter fuzzing/testing, use burp_custom_http with a loop instead. Use this only when setting up complex attacks for manual execution.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["SEND_TO_INTRUDER", "SEND_WITH_POSITIONS"],
+            "description": "SEND_TO_INTRUDER creates tab, SEND_WITH_POSITIONS marks attack positions"
+          },
+          "url": {
+            "type": "string",
+            "description": "Target URL"
+          },
+          "method": {
+            "type": "string",
+            "default": "GET",
+            "description": "HTTP method"
+          },
+          "body": {
+            "type": "string",
+            "description": "Request body with positions marked using section sign characters"
+          },
+          "headers": {
+            "type": "string",
+            "description": "Custom headers"
+          }
+        },
+        "required": ["action", "url"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "burp_add_issue",
+      "title": "Create Issue",
+      "category": "Issue Management",
+      "description": "Add custom audit issues to Burp Suite with intelligent dynamic grouping. Use this to report security findings discovered through manual testing or external tools. Automatically groups with existing issues of the same type. Supports detailed evidence including request/response pairs, payloads, remediation guidance, and references. Issues appear in Burp's Target > Issues panel.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "URL where the issue was found"
+          },
+          "issueType": {
+            "type": "string",
+            "description": "Vulnerability type (e.g., 'SQL injection', 'XSS'). Auto-groups with similar issues."
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["HIGH", "MEDIUM", "LOW", "INFORMATION"],
+            "default": "MEDIUM",
+            "description": "Issue severity level"
+          },
+          "confidence": {
+            "type": "string",
+            "enum": ["CERTAIN", "FIRM", "TENTATIVE"],
+            "default": "FIRM",
+            "description": "Confidence level in the finding"
+          },
+          "detail": {
+            "type": "string",
+            "description": "Detailed description of this specific instance"
+          },
+          "evidence": {
+            "type": "string",
+            "description": "Specific evidence (request/response snippets, error messages)"
+          },
+          "remediation": {
+            "type": "string",
+            "description": "How to fix this vulnerability"
+          },
+          "request": {
+            "type": "string",
+            "description": "Raw HTTP request that triggered the issue"
+          },
+          "response": {
+            "type": "string",
+            "description": "Raw HTTP response showing the vulnerability"
+          },
+          "name": {
+            "type": "string",
+            "description": "Specific issue instance description (optional - will be added to detail if provided)"
+          },
+          "background": {
+            "type": "string",
+            "description": "Technical background about this vulnerability type (AI can provide context)"
+          },
+          "references": {
+            "type": "string",
+            "description": "References and links for further reading (OWASP, CWE, etc.)"
+          },
+          "parameters": {
+            "type": "string",
+            "description": "Affected parameters (e.g., 'username', 'id', 'search')"
+          },
+          "payload": {
+            "type": "string",
+            "description": "The actual payload used in the attack (will be bolded in detail)"
+          },
+          "requests": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Evidence requests. Each entry can be a raw request string or an object (e.g. {\"raw\": \"...\"}). Objects may also include metadata fields like 'id' or 'notes' – only 'raw'/'request' are required to build evidence."
+          },
+          "responses": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Evidence responses matching the requests array. Accepts raw strings or objects with a 'raw'/'response' field."
+          },
+          "filters": {
+            "type": "object",
+            "description": "ProxyHistoryTool filters for finding request in proxy history (method, parameter, contains, etc.) - see burp_proxy_history for all options. Use when you want to match specific proxy history entries."
+          }
+        },
+        "required": ["url", "detail"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "burp_session_management",
+      "title": "Session Manager",
+      "category": "Session Management",
+      "description": "Advanced session management with Burp's native cookie jar and automatic session handling. Use this to manage cookies, extract tokens, test session validity, and configure automatic session refresh. Actions: COOKIE_JAR_LIST/SET/DELETE (manage cookies), EXTRACT_TOKENS (find session tokens), TEST_SESSION (verify session validity), ENABLE/DISABLE_AUTO_SESSION (automatic refresh on 401/403). Integrates with Burp's session handling rules.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["EXTRACT_TOKENS", "SET_TOKEN", "CLEAR_TOKENS", "LIST_TOKENS", "TEST_SESSION", "FIND_LOGOUT", "SESSION_STATUS", "COOKIE_JAR_LIST", "COOKIE_JAR_SET", "COOKIE_JAR_DELETE", "COOKIE_JAR_CLEAR", "ENABLE_AUTO_SESSION", "DISABLE_AUTO_SESSION", "AUTO_SESSION_STATUS", "ANALYZE_SESSION_VALIDITY"],
+            "description": "Session management action"
+          },
+          "url": {
+            "type": "string",
+            "description": "URL for session operations"
+          },
+          "domain": {
+            "type": "string",
+            "description": "Cookie domain"
+          },
+          "tokenName": {
+            "type": "string",
+            "description": "Token/cookie name"
+          },
+          "tokenValue": {
+            "type": "string",
+            "description": "Token/cookie value"
+          },
+          "extractPattern": {
+            "type": "string",
+            "default": "([A-Fa-f0-9]{32,}|[A-Za-z0-9+/=]{40,}|[A-Za-z0-9_-]{20,}\\.[A-Za-z0-9_-]{20,}\\.[A-Za-z0-9_-]{20,})",
+            "description": "Regex pattern to extract tokens (for EXTRACT_TOKENS)"
+          },
+          "path": {
+            "type": "string",
+            "default": "/",
+            "description": "Cookie path (for COOKIE_JAR_SET, default '/')"
+          },
+          "expiration": {
+            "type": "string",
+            "description": "Cookie expiration in ISO-8601 format (for COOKIE_JAR_SET, optional)"
+          },
+          "autoRefresh": {
+            "type": "boolean",
+            "default": true,
+            "description": "Enable automatic token refresh on 401/403 responses"
+          },
+          "validityKeywords": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Keywords to check for session validity"
+          }
+        },
+        "required": ["action"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "burp_comparer",
+      "title": "Response Comparer",
+      "category": "Analysis & Comparison",
+      "description": "Compare HTTP requests, responses, and other data. Use this to identify differences between two pieces of data, useful for finding subtle changes in responses that indicate vulnerabilities. Actions: COMPARE_RESPONSES, COMPARE_REQUESTS, COMPARE_TEXT, SEND_TO_COMPARER (opens Burp UI), COMPARE_PROXY_ENTRIES. Supports word-level and byte-level comparison with optional whitespace ignoring.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["COMPARE_RESPONSES", "COMPARE_REQUESTS", "COMPARE_TEXT", "SEND_TO_COMPARER", "COMPARE_PROXY_ENTRIES"],
+            "description": "Comparison action"
+          },
+          "url1": {
+            "type": "string",
+            "description": "First URL for comparison (for proxy entry comparison)"
+          },
+          "url2": {
+            "type": "string",
+            "description": "Second URL for comparison (for proxy entry comparison)"
+          },
+          "text1": {
+            "type": "string",
+            "description": "First text/data for comparison"
+          },
+          "text2": {
+            "type": "string",
+            "description": "Second text/data for comparison"
+          },
+          "comparisonType": {
+            "type": "string",
+            "enum": ["WORDS", "BYTES", "HEADERS_ONLY", "BODY_ONLY"],
+            "default": "WORDS",
+            "description": "Type of comparison"
+          },
+          "ignoreWhitespace": {
+            "type": "boolean",
+            "default": false,
+            "description": "Ignore whitespace differences"
+          }
+        },
+        "required": ["action"]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "burp_collaborator",
+      "title": "Collaborator (OOB)",
+      "category": "Analysis & Comparison",
+      "description": "Generate payloads and monitor out-of-band interactions for blind vulnerability testing. Use this for SSRF, blind XXE, blind SQL injection, and other vulnerabilities that require external callback verification. Actions: GENERATE_PAYLOAD (create unique callback URLs), CHECK_INTERACTIONS (poll for callbacks), LIST_PAYLOADS, SERVER_INFO. Professional license required. Supports DNS, HTTP, HTTPS, and SMTP interactions.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["GENERATE_PAYLOAD", "CHECK_INTERACTIONS", "LIST_PAYLOADS", "CLEAR_INTERACTIONS", "STATUS", "GET_SECRET_KEY", "SERVER_INFO", "GENERATE_WITH_CUSTOM_DATA", "FILTER_INTERACTIONS"],
+            "description": "Collaborator action"
+          },
+          "payloadType": {
+            "type": "string",
+            "enum": ["HOSTNAME", "HTTP_URL", "HTTPS_URL", "EMAIL"],
+            "default": "HOSTNAME",
+            "description": "Type of payload to generate"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10,
+            "default": 1,
+            "description": "Number of payloads to generate"
+          },
+          "payloadId": {
+            "type": "string",
+            "description": "Specific payload ID to check interactions for"
+          },
+          "interactionType": {
+            "type": "string",
+            "enum": ["ALL", "DNS", "HTTP", "HTTPS", "SMTP"],
+            "default": "ALL",
+            "description": "Filter interactions by type"
+          },
+          "customData": {
+            "type": "string",
+            "description": "Custom data to include with payload for tracking purposes"
+          },
+          "includeServerLocation": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include server location in payload"
+          },
+          "secretKey": {
+            "type": "string",
+            "description": "Secret key for restoring a collaborator client session"
+          }
+        },
+        "required": ["action"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "burp_scope",
+      "title": "Target Scope",
+      "category": "Configuration & Utilities",
+      "description": "Manage Burp Suite target scope to control which URLs are included in testing. Use this to add/remove URLs from scope, check if URLs are in scope, and analyze scope coverage against proxy history. Actions: view (current scope with stats), add (include URL), remove (exclude URL), check (verify URL status), analyze (scope coverage report), bulk_add/bulk_check.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["view", "add", "remove", "check", "analyze", "bulk_add", "bulk_check"],
+            "description": "Scope action to perform"
+          },
+          "url": {
+            "type": "string",
+            "description": "URL or hostname to add/remove/check"
+          },
+          "urls": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Array of URLs for bulk operations"
+          },
+          "includeSubdomains": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include all subdomains when adding"
+          },
+          "limit": {
+            "type": "number",
+            "default": 100,
+            "description": "Limit for analyze action"
+          }
+        },
+        "required": ["action"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "burp_organizer",
+      "title": "Request Organizer",
+      "category": "Configuration & Utilities",
+      "description": "Manage and organize HTTP requests/responses in Burp's Organizer tool. Use this to bookmark interesting requests, track testing progress, and organize findings. Actions: SEND_TO_ORGANIZER (add requests), LIST_ITEMS (view all with filters), GET_ITEM_BY_ID, GET_ITEM_COUNT, GET_ITEM_STATUS. Supports status types: NEW, IN_PROGRESS, POSTPONED, DONE, IGNORED.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["SEND_TO_ORGANIZER", "LIST_ITEMS", "LIST_ITEMS_FILTERED", "GET_ITEM_BY_ID", "GET_ITEM_COUNT", "GET_ITEM_STATUS"],
+            "description": "Organizer action"
+          },
+          "url": {
+            "type": "string",
+            "description": "URL to send to organizer or filter by"
+          },
+          "method": {
+            "type": "string",
+            "default": "GET",
+            "description": "HTTP method (for SEND_TO_ORGANIZER or filtering)"
+          },
+          "fromProxy": {
+            "type": "boolean",
+            "default": false,
+            "description": "Send from proxy history instead of creating new request"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 20,
+            "description": "Maximum number of items to return"
+          },
+          "statusFilter": {
+            "type": "string",
+            "enum": ["ALL", "NEW", "IN_PROGRESS", "POSTPONED", "DONE", "IGNORED"],
+            "description": "Filter by status (for LIST_ITEMS_FILTERED)"
+          },
+          "urlPattern": {
+            "type": "string",
+            "description": "URL pattern to filter (supports partial matching)"
+          },
+          "methodFilter": {
+            "type": "string",
+            "description": "HTTP method to filter by (for LIST_ITEMS_FILTERED)"
+          },
+          "itemId": {
+            "type": "integer",
+            "description": "Item ID for GET_ITEM_BY_ID or GET_ITEM_STATUS"
+          }
+        },
+        "required": ["action"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "burp_annotate",
+      "title": "Annotations",
+      "category": "Configuration & Utilities",
+      "description": "Add notes and highlight colors to entries across all Burp Suite components. Use this to mark interesting items, add testing notes, and organize findings visually. Supports Proxy, Target, Organizer, Repeater, Intruder, Scanner, WebSocket, and Collaborator. Actions: ANNOTATE_* (per component), GET_ANNOTATIONS, ANNOTATE_BY_PATTERN (bulk), SEARCH_BY_ANNOTATION, ENABLE/DISABLE_AUTO_ANNOTATION.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["ANNOTATE_PROXY", "ANNOTATE_TARGET", "ANNOTATE_ORGANIZER", "ANNOTATE_REPEATER", "ANNOTATE_INTRUDER", "ANNOTATE_SCANNER", "ANNOTATE_WEBSOCKET", "ANNOTATE_COLLABORATOR", "GET_ANNOTATIONS", "ANNOTATE_BY_PATTERN", "CLEAR_ANNOTATIONS", "EXPORT_ANNOTATIONS", "IMPORT_ANNOTATIONS", "SEARCH_BY_ANNOTATION", "ENABLE_AUTO_ANNOTATION", "DISABLE_AUTO_ANNOTATION"],
+            "description": "Annotation action"
+          },
+          "source": {
+            "type": "string",
+            "enum": ["PROXY", "TARGET", "ORGANIZER", "REPEATER", "INTRUDER", "SCANNER", "WEBSOCKET", "COLLABORATOR", "ALL"],
+            "description": "Source component for operations"
+          },
+          "url": {
+            "type": "string",
+            "description": "URL to annotate"
+          },
+          "notes": {
+            "type": "string",
+            "description": "Notes to add to the item"
+          },
+          "highlightColor": {
+            "type": "string",
+            "enum": ["RED", "ORANGE", "YELLOW", "GREEN", "CYAN", "BLUE", "PINK", "MAGENTA", "GRAY", "NONE"],
+            "description": "Highlight color"
+          },
+          "pattern": {
+            "type": "string",
+            "description": "Pattern to match URLs for bulk annotation"
+          },
+          "method": {
+            "type": "string",
+            "description": "Filter by HTTP method"
+          },
+          "filePath": {
+            "type": "string",
+            "description": "File path for import/export operations"
+          },
+          "searchQuery": {
+            "type": "string",
+            "description": "Search query for finding annotations"
+          },
+          "autoRules": {
+            "type": "object",
+            "description": "Rules for auto-annotation"
+          },
+          "issueId": {
+            "type": "string",
+            "description": "Scanner issue ID to annotate"
+          },
+          "messageId": {
+            "type": "string",
+            "description": "WebSocket message ID"
+          },
+          "interactionId": {
+            "type": "string",
+            "description": "Collaborator interaction ID"
+          }
+        },
+        "required": ["action"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "burp_sitemap_analysis",
+      "title": "Site Map Analysis",
+      "category": "Site Map Analysis",
+      "description": "Analyze site structure, detect technologies, map attack surface, and identify potential vulnerabilities from captured traffic. Actions: ANALYZE_STRUCTURE (directory tree), DETECT_TECHNOLOGY (stack fingerprinting), MAP_ATTACK_SURFACE (input points), CONTENT_ANALYSIS (sensitive data), RESPONSE_STATS (metrics), CORRELATE_ISSUES, CREATE_ISSUES_FROM_ANALYSIS (auto-create issues for findings).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["ANALYZE_STRUCTURE", "DETECT_TECHNOLOGY", "MAP_ATTACK_SURFACE", "CONTENT_ANALYSIS", "RESPONSE_STATS", "CORRELATE_ISSUES", "RESPONSE_VARIATIONS", "KEYWORD_ANALYSIS", "FULL_ANALYSIS", "CREATE_ISSUES_FROM_ANALYSIS"],
+            "description": "Analysis type"
+          },
+          "target": {
+            "type": "string",
+            "description": "Target URL prefix to analyze (e.g., https://example.com)"
+          },
+          "includeSubdomains": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include subdomains"
+          },
+          "maxSamples": {
+            "type": "integer",
+            "default": 100,
+            "description": "Maximum samples for variation analysis"
+          },
+          "analyzeKeywords": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Keywords to analyze for variance (for KEYWORD_ANALYSIS action)"
+          }
+        },
+        "required": ["action"]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "burp_bambda",
+      "title": "Bambda Filters",
+      "category": "Advanced Filtering",
+      "description": "Create and apply advanced Bambda filters for intelligent traffic filtering using Java code. Bambdas are powerful filters written in Java that can filter Proxy history, Site map, and Logger. Actions: APPLY_FILTER (use preset or custom), LIST_PRESETS (available filters), CREATE_CUSTOM (write Java filter), GET_ACTIVE_FILTER. Presets include: authenticated_requests, api_endpoints, sql_injection_candidates, error_responses, xss_candidates.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["APPLY_FILTER", "LIST_PRESETS", "CREATE_CUSTOM", "GET_ACTIVE_FILTER"],
+            "description": "Bambda action"
+          },
+          "preset": {
+            "type": "string",
+            "enum": ["authenticated_requests", "api_endpoints", "sql_injection_candidates", "error_responses", "file_uploads", "json_endpoints", "admin_interfaces", "xss_candidates", "auth_endpoints", "interesting_status"],
+            "description": "Pre-defined Bambda filter"
+          },
+          "customScript": {
+            "type": "string",
+            "description": "Custom Bambda Java code"
+          },
+          "description": {
+            "type": "string",
+            "description": "Description for custom Bambda"
+          },
+          "location": {
+            "type": "string",
+            "enum": ["PROXY_HTTP_HISTORY", "PROXY_WS_HISTORY", "SITEMAP", "LOGGER"],
+            "default": "PROXY_HTTP_HISTORY",
+            "description": "Where to apply the filter"
+          }
+        },
+        "required": ["action"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "burp_logs",
+      "title": "Extension Logs",
+      "category": "Documentation & Logging",
+      "description": "Access and manage Burp Suite extension logs. Use this to retrieve output logs, error logs, write custom log entries, and raise debug events. Actions: GET_LOGS (retrieve logs), WRITE_LOG (add entry), RAISE_EVENT (debug/info/error/critical), CLEAR_LOGS. Useful for debugging and monitoring extension behavior.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["GET_LOGS", "WRITE_LOG", "RAISE_EVENT", "CLEAR_LOGS"],
+            "description": "Logging action"
+          },
+          "category": {
+            "type": "string",
+            "enum": ["OUTPUT", "ERROR", "ALL"],
+            "default": "ALL",
+            "description": "Log category filter"
+          },
+          "level": {
+            "type": "string",
+            "enum": ["OUTPUT", "ERROR", "DEBUG", "INFO", "WARNING", "CRITICAL"],
+            "description": "Log level for WRITE_LOG or RAISE_EVENT"
+          },
+          "message": {
+            "type": "string",
+            "description": "Message to log"
+          },
+          "object": {
+            "type": "object",
+            "description": "Complex object to log (JSON, array, etc.) - automatically converted to string"
+          },
+          "exceptionMessage": {
+            "type": "string",
+            "description": "Exception message for ERROR level logging"
+          },
+          "stackTrace": {
+            "type": "string",
+            "description": "Stack trace for exception logging"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 100,
+            "description": "Maximum log entries to return"
+          }
+        },
+        "required": ["action"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "burp_websocket",
+      "title": "WebSocket Client",
+      "category": "WebSocket Support",
+      "description": "View WebSocket proxy history and create WebSocket connections. Use this to analyze captured WebSocket traffic, create new WebSocket connections, send messages, and manage connection lifecycle. Actions: proxy_history (view captured messages), create (new connection), send (send message), close (disconnect), list_connections.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["proxy_history", "create", "send", "close", "list_connections"],
+            "default": "proxy_history",
+            "description": "WebSocket action"
+          },
+          "url": {
+            "type": "string",
+            "description": "WebSocket URL (ws:// or wss://)"
+          },
+          "connectionId": {
+            "type": "string",
+            "description": "Connection ID for send/close"
+          },
+          "message": {
+            "type": "string",
+            "description": "Message to send"
+          },
+          "messageType": {
+            "type": "string",
+            "enum": ["text", "binary"],
+            "default": "text",
+            "description": "Message type"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 100,
+            "description": "Maximum history entries"
+          },
+          "upgradeRequest": {
+            "type": "string",
+            "description": "Optional HTTP upgrade request for create action"
+          },
+          "filter": {
+            "type": "string",
+            "description": "Filter messages by content"
+          }
+        },
+        "required": ["action"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "burp_websocket_interceptor",
+      "title": "WebSocket Interceptor",
+      "category": "WebSocket Support",
+      "description": "Intercept and modify WebSocket messages in real-time. Use this for testing WebSocket-based applications by intercepting, modifying, and filtering messages. Supports text and binary messages with match/replace rules. Actions: enable/disable, status, get_queue, forward/drop/modify (message control), add/remove_filter, add/remove_auto_modify (automatic replacements).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["enable", "disable", "status", "get_queue", "forward", "drop", "modify", "add_filter", "remove_filter", "add_auto_modify", "remove_auto_modify"],
+            "default": "status",
+            "description": "WebSocket interceptor action"
+          },
+          "message_id": {
+            "type": "string",
+            "description": "Message ID for forward/drop/modify"
+          },
+          "new_payload": {
+            "type": "string",
+            "description": "New payload for modify (text or Base64 for binary)"
+          },
+          "filter_name": {
+            "type": "string",
+            "description": "Name for filter rule"
+          },
+          "filter_pattern": {
+            "type": "string",
+            "description": "Regex pattern to match messages. For binary messages, pattern is matched against hex representation"
+          },
+          "rule_name": {
+            "type": "string",
+            "description": "Name for the auto-modify rule (text messages only)"
+          },
+          "search_pattern": {
+            "type": "string",
+            "description": "Pattern to search for in text messages"
+          },
+          "replace_with": {
+            "type": "string",
+            "description": "Replacement text"
+          }
+        },
+        "required": ["action"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "burp_response_analyzer",
+      "title": "Response Analyzer",
+      "category": "Response Analysis",
+      "description": "Analyze HTTP responses for keywords, variations, reflection points, and anomalies. Use this to find dynamic content, identify reflection points for XSS testing, detect security-related keywords, and rank anomalous responses. Actions: keywords (find security terms), variations (detect dynamic content), reflection (XSS testing), pattern (regex search), rank_anomalies (AI-powered anomaly detection), all (complete analysis).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["keywords", "variations", "reflection", "pattern", "rank_anomalies", "all"],
+            "default": "all",
+            "description": "Analysis type"
+          },
+          "keywords": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Keywords to search for"
+          },
+          "pattern": {
+            "type": "string",
+            "description": "Regex pattern to search"
+          },
+          "proxyIds": {
+            "type": "array",
+            "items": {"type": "integer"},
+            "description": "Proxy history IDs to analyze"
+          },
+          "testString": {
+            "type": "string",
+            "default": "REFLECTED_TEST_12345",
+            "description": "Test string for reflection analysis"
+          },
+          "topN": {
+            "type": "integer",
+            "default": 10,
+            "description": "Number of top anomalies to return"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50,
+            "description": "Maximum proxy entries to analyze"
+          },
+          "urls": {
+            "type": "array",
+            "description": "URLs to analyze for response variations (for variations action)"
+          },
+          "caseSensitive": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether pattern matching should be case sensitive"
+          },
+          "algorithm": {
+            "type": "string",
+            "enum": ["ANOMALY"],
+            "default": "ANOMALY",
+            "description": "Ranking algorithm to use"
+          }
+        },
+        "required": ["action"]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "burp_utilities",
+      "title": "Utilities",
+      "category": "Utilities",
+      "description": "Access Burp's utility functions for encoding/decoding, hashing, random data generation, JSON manipulation, and shell execution. Actions: base64_encode/decode, url_encode/decode, html_encode/decode, hash (MD5/SHA), random (generate data), json_beautify/validate/path, hex_to_ascii, number_convert, shell_execute (run commands). Essential helper functions for payload crafting and data manipulation.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["base64_encode", "base64_decode", "url_encode", "url_decode", "html_encode", "html_decode", "hash", "random", "compress", "decompress", "json_beautify", "json_path", "json_validate", "hex_to_ascii", "ascii_to_hex", "number_convert", "byte_search", "shell_execute", "shell_execute_dangerous"],
+            "default": "base64_encode",
+            "description": "Utility action"
+          },
+          "input": {
+            "type": "string",
+            "description": "Input data for the operation"
+          },
+          "algorithm": {
+            "type": "string",
+            "enum": ["MD5", "SHA1", "SHA256", "SHA384", "SHA512"],
+            "default": "SHA256",
+            "description": "Hash algorithm"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["alphanumeric", "alphabetic", "numeric", "hex"],
+            "default": "alphanumeric",
+            "description": "Random data type"
+          },
+          "length": {
+            "type": "integer",
+            "default": 16,
+            "description": "Length of random data"
+          },
+          "command": {
+            "type": "string",
+            "description": "Shell command to execute (for shell_execute/shell_execute_dangerous)"
+          },
+          "commandArgs": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Command arguments as separate strings (safer than single string)"
+          },
+          "timeout": {
+            "type": "integer",
+            "default": 10,
+            "description": "Command timeout in seconds (default: 10, 0 to disable)"
+          },
+          "mergeStderr": {
+            "type": "boolean",
+            "default": false,
+            "description": "Merge stderr with stdout"
+          },
+          "allowNonZeroExit": {
+            "type": "boolean",
+            "default": false,
+            "description": "Allow non-zero exit codes without error"
+          },
+          "allowTimeout": {
+            "type": "boolean",
+            "default": false,
+            "description": "Silently handle timeout instead of error"
+          },
+          "envVars": {
+            "type": "object",
+            "description": "Environment variables as key-value pairs"
+          },
+          "jsonPath": {
+            "type": "string",
+            "description": "JSON path for read/add/update/remove operations"
+          },
+          "jsonValue": {
+            "type": "string",
+            "description": "Value for JSON add/update operations"
+          },
+          "jsonOperation": {
+            "type": "string",
+            "enum": ["read", "add", "update", "remove"],
+            "default": "read",
+            "description": "JSON operation type"
+          },
+          "fromBase": {
+            "type": "string",
+            "enum": ["binary", "octal", "decimal", "hex"],
+            "default": "decimal",
+            "description": "Source number base"
+          },
+          "toBase": {
+            "type": "string",
+            "enum": ["binary", "octal", "decimal", "hex"],
+            "default": "hex",
+            "description": "Target number base"
+          },
+          "searchPattern": {
+            "type": "string",
+            "description": "Pattern to search for in bytes (string or regex)"
+          },
+          "useRegex": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether searchPattern is a regex"
+          }
+        },
+        "required": ["action"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    }
+  ],
+  "categories": [
+    {
+      "name": "Documentation & Discovery",
+      "tools": 1,
+      "description": "Help and tool discovery"
+    },
+    {
+      "name": "Core HTTP/Proxy",
+      "tools": 5,
+      "description": "HTTP operations, proxy control, and traffic interception"
+    },
+    {
+      "name": "Scanning & Analysis",
+      "tools": 2,
+      "description": "Vulnerability scanning and attack configuration"
+    },
+    {
+      "name": "Issue Management",
+      "tools": 1,
+      "description": "Creating and managing security findings"
+    },
+    {
+      "name": "Session Management",
+      "tools": 1,
+      "description": "Cookie and session handling"
+    },
+    {
+      "name": "Analysis & Comparison",
+      "tools": 2,
+      "description": "Data comparison and out-of-band testing"
+    },
+    {
+      "name": "Configuration & Utilities",
+      "tools": 3,
+      "description": "Scope, organizer, and annotations"
+    },
+    {
+      "name": "Site Map Analysis",
+      "tools": 1,
+      "description": "Site structure and technology analysis"
+    },
+    {
+      "name": "Advanced Filtering",
+      "tools": 1,
+      "description": "Bambda-based traffic filtering"
+    },
+    {
+      "name": "Documentation & Logging",
+      "tools": 1,
+      "description": "Extension logs and debugging"
+    },
+    {
+      "name": "WebSocket Support",
+      "tools": 2,
+      "description": "WebSocket testing and interception"
+    },
+    {
+      "name": "Response Analysis",
+      "tools": 1,
+      "description": "Response content analysis and anomaly detection"
+    },
+    {
+      "name": "Utilities",
+      "tools": 1,
+      "description": "Encoding, hashing, and data manipulation"
+    }
+  ]
+}

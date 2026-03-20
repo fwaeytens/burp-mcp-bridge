@@ -1,4 +1,4 @@
-# Burp MCP Bridge - Agent Context File (v2.1.2)
+# Burp MCP Bridge - Agent Context File (v2.2.0)
 
 ## 🚀 MANDATORY: Always Start With Documentation Discovery
 
@@ -89,6 +89,7 @@ await use_mcp_tool("burp-mcp-bridge", "burp_repeater", {...}); // ❌
 ```
 
 **Line endings**: Both `\n` and `\r\n` work (auto-normalized to CRLF).
+**Content-Length**: Automatically calculated — no need to specify it accurately.
 
 ### Scanning with Targeted Parameters
 ```javascript
@@ -139,7 +140,7 @@ await use_mcp_tool("burp-mcp-bridge", "burp_help", {
 
 ## 🛠️ Project Info
 
-- **Version**: 2.1.2
+- **Version**: 2.2.0
 - **Total Tools**: 22 (1 help + 21 security)
 - **Port**: 8081 (Burp extension HTTP server)
 - **Transport**: Dual mode (stdio + HTTP/SSE)

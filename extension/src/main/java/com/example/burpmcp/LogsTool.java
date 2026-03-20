@@ -51,6 +51,7 @@ public class LogsTool implements McpTool {
         installLogInterceptors();
     }
     
+    @SuppressWarnings("deprecation") // No non-deprecated API to obtain the underlying PrintStreams
     private synchronized void installLogInterceptors() {
         if (interceptorsInstalled) {
             return;
@@ -185,6 +186,23 @@ public class LogsTool implements McpTool {
         List<String> required = Arrays.asList("action");
         inputSchema.put("required", required);
         inputSchema.put("type", "object");
+        inputSchema.put("allOf", List.of(
+            Map.of(
+                "if", Map.of("properties", Map.of("action", Map.of("const", "WRITE_LOG"))),
+                "then", Map.of(
+                    "anyOf", List.of(
+                        Map.of("required", List.of("message")),
+                        Map.of("required", List.of("object")),
+                        Map.of("required", List.of("exceptionMessage")),
+                        Map.of("required", List.of("stackTrace"))
+                    )
+                )
+            ),
+            Map.of(
+                "if", Map.of("properties", Map.of("action", Map.of("const", "RAISE_EVENT"))),
+                "then", Map.of("required", List.of("message"))
+            )
+        ));
         
         tool.put("inputSchema", inputSchema);
         return tool;

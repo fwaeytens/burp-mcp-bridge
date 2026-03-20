@@ -74,9 +74,29 @@ public class BurpHelpTool implements McpTool {
         inputSchema.put("properties", properties);
 
         tool.put("inputSchema", inputSchema);
+
+        // Output schema
+        Map<String, Object> outputSchema = new HashMap<>();
+        outputSchema.put("type", "object");
+        Map<String, Object> outputProps = new HashMap<>();
+        outputProps.put("tool", Map.of("type", "string", "description", "Tool name"));
+        outputProps.put("category", Map.of("type", "string", "description", "Tool category"));
+        outputProps.put("description", Map.of("type", "string", "description", "Tool description"));
+        outputProps.put("parameters", Map.of("type", "array", "description", "Parameter definitions"));
+        outputProps.put("required_params", Map.of("type", "array", "description", "Required parameter names"));
+        outputProps.put("examples", Map.of("type", "array", "description", "Usage examples"));
+        outputProps.put("best_practices", Map.of("type", "array", "description", "Best practice guidelines"));
+        outputProps.put("related_tools", Map.of("type", "array", "description", "Related tool names"));
+        outputProps.put("keywords", Map.of("type", "array", "description", "Search keywords"));
+        outputProps.put("capabilities", Map.of("type", "array", "description", "Tool capabilities"));
+        outputProps.put("action_requirements", Map.of("type", "object", "description", "Action-specific required parameters"));
+        outputSchema.put("properties", outputProps);
+        tool.put("outputSchema", outputSchema);
+
         return tool;
     }
 
+    @SuppressWarnings("unchecked")
     @Override
     public Object execute(JsonNode arguments) throws Exception {
         Map<String, Object> args = mapper.convertValue(arguments, Map.class);
@@ -129,7 +149,7 @@ public class BurpHelpTool implements McpTool {
             error.put("available_tools", docStore.getAllToolNames());
             error.put("hint", "Use burp_help with 'list: true' to see all tools");
 
-            return toTextResponse(error);
+            return toStructuredResponse(error, true);
         }
 
         Map<String, Object> result = new HashMap<>();
@@ -147,6 +167,7 @@ public class BurpHelpTool implements McpTool {
                 result.put("parameters", doc.getParameters());
                 result.put("returns", doc.getReturns());
                 result.put("required_params", getRequiredParams(doc));
+                result.put("action_requirements", getActionRequirements(doc));
                 break;
 
             case "examples":
@@ -164,9 +185,10 @@ public class BurpHelpTool implements McpTool {
                 result.put("related_tools", doc.getRelatedTools());
                 result.put("keywords", doc.getKeywords());
                 result.put("capabilities", doc.getCapabilities());
+                result.put("action_requirements", getActionRequirements(doc));
         }
 
-        return toTextResponse(result);
+        return toStructuredResponse(result, false);
     }
 
     /**
@@ -247,7 +269,7 @@ public class BurpHelpTool implements McpTool {
             result.put("next_step", "Use burp_help with 'tool: \"" + matches.get(0).doc.getName() + "\"' for full documentation");
         }
 
-        return toTextResponse(result);
+        return toStructuredResponse(result, false);
     }
 
     /**
@@ -280,7 +302,7 @@ public class BurpHelpTool implements McpTool {
             "Tools work together - check 'related_tools' in each tool's docs"
         ));
 
-        return toTextResponse(result);
+        return toStructuredResponse(result, false);
     }
 
     /**
@@ -317,7 +339,7 @@ public class BurpHelpTool implements McpTool {
             "crawl", "compare", "session", "websocket"
         ));
 
-        return toTextResponse(guide);
+        return toStructuredResponse(guide, false);
     }
 
     // Helper methods
@@ -331,10 +353,53 @@ public class BurpHelpTool implements McpTool {
     }
 
     private List<String> getRequiredParams(ToolDocumentation doc) {
-        return doc.getParameters().stream()
-            .filter(p -> Boolean.TRUE.equals(p.get("required")))
-            .map(p -> (String) p.get("name"))
-            .collect(Collectors.toList());
+        Set<String> required = new LinkedHashSet<>();
+        for (Map<String, Object> param : doc.getParameters()) {
+            String name = (String) param.get("name");
+            if (name == null) {
+                continue;
+            }
+            if (Boolean.TRUE.equals(param.get("required")) || param.containsKey("required_when")) {
+                required.add(name);
+            }
+        }
+        return new ArrayList<>(required);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, List<String>> getActionRequirements(ToolDocumentation doc) {
+        Map<String, List<String>> actionRequirements = new LinkedHashMap<>();
+
+        for (Map<String, Object> param : doc.getParameters()) {
+            String paramName = (String) param.get("name");
+            if (paramName == null) {
+                continue;
+            }
+
+            Object requiredWhenObj = param.get("required_when");
+            if (!(requiredWhenObj instanceof Map<?, ?> requiredWhen)) {
+                continue;
+            }
+
+            Object actionsObj = requiredWhen.get("action");
+            if (!(actionsObj instanceof Collection<?> actions)) {
+                continue;
+            }
+
+            for (Object actionObj : actions) {
+                if (actionObj == null) {
+                    continue;
+                }
+                String action = actionObj.toString();
+                actionRequirements.computeIfAbsent(action, ignored -> new ArrayList<>());
+                List<String> params = actionRequirements.get(action);
+                if (!params.contains(paramName)) {
+                    params.add(paramName);
+                }
+            }
+        }
+
+        return actionRequirements;
     }
 
     private Map<String, Object> getQuickStart(ToolDocumentation doc) {
@@ -347,19 +412,30 @@ public class BurpHelpTool implements McpTool {
         }
 
         quickStart.put("required_params", getRequiredParams(doc));
+        Map<String, List<String>> actionRequirements = getActionRequirements(doc);
+        if (!actionRequirements.isEmpty()) {
+            quickStart.put("action_requirements", actionRequirements);
+        }
 
         return quickStart;
     }
 
-    private List<Map<String, Object>> toTextResponse(Map<String, Object> data) {
+    private Map<String, Object> toStructuredResponse(Map<String, Object> data, boolean isError) {
         Map<String, Object> response = new HashMap<>();
-        response.put("type", "text");
+        Map<String, Object> textItem = new HashMap<>();
+        textItem.put("type", "text");
+        textItem.put("mimeType", "application/json");
         try {
-            response.put("text", mapper.writeValueAsString(data));
+            textItem.put("text", mapper.writeValueAsString(data));
         } catch (JsonProcessingException e) {
-            response.put("text", "Error formatting response: " + e.getMessage());
+            textItem.put("text", "Error formatting response: " + e.getMessage());
         }
-        return List.of(response);
+        response.put("content", List.of(textItem));
+        response.put("structuredContent", data);
+        if (isError) {
+            response.put("isError", true);
+        }
+        return response;
     }
 
     // Helper class for matching

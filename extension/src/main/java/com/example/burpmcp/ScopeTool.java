@@ -112,6 +112,28 @@ public class ScopeTool implements McpTool {
         
         inputSchema.put("properties", properties);
         inputSchema.put("required", List.of("action"));
+        inputSchema.put("allOf", List.of(
+            Map.of(
+                "if", Map.of("properties", Map.of("action", Map.of("const", "add"))),
+                "then", Map.of("required", List.of("url"))
+            ),
+            Map.of(
+                "if", Map.of("properties", Map.of("action", Map.of("const", "remove"))),
+                "then", Map.of("required", List.of("url"))
+            ),
+            Map.of(
+                "if", Map.of("properties", Map.of("action", Map.of("const", "check"))),
+                "then", Map.of("required", List.of("url"))
+            ),
+            Map.of(
+                "if", Map.of("properties", Map.of("action", Map.of("const", "bulk_add"))),
+                "then", Map.of("required", List.of("urls"))
+            ),
+            Map.of(
+                "if", Map.of("properties", Map.of("action", Map.of("const", "bulk_check"))),
+                "then", Map.of("required", List.of("urls"))
+            )
+        ));
         
         tool.put("inputSchema", inputSchema);
         return tool;

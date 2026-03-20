@@ -39,6 +39,7 @@ import java.time.format.DateTimeFormatter;
  * - Rule priority and ordering
  * - Advanced modification capabilities
  */
+@SuppressWarnings("unchecked") // Jackson convertValue produces raw Map/List types
 public class GlobalInterceptorTool implements McpTool {
     
     // Static state management (persists across tool invocations)
@@ -206,6 +207,57 @@ public class GlobalInterceptorTool implements McpTool {
         inputSchema.put("type", "object");
         inputSchema.put("properties", properties);
         inputSchema.put("required", Arrays.asList("action"));
+
+        List<Map<String, Object>> allOf = new ArrayList<>();
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "set_auth"))),
+            "then", Map.of("required", List.of("auth_type", "auth_value"))
+        ));
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "add_header"))),
+            "then", Map.of("required", List.of("header_name", "header_value"))
+        ));
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "remove_header"))),
+            "then", Map.of("required", List.of("header_name"))
+        ));
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "add_request_rule"))),
+            "then", Map.of("required", List.of("rule_id", "rule"))
+        ));
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "add_response_rule"))),
+            "then", Map.of("required", List.of("rule_id", "rule"))
+        ));
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "remove_rule"))),
+            "then", Map.of("required", List.of("rule_id"))
+        ));
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "add_websocket_rule"))),
+            "then", Map.of("required", List.of("rule_id", "rule"))
+        ));
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "remove_websocket_rule"))),
+            "then", Map.of("required", List.of("rule_id"))
+        ));
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "set_mode"))),
+            "then", Map.of("required", List.of("mode"))
+        ));
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "set_tool_filter"))),
+            "then", Map.of("required", List.of("tools"))
+        ));
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "set_rate_limit"))),
+            "then", Map.of("required", List.of("delay"))
+        ));
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "import_rules"))),
+            "then", Map.of("required", List.of("rules_data"))
+        ));
+        inputSchema.put("allOf", allOf);
         
         tool.put("inputSchema", inputSchema);
         return tool;

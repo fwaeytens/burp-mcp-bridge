@@ -1,9 +1,9 @@
 # Burp MCP Bridge
 
-[![Version](https://img.shields.io/badge/version-2.1.2-blue.svg)](https://github.com/fwaeytens/burp-mcp-bridge/releases)
+[![Version](https://img.shields.io/badge/version-2.2.0-blue.svg)](https://github.com/fwaeytens/burp-mcp-bridge/releases)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Java](https://img.shields.io/badge/java-17+-orange.svg)](https://www.oracle.com/java/)
-[![Burp Suite](https://img.shields.io/badge/Burp%20Suite-Professional%202025.12+-red.svg)](https://portswigger.net/burp)
+[![Burp Suite](https://img.shields.io/badge/Burp%20Suite-Professional%202026.2+-red.svg)](https://portswigger.net/burp)
 
 A Burp Suite Professional extension that enables AI/LLM integration through the Model Context Protocol (MCP), allowing Claude and other AI assistants to interact with Burp Suite's security testing capabilities. Now with 100% Montoya API coverage for optimal performance and complete feature access.
 
@@ -24,7 +24,7 @@ Burp MCP Bridge connects AI assistants (like Claude) to Burp Suite Professional,
 - **Async Operations** - Non-blocking execution for long-running tasks
 - **Shell Execution (v2.1.1)** - Execute system commands via Montoya 2025.12 ShellUtils API (shell_execute, shell_execute_dangerous)
 - **HTTPS Default (v2.1.1)** - burp_custom_http now defaults to HTTPS for better security
-- **Production Ready** - Tested with Burp Suite Professional 2025.12
+- **Production Ready** - Tested with Burp Suite Professional 2026.2
 
 ## 🏗️ Architecture
 
@@ -96,7 +96,7 @@ mvn clean package
 1. **Start Burp Suite Professional** (must be running first)
 2. Go to **Extensions** → **Extensions** tab
 3. Click **Add** → Select **Extension type: Java**
-4. Choose `extension/target/burp-mcp-bridge-2.1.2.jar`
+4. Choose `extension/target/burp-mcp-bridge-2.2.0.jar`
 5. ✅ **VERIFY**: Look for these messages in the output:
    - "MCP Server listening on http://127.0.0.1:8081"
    - "=== Available MCP Tools ==="
@@ -353,7 +353,7 @@ The extension now includes a unified help system that allows AI agents to discov
 **Golden Rules:**
 1. Always use `burp_custom_http` for HTTP operations, not `burp_repeater`
 2. For HTTPS, specify port 443 in Host header OR use `https://` prefix in request line
-3. Host header alone (without port) defaults to HTTP on port 80
+3. Host header alone (without port) defaults to HTTPS on port 443 — always specify the port
 
 ## 🤖 AI Agent Usage (Claude)
 
@@ -434,7 +434,7 @@ await use_mcp_tool("burp-mcp-bridge", "burp_add_issue", {
 2. **"Unknown tool" errors**
    - ✅ Reload the extension in Burp
    - ✅ Check extension output for errors
-   - ✅ Verify version 2.1.2 is loaded
+   - ✅ Verify version 2.2.0 is loaded
 
 3. **Claude can't connect**
    - ✅ Check `.mcp.json` is in project root
@@ -513,4 +513,4 @@ MIT License - See [LICENSE](LICENSE) file for details
 
 ---
 
-**Current Version**: 2.1.2 | **Burp Suite**: 2025.12+ | **Tools**: 22 | **Status**: Production Ready with AI-Powered Anomaly Detection
+**Current Version**: 2.2.0 | **Burp Suite**: 2026.2+ | **Tools**: 22 | **Status**: Production Ready with AI-Powered Anomaly Detection

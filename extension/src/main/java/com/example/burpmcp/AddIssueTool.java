@@ -129,13 +129,33 @@ public class AddIssueTool implements McpTool {
         requestsProperty.put("type", "array");
         requestsProperty.put("description", "Evidence requests. Each entry can be a raw request string or an object (e.g. {\"raw\": \"...\"}).\n" +
             "Objects may also include metadata fields like 'id' or 'notes' – only 'raw'/'request' are required to build evidence.");
-        requestsProperty.put("items", Map.of("type", "string"));
+        Map<String, Object> reqObjProps = new HashMap<>();
+        reqObjProps.put("raw", Map.of("type", "string", "description", "Raw HTTP request string"));
+        reqObjProps.put("request", Map.of("type", "string", "description", "Alternative field for raw request"));
+        reqObjProps.put("content", Map.of("type", "string", "description", "Alternative field for request content"));
+        reqObjProps.put("body", Map.of("type", "string", "description", "Alternative field for request body"));
+        Map<String, Object> requestItems = new HashMap<>();
+        requestItems.put("oneOf", List.of(
+            Map.of("type", "string"),
+            Map.of("type", "object", "properties", reqObjProps)
+        ));
+        requestsProperty.put("items", requestItems);
         properties.put("requests", requestsProperty);
-        
+
         Map<String, Object> responsesProperty = new HashMap<>();
         responsesProperty.put("type", "array");
-        responsesProperty.put("description", "Evidence responses matching the requests array. Accepts raw strings or objects with a 'raw'/'response' field.");
-        responsesProperty.put("items", Map.of("type", "string"));
+        responsesProperty.put("description", "Evidence responses matching the requests array. Accepts raw strings or objects with a 'raw'/'response'/'content'/'body' field.");
+        Map<String, Object> respObjProps = new HashMap<>();
+        respObjProps.put("raw", Map.of("type", "string", "description", "Raw HTTP response string"));
+        respObjProps.put("response", Map.of("type", "string", "description", "Alternative field for raw response"));
+        respObjProps.put("content", Map.of("type", "string", "description", "Alternative field for response content"));
+        respObjProps.put("body", Map.of("type", "string", "description", "Alternative field for response body"));
+        Map<String, Object> responseItems = new HashMap<>();
+        responseItems.put("oneOf", List.of(
+            Map.of("type", "string"),
+            Map.of("type", "object", "properties", respObjProps)
+        ));
+        responsesProperty.put("items", responseItems);
         properties.put("responses", responsesProperty);
         
         Map<String, Object> payloadProperty = new HashMap<>();

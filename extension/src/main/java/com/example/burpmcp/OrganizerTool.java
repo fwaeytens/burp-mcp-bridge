@@ -68,6 +68,20 @@ public class OrganizerTool implements McpTool {
         
         inputSchema.put("properties", properties);
         inputSchema.put("required", List.of("action"));
+        inputSchema.put("allOf", List.of(
+            Map.of(
+                "if", Map.of("properties", Map.of("action", Map.of("const", "SEND_TO_ORGANIZER"))),
+                "then", Map.of("required", List.of("url"))
+            ),
+            Map.of(
+                "if", Map.of("properties", Map.of("action", Map.of("const", "GET_ITEM_BY_ID"))),
+                "then", Map.of("required", List.of("itemId"))
+            ),
+            Map.of(
+                "if", Map.of("properties", Map.of("action", Map.of("const", "GET_ITEM_STATUS"))),
+                "then", Map.of("required", List.of("itemId"))
+            )
+        ));
         
         tool.put("inputSchema", inputSchema);
         return tool;

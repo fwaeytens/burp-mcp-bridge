@@ -4,7 +4,6 @@ import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.core.Annotations;
 import burp.api.montoya.core.Marker;
 import burp.api.montoya.http.handler.TimingData;
-import burp.api.montoya.http.message.ContentType;
 import burp.api.montoya.http.message.HttpHeader;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.params.ParsedHttpParameter;
@@ -146,9 +145,24 @@ public class SiteMapAnalysisTool implements McpTool {
         
         inputSchema.put("properties", properties);
         inputSchema.put("required", new String[]{"action"});
-        
+
+        // Action-specific required parameters
+        List<Map<String, Object>> allOf = new ArrayList<>();
+        allOf.add(Map.of(
+            "if", Map.of("properties", Map.of("action", Map.of("const", "KEYWORD_ANALYSIS"))),
+            "then", Map.of("required", List.of("analyzeKeywords"))
+        ));
+        inputSchema.put("allOf", allOf);
+
         tool.put("inputSchema", inputSchema);
-        
+
+        // Output schema
+        Map<String, Object> outputProps = new HashMap<>();
+        outputProps.put("success", SchemaHelper.boolProp("Whether analysis completed successfully"));
+        outputProps.put("totalEntries", SchemaHelper.intProp("Total site map entries analyzed"));
+        outputProps.put("target", SchemaHelper.stringProp("Target URL prefix that was analyzed"));
+        tool.put("outputSchema", SchemaHelper.outputSchema(outputProps));
+
         return tool;
     }
 
@@ -199,7 +213,7 @@ public class SiteMapAnalysisTool implements McpTool {
                 entries = entries.stream()
                     .filter(e -> {
                         try {
-                            return new URL(e.url()).getHost().equals(hostName);
+                            return new URL(e.request().url()).getHost().equals(hostName);
                         } catch (Exception ex) {
                             return false;
                         }
@@ -294,7 +308,7 @@ public class SiteMapAnalysisTool implements McpTool {
                 if (!entry.hasResponse()) continue;
                 
                 try {
-                    URL url = new URL(entry.url());
+                    URL url = new URL(entry.request().url());
                     String basePath = url.getProtocol() + "://" + url.getHost() + url.getPath();
                     groupedByPath.computeIfAbsent(basePath, k -> new ArrayList<>()).add(entry);
                 } catch (Exception e) {
@@ -493,7 +507,7 @@ public class SiteMapAnalysisTool implements McpTool {
         
         for (HttpRequestResponse entry : entries) {
             try {
-                String url = entry.url(); // Use direct Montoya API method
+                String url = entry.request().url(); // Use direct Montoya API method
                 URL urlObj = new URL(url);
                 String path = urlObj.getPath();
                 
@@ -582,7 +596,7 @@ public class SiteMapAnalysisTool implements McpTool {
             HttpRequest request = entry.request();
             
             // Check URL patterns for CMS/frameworks
-            String url = entry.url(); // Use direct Montoya API method
+            String url = entry.request().url(); // Use direct Montoya API method
             for (Map.Entry<String, Pattern> pattern : TECH_PATTERNS.entrySet()) {
                 if (pattern.getValue().matcher(url).find()) {
                     frameworks.add(pattern.getKey());
@@ -679,15 +693,15 @@ public class SiteMapAnalysisTool implements McpTool {
         
         for (HttpRequestResponse entry : entries) {
             HttpRequest request = entry.request();
-            String url = entry.url(); // Use direct Montoya API method
+            String url = entry.request().url(); // Use direct Montoya API method
             String method = request.method();
             
             methods.merge(method, 1, Integer::sum);
             
-            // Use Montoya API's ContentType
-            ContentType contentType = entry.contentType();
-            if (contentType != null) {
-                contentTypes.add(contentType.toString());
+            // Get request content type for attack surface analysis
+            String requestContentType = request.headerValue("Content-Type");
+            if (requestContentType != null) {
+                contentTypes.add(requestContentType);
             }
             
             // Track parameters
@@ -786,7 +800,7 @@ public class SiteMapAnalysisTool implements McpTool {
             
             // Check if entry has markers (interesting points marked by Burp)
             if (!entry.requestMarkers().isEmpty() || !entry.responseMarkers().isEmpty()) {
-                markedEntries.add(entry.url());
+                markedEntries.add(entry.request().url());
             }
             
             String body = entry.response().bodyToString();
@@ -796,7 +810,7 @@ public class SiteMapAnalysisTool implements McpTool {
             }
             
             analyzed++;
-            String url = entry.url();
+            String url = entry.request().url();
             
             // Use Montoya API's contains method for efficient searching
             for (Map.Entry<String, Pattern> pattern : SENSITIVE_PATTERNS.entrySet()) {
@@ -889,13 +903,13 @@ public class SiteMapAnalysisTool implements McpTool {
                 hasResponse++;
                 
                 // Use direct Montoya API methods
-                int statusCode = entry.statusCode();
+                int statusCode = entry.response().statusCode();
                 statusCodes.merge(statusCode, 1, Integer::sum);
                 
-                // Use ContentType from Montoya API
-                ContentType contentType = entry.contentType();
-                if (contentType != null) {
-                    mimeTypes.merge(contentType.toString(), 1, Integer::sum);
+                // Get normalized MIME type from response
+                var mimeType = entry.response().mimeType();
+                if (mimeType != null) {
+                    mimeTypes.merge(mimeType.description(), 1, Integer::sum);
                 }
                 
                 // Response size

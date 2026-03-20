@@ -91,6 +91,35 @@ public class ComparerTool implements McpTool {
         
         inputSchema.put("properties", properties);
         inputSchema.put("required", List.of("action"));
+        inputSchema.put("allOf", List.of(
+            Map.of(
+                "if", Map.of("properties", Map.of("action", Map.of("const", "COMPARE_RESPONSES"))),
+                "then", Map.of("required", List.of("url1", "url2"))
+            ),
+            Map.of(
+                "if", Map.of("properties", Map.of("action", Map.of("const", "COMPARE_REQUESTS"))),
+                "then", Map.of("required", List.of("url1", "url2"))
+            ),
+            Map.of(
+                "if", Map.of("properties", Map.of("action", Map.of("const", "COMPARE_TEXT"))),
+                "then", Map.of("required", List.of("text1", "text2"))
+            ),
+            Map.of(
+                "if", Map.of("properties", Map.of("action", Map.of("const", "SEND_TO_COMPARER"))),
+                "then", Map.of(
+                    "anyOf", List.of(
+                        Map.of("required", List.of("text1")),
+                        Map.of("required", List.of("text2")),
+                        Map.of("required", List.of("url1")),
+                        Map.of("required", List.of("url2"))
+                    )
+                )
+            ),
+            Map.of(
+                "if", Map.of("properties", Map.of("action", Map.of("const", "COMPARE_PROXY_ENTRIES"))),
+                "then", Map.of("required", List.of("url1", "url2"))
+            )
+        ));
         
         tool.put("inputSchema", inputSchema);
         return tool;
