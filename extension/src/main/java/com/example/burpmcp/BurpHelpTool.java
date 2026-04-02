@@ -40,7 +40,13 @@ public class BurpHelpTool implements McpTool {
         annotations.put("destructiveHint", false);
         annotations.put("idempotentHint", true);
         annotations.put("openWorldHint", false);
+        annotations.put("title", "Help & Discovery");
         tool.put("annotations", annotations);
+
+        Map<String, Object> meta = new HashMap<>();
+        meta.put("anthropic/alwaysLoad", true);
+        meta.put("anthropic/searchHint", "discover security tools documentation help");
+        tool.put("_meta", meta);
 
         Map<String, Object> inputSchema = new HashMap<>();
         Map<String, Object> properties = new HashMap<>();

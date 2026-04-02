@@ -70,11 +70,16 @@ public class SessionManagementTool implements McpTool {
         annotations.put("destructiveHint", true);  // DELETE/CLEAR actions remove cookies
         annotations.put("idempotentHint", false);
         annotations.put("openWorldHint", false);
+        annotations.put("title", "Session Manager");
         tool.put("annotations", annotations);
-        
+
+        Map<String, Object> meta = new HashMap<>();
+        meta.put("anthropic/searchHint", "cookie jar authentication tokens sessions");
+        tool.put("_meta", meta);
+
         Map<String, Object> inputSchema = new HashMap<>();
         inputSchema.put("type", "object");
-        
+
         Map<String, Object> properties = new HashMap<>();
         
         Map<String, Object> actionProperty = new HashMap<>();

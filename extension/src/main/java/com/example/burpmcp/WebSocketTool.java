@@ -43,11 +43,16 @@ public class WebSocketTool implements McpTool {
         annotations.put("destructiveHint", false);
         annotations.put("idempotentHint", false);
         annotations.put("openWorldHint", true);
+        annotations.put("title", "WebSocket Client");
         tool.put("annotations", annotations);
-        
+
+        Map<String, Object> meta = new HashMap<>();
+        meta.put("anthropic/searchHint", "websocket message send receive frames");
+        tool.put("_meta", meta);
+
         Map<String, Object> inputSchema = new HashMap<>();
         inputSchema.put("type", "object");
-        
+
         Map<String, Object> properties = new HashMap<>();
         
         properties.put("action", McpUtils.createEnumProperty("string", 

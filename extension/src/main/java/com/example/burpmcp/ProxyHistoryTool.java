@@ -71,11 +71,16 @@ public class ProxyHistoryTool implements McpTool {
         annotations.put("destructiveHint", false);
         annotations.put("idempotentHint", true);
         annotations.put("openWorldHint", false);
+        annotations.put("title", "Proxy History");
         tool.put("annotations", annotations);
-        
+
+        Map<String, Object> meta = new HashMap<>();
+        meta.put("anthropic/searchHint", "captured traffic filter requests responses");
+        tool.put("_meta", meta);
+
         Map<String, Object> inputSchema = new HashMap<>();
         inputSchema.put("type", "object");
-        
+
         Map<String, Object> properties = new HashMap<>();
         
         // Action mode

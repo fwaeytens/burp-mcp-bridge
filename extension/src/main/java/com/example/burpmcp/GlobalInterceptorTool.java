@@ -120,11 +120,16 @@ public class GlobalInterceptorTool implements McpTool {
         annotations.put("destructiveHint", false);
         annotations.put("idempotentHint", false);
         annotations.put("openWorldHint", true);
+        annotations.put("title", "Global Interceptor");
         tool.put("annotations", annotations);
-        
+
+        Map<String, Object> meta = new HashMap<>();
+        meta.put("anthropic/searchHint", "match replace rules auto-modify traffic");
+        tool.put("_meta", meta);
+
         Map<String, Object> inputSchema = new HashMap<>();
         Map<String, Object> properties = new HashMap<>();
-        
+
         Map<String, Object> actionProp = new HashMap<>();
         actionProp.put("type", "string");
         actionProp.put("enum", Arrays.asList(

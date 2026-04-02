@@ -320,8 +320,34 @@ public class McpServer {
 
                 Map<String, Object> serverInfo = new HashMap<>();
                 serverInfo.put("name", "burp-mcp-bridge");
-                serverInfo.put("version", "2.2.0");
+                serverInfo.put("version", Version.VERSION);
                 result.put("serverInfo", serverInfo);
+
+                result.put("instructions",
+                    "CRITICAL RULES for Burp MCP Bridge tools:\n\n" +
+                    "1. SENDING HTTP REQUESTS: Use burp_custom_http for ALL HTTP sending. " +
+                    "burp_repeater only creates UI tabs and CANNOT send requests. " +
+                    "burp_intruder only configures attacks and CANNOT execute them.\n\n" +
+                    "2. HOST HEADER PORT: ALWAYS specify port in Host header. " +
+                    "HTTP: Host: example.com:80 | HTTPS: Host: example.com:443. " +
+                    "Without explicit port, defaults to HTTPS:443 which causes timeouts on HTTP-only servers.\n\n" +
+                    "3. CONTENT-LENGTH: Automatically calculated - no need to specify it.\n\n" +
+                    "4. LINE ENDINGS: Both \\n and \\r\\n work (auto-normalized to CRLF).\n\n" +
+                    "5. PARALLEL REQUESTS: Use burp_custom_http SEND_PARALLEL with 'requests' array (not 'request' + 'count').\n\n" +
+                    "6. DISCOVERY: Use burp_help to list tools or search by capability before starting.\n\n" +
+                    "7. SCANNING: Always use burp_scanner GET_STATUS to check scan progress after starting a scan.\n\n" +
+                    "8. VISIBILITY: burp_custom_http requests appear in the Target tab (Site Map), NOT in Proxy History. " +
+                    "Proxy History only contains traffic that flowed through the proxy (browser requests).\n\n" +
+                    "Tool quick reference:\n" +
+                    "- Send/modify HTTP requests -> burp_custom_http\n" +
+                    "- Scan for vulnerabilities -> burp_scanner\n" +
+                    "- View captured traffic -> burp_proxy_history (proxy only, not burp_custom_http requests)\n" +
+                    "- Out-of-band testing -> burp_collaborator: " +
+                    "Use GENERATE_PAYLOAD to get a unique *.burpcollaborator.net domain, " +
+                    "inject it into requests (SSRF, blind XXE, blind SQLi, email header injection), " +
+                    "then CHECK_INTERACTIONS to check if the target made DNS/HTTP requests to it.\n" +
+                    "- Manage target scope -> burp_scope"
+                );
                 break;
                 
             case "initialized":

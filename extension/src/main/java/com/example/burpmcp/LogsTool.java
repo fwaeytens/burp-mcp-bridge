@@ -131,11 +131,16 @@ public class LogsTool implements McpTool {
         annotations.put("destructiveHint", true);   // CLEAR_LOGS removes data
         annotations.put("idempotentHint", false);
         annotations.put("openWorldHint", false);
+        annotations.put("title", "Extension Logs");
         tool.put("annotations", annotations);
-        
+
+        Map<String, Object> meta = new HashMap<>();
+        meta.put("anthropic/searchHint", "extension log debug error diagnostic");
+        tool.put("_meta", meta);
+
         Map<String, Object> inputSchema = new HashMap<>();
         Map<String, Object> properties = new HashMap<>();
-        
+
         Map<String, Object> actionProp = new HashMap<>();
         actionProp.put("type", "string");
         List<String> enumValues = Arrays.asList("GET_LOGS", "WRITE_LOG", "RAISE_EVENT", "CLEAR_LOGS");

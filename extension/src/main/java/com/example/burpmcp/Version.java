@@ -7,8 +7,8 @@ package com.example.burpmcp;
 public class Version {
     
     // Version components
-    public static final String VERSION = "2.2.0";
-    public static final String BUILD_DATE = "2026-03-20";
+    public static final String VERSION = "2.3.0";
+    public static final String BUILD_DATE = "2026-04-02";
     public static final String RELEASE_NAME = "Montoya API 2026.2";
 
     // Feature tracking
@@ -54,22 +54,20 @@ public class Version {
      * Get detailed changelog for this version.
      */
     public static String getChangelog() {
-        return "## Version 2.2.0 - Montoya API 2026.2 (2026-03-20)\n\n" +
-               "### 🔄 Montoya API Upgrade\n" +
-               "- ✅ **API VERSION**: Upgraded from Montoya API 2025.12 to 2026.2\n" +
-               "- ✅ **MIN BURP VERSION**: Now requires Burp Suite 2026.2+\n" +
-               "- ✅ **MAVEN CENTRAL**: Uses correct group ID net.portswigger.burp.extensions\n" +
+        return "## Version 2.3.0 - MCP SDK 1.29.0 (2026-04-02)\n\n" +
+               "### 🔄 MCP SDK Upgrade\n" +
+               "- ✅ **MCP SDK**: Upgraded from 0.6.0 to 1.29.0\n" +
+               "- ✅ **StreamableHTTP**: New transport available for modern MCP clients\n" +
                "\n" +
-               "### 🧹 Deprecated API Cleanup\n" +
-               "- ✅ **ProxyHistoryTool**: Replaced deprecated ProxyHttpRequestResponse convenience methods\n" +
-               "  - Uses finalRequest().url(), finalRequest().method(), finalRequest().httpService() etc.\n" +
-               "- ✅ **SiteMapAnalysisTool**: Replaced deprecated HttpRequestResponse convenience methods\n" +
-               "  - Uses request().url(), response().statusCode(), response().mimeType() etc.\n" +
-               "- ✅ **ZERO DEPRECATION WARNINGS**: Clean build against Montoya API 2026.2\n" +
+               "### 🤖 Agent Discovery Improvements\n" +
+               "- ✅ **SERVER INSTRUCTIONS**: initialize response includes usage rules for all MCP clients\n" +
+               "- ✅ **SEARCH HINTS**: All 22 tools have _meta/anthropic/searchHint for ToolSearch discovery\n" +
+               "- ✅ **ALWAYS LOAD**: burp_help and burp_custom_http marked as alwaysLoad (no deferral)\n" +
+               "- ✅ **TITLE IN ANNOTATIONS**: title in both top-level and annotations for all clients\n" +
                "\n" +
                "### 🔧 Bridge Improvements\n" +
-               "- ✅ **CONTENT-LENGTH AUTO-FIX**: Bridge auto-corrects Content-Length for burp_custom_http\n" +
-               "- ✅ **REMOVED OLD JAR**: Deleted bundled montoya-api-2025.12.jar (Maven Central used)\n" +
+               "- ✅ **RESULT TRUNCATION**: Prevents silent data loss at 95K char limit\n" +
+               "- ✅ **STRUCTURED CONTENT**: Drops structuredContent before text truncation\n" +
                "\n" +
                "## Version 2.0.5 - CustomHttpTool Fixes (2026-01-27)\n\n" +
                "### 🐛 Bug Fixes\n" +

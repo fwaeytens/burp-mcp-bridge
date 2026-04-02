@@ -40,11 +40,16 @@ public class UtilitiesTool implements McpTool {
         annotations.put("destructiveHint", true);   // shell_execute can modify system state
         annotations.put("idempotentHint", false);   // shell commands may have side effects
         annotations.put("openWorldHint", true);     // shell commands can access network
+        annotations.put("title", "Utilities");
         tool.put("annotations", annotations);
-        
+
+        Map<String, Object> meta = new HashMap<>();
+        meta.put("anthropic/searchHint", "encode decode hash URL base64 convert");
+        tool.put("_meta", meta);
+
         Map<String, Object> inputSchema = new HashMap<>();
         inputSchema.put("type", "object");
-        
+
         Map<String, Object> properties = new HashMap<>();
         
         properties.put("action", McpUtils.createEnumProperty("string",

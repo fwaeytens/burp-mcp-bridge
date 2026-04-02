@@ -43,11 +43,16 @@ public class ComparerTool implements McpTool {
         annotations.put("destructiveHint", false);
         annotations.put("idempotentHint", true);
         annotations.put("openWorldHint", false);
+        annotations.put("title", "Response Comparer");
         tool.put("annotations", annotations);
-        
+
+        Map<String, Object> meta = new HashMap<>();
+        meta.put("anthropic/searchHint", "diff compare two responses bytes words");
+        tool.put("_meta", meta);
+
         Map<String, Object> inputSchema = new HashMap<>();
         inputSchema.put("type", "object");
-        
+
         Map<String, Object> properties = new HashMap<>();
         
         Map<String, Object> actionProperty = new HashMap<>();

@@ -69,6 +69,57 @@ function fixContentLength(rawRequest) {
   return fixedHeaders + separator + body;
 }
 
+/**
+ * Truncate MCP tool results that exceed the size limit.
+ * Claude Code caps MCP results at 100,000 chars — anything beyond is silently dropped.
+ * We measure the full serialized size (content + structuredContent) and truncate to fit.
+ */
+const MAX_RESULT_CHARS = 95_000;
+
+function truncateResult(result) {
+  if (!result) return result;
+
+  // Measure total serialized size including structuredContent
+  const serialized = JSON.stringify(result);
+  if (serialized.length <= MAX_RESULT_CHARS) return result;
+
+  // Drop structuredContent first — it's a duplicate of the text content
+  const trimmed = { ...result };
+  delete trimmed.structuredContent;
+
+  // Re-check after dropping structuredContent
+  const afterDrop = JSON.stringify(trimmed);
+  if (afterDrop.length <= MAX_RESULT_CHARS) return trimmed;
+
+  // Still too large — truncate text content blocks
+  if (!Array.isArray(trimmed.content)) return trimmed;
+
+  let remaining = MAX_RESULT_CHARS;
+  const truncatedContent = [];
+
+  for (const block of trimmed.content) {
+    if (block.type === 'text' && typeof block.text === 'string') {
+      if (remaining <= 0) continue;
+      if (block.text.length <= remaining) {
+        truncatedContent.push(block);
+        remaining -= block.text.length;
+      } else {
+        truncatedContent.push({ ...block, text: block.text.slice(0, remaining) });
+        remaining = 0;
+      }
+    } else {
+      truncatedContent.push(block);
+    }
+  }
+
+  truncatedContent.push({
+    type: 'text',
+    text: `\n\n⚠️ Result truncated (${serialized.length.toLocaleString()} chars exceeded ${MAX_RESULT_CHARS.toLocaleString()} char limit). Use 'limit' parameter or narrower filters to reduce output size.`
+  });
+
+  return { ...trimmed, content: truncatedContent };
+}
+
 /** Parse integer envs safely with default; trims and handles empty strings. */
 function toInt(v, def) {
   const n = Number.parseInt(String(v ?? '').trim(), 10);
@@ -214,7 +265,7 @@ class BurpMcpBridge {
         }
 
         this.logDebug(`[${rid}] Tool ${toolName} completed successfully`);
-        return response.result;
+        return truncateResult(response.result);
       } catch (error) {
         this.logError(`[${rid}] Error calling tool ${toolName}: ${error.message}`);
         return {

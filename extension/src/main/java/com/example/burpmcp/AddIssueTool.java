@@ -47,11 +47,16 @@ public class AddIssueTool implements McpTool {
         annotations.put("destructiveHint", false);
         annotations.put("idempotentHint", false);
         annotations.put("openWorldHint", false);
+        annotations.put("title", "Create Issue");
         tool.put("annotations", annotations);
-        
+
+        Map<String, Object> meta = new HashMap<>();
+        meta.put("anthropic/searchHint", "create vulnerability finding report issue");
+        tool.put("_meta", meta);
+
         Map<String, Object> inputSchema = new HashMap<>();
         inputSchema.put("type", "object");
-        
+
         Map<String, Object> properties = new HashMap<>();
         
         // Issue type (for grouping)

@@ -90,11 +90,16 @@ public class ScannerTool implements McpTool {
         annotations.put("destructiveHint", false);
         annotations.put("idempotentHint", false);
         annotations.put("openWorldHint", true);
+        annotations.put("title", "Vulnerability Scanner");
         tool.put("annotations", annotations);
-        
+
+        Map<String, Object> meta = new HashMap<>();
+        meta.put("anthropic/searchHint", "scan vulnerabilities active passive crawl audit");
+        tool.put("_meta", meta);
+
         Map<String, Object> inputSchema = new HashMap<>();
         inputSchema.put("type", "object");
-        
+
         Map<String, Object> properties = new HashMap<>();
         
         // Action property

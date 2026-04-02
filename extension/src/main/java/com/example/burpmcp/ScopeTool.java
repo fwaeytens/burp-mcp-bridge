@@ -74,11 +74,16 @@ public class ScopeTool implements McpTool {
         annotations.put("destructiveHint", true);  // remove action modifies scope
         annotations.put("idempotentHint", false);  // add/remove changes state
         annotations.put("openWorldHint", false);
+        annotations.put("title", "Target Scope");
         tool.put("annotations", annotations);
-        
+
+        Map<String, Object> meta = new HashMap<>();
+        meta.put("anthropic/searchHint", "target scope include exclude URL");
+        tool.put("_meta", meta);
+
         Map<String, Object> inputSchema = new HashMap<>();
         inputSchema.put("type", "object");
-        
+
         Map<String, Object> properties = new HashMap<>();
         
         Map<String, Object> actionProperty = new HashMap<>();

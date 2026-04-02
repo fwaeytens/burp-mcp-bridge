@@ -62,11 +62,16 @@ public class CollaboratorTool implements McpTool {
         annotations.put("destructiveHint", true);   // CLEAR_INTERACTIONS removes data
         annotations.put("idempotentHint", false);
         annotations.put("openWorldHint", true);
+        annotations.put("title", "Collaborator (OOB)");
         tool.put("annotations", annotations);
-        
+
+        Map<String, Object> meta = new HashMap<>();
+        meta.put("anthropic/searchHint", "out-of-band OAST SSRF blind XXE DNS interaction");
+        tool.put("_meta", meta);
+
         Map<String, Object> inputSchema = new HashMap<>();
         inputSchema.put("type", "object");
-        
+
         Map<String, Object> properties = new HashMap<>();
         
         Map<String, Object> actionProperty = new HashMap<>();

@@ -78,11 +78,16 @@ public class AnnotateTool implements McpTool {
         annotations.put("destructiveHint", true);   // CLEAR_ANNOTATIONS removes data
         annotations.put("idempotentHint", false);
         annotations.put("openWorldHint", false);
+        annotations.put("title", "Annotations");
         tool.put("annotations", annotations);
-        
+
+        Map<String, Object> meta = new HashMap<>();
+        meta.put("anthropic/searchHint", "comment highlight color notes mark");
+        tool.put("_meta", meta);
+
         Map<String, Object> inputSchema = new HashMap<>();
         inputSchema.put("type", "object");
-        
+
         Map<String, Object> properties = new HashMap<>();
         
         // Action property

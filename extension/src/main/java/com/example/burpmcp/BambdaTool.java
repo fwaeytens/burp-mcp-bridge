@@ -111,11 +111,16 @@ public class BambdaTool implements McpTool {
         annotations.put("destructiveHint", false);
         annotations.put("idempotentHint", false);  // CREATE_CUSTOM modifies filter state
         annotations.put("openWorldHint", false);
+        annotations.put("title", "Bambda Filters");
         tool.put("annotations", annotations);
-        
+
+        Map<String, Object> meta = new HashMap<>();
+        meta.put("anthropic/searchHint", "advanced filter lambda expression Java");
+        tool.put("_meta", meta);
+
         Map<String, Object> inputSchema = new HashMap<>();
         inputSchema.put("type", "object");
-        
+
         Map<String, Object> properties = new HashMap<>();
         
         properties.put("action", McpUtils.createEnumProperty("string", "Bambda action to perform", SUPPORTED_ACTIONS));
