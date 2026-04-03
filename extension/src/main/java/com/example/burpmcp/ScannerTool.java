@@ -158,6 +158,24 @@ public class ScannerTool implements McpTool {
         insertionPointsProperty.put("type", "array");
         insertionPointsProperty.put("description", "Insertion point ranges [{start: int, end: int}]");
         properties.put("insertionPoints", insertionPointsProperty);
+
+        // Friendly insertion point helpers - auto-calculate byte offsets
+        Map<String, Object> insertionPointValuesProperty = new HashMap<>();
+        insertionPointValuesProperty.put("type", "array");
+        insertionPointValuesProperty.put("items", Map.of("type", "string"));
+        insertionPointValuesProperty.put("description",
+            "Values to scan in the request - auto-finds byte offsets. " +
+            "E.g. [\"admin\", \"secret\"] finds those strings in the request and creates insertion points for them.");
+        properties.put("insertionPointValues", insertionPointValuesProperty);
+
+        Map<String, Object> insertionPointParamsProperty = new HashMap<>();
+        insertionPointParamsProperty.put("type", "array");
+        insertionPointParamsProperty.put("items", Map.of("type", "string"));
+        insertionPointParamsProperty.put("description",
+            "Parameter names to scan - auto-finds their values and creates insertion points. " +
+            "Works with URL query params (name=value), form body params, and JSON values (\"name\": \"value\"). " +
+            "E.g. [\"username\", \"password\"] finds the values of those parameters.");
+        properties.put("insertionPointParams", insertionPointParamsProperty);
         
         // Report format
         Map<String, Object> formatProperty = new HashMap<>();
@@ -721,22 +739,15 @@ public class ScannerTool implements McpTool {
             try {
                 HttpRequest request = buildScanRequest(requestStr, arguments);
                 
-                // Check for insertion points
-                if (arguments.has("insertionPoints")) {
-                    List<Range> ranges = new ArrayList<>();
-                    JsonNode pointsNode = arguments.get("insertionPoints");
-                    
-                    for (JsonNode point : pointsNode) {
-                        int start = point.get("start").asInt();
-                        int end = point.get("end").asInt();
-                        ranges.add(Range.range(start, end));
-                    }
-                    
+                // Resolve insertion points from all sources
+                List<Range> ranges = resolveInsertionPoints(requestStr, arguments, result);
+
+                if (!ranges.isEmpty()) {
                     audit.addRequest(request, ranges);
-                    result.append("✅ Added request with ").append(ranges.size()).append(" insertion points\n");
+                    result.append("✅ Added request with ").append(ranges.size()).append(" insertion point(s)\n");
                 } else {
                     audit.addRequest(request);
-                    result.append("✅ Added request to scan\n");
+                    result.append("✅ Added request to scan (all parameters)\n");
                 }
             } catch (Exception e) {
                 return createErrorResponse("Failed to add request: " + e.getMessage());
@@ -1092,8 +1103,14 @@ public class ScannerTool implements McpTool {
             Audit audit = scanner.startAudit(auditConfig);
             activeAudits.put(scanId, audit);
             
-            // Add the specific request (without insertion points to scan all positions)
-            audit.addRequest(request);
+            // Resolve insertion points if specified
+            StringBuilder ipLog = new StringBuilder();
+            List<Range> ranges = resolveInsertionPoints(requestStr, arguments, ipLog);
+            if (!ranges.isEmpty()) {
+                audit.addRequest(request, ranges);
+            } else {
+                audit.addRequest(request);
+            }
             
             // Store metadata
             HttpService svc = request.httpService();
@@ -1117,6 +1134,10 @@ public class ScannerTool implements McpTool {
             result.append("• **Protocol:** ").append(svc.secure() ? "HTTPS" : "HTTP").append("\n");
             result.append("• **Method:** ").append(request.method()).append("\n");
             result.append("• **Path:** ").append(request.path()).append("\n");
+            result.append("• **Insertion Points Resolved:** ").append(ranges.size()).append("\n");
+            if (ipLog.length() > 0) {
+                result.append("\n**Insertion Points:**\n").append(ipLog);
+            }
             result.append("\n**Important:** This scan will ONLY test the specific request provided.\n");
             result.append("It will NOT follow links or spider to other pages.\n");
             result.append("\n**Next Steps:**\n");
@@ -1131,6 +1152,121 @@ public class ScannerTool implements McpTool {
         }
     }
     
+    /**
+     * Resolve insertion points from insertionPoints, insertionPointValues, and insertionPointParams.
+     * Returns a combined list of Range objects. Logs what was resolved to the result StringBuilder.
+     */
+    /**
+     * Get a JsonNode as an array, handling the case where the LLM sends a JSON string
+     * like "[\"category\"]" instead of an actual array ["category"].
+     */
+    private JsonNode getAsArray(JsonNode arguments, String fieldName) {
+        if (!arguments.has(fieldName)) return null;
+        JsonNode node = arguments.get(fieldName);
+        if (node.isArray()) return node;
+        // Try parsing string as JSON array
+        if (node.isTextual()) {
+            try {
+                JsonNode parsed = new com.fasterxml.jackson.databind.ObjectMapper().readTree(node.asText());
+                if (parsed.isArray()) return parsed;
+            } catch (Exception ignored) {}
+        }
+        return null;
+    }
+
+    private List<Range> resolveInsertionPoints(String requestStr, JsonNode arguments, StringBuilder result) {
+        List<Range> ranges = new ArrayList<>();
+
+        // 1. Explicit byte offset ranges
+        if (arguments.has("insertionPoints")) {
+            JsonNode pointsNode = arguments.get("insertionPoints");
+            for (JsonNode point : pointsNode) {
+                int start = point.get("start").asInt();
+                int end = point.get("end").asInt();
+                ranges.add(Range.range(start, end));
+            }
+        }
+
+        // Normalize request for searching (same normalization as buildScanRequest)
+        String normalized = requestStr.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\r\n");
+
+        // 2. Find insertion points by value strings
+        JsonNode valuesNode = getAsArray(arguments, "insertionPointValues");
+        if (valuesNode != null) {
+            for (JsonNode valueNode : valuesNode) {
+                String value = valueNode.asText();
+                int idx = normalized.indexOf(value);
+                if (idx >= 0) {
+                    ranges.add(Range.range(idx, idx + value.length()));
+                    result.append("📍 Insertion point for value \"").append(value)
+                          .append("\" at bytes ").append(idx).append("-").append(idx + value.length()).append("\n");
+                } else {
+                    result.append("⚠️ Value \"").append(value).append("\" not found in request\n");
+                }
+            }
+        }
+
+        // 3. Find insertion points by parameter name (URL query, form body, JSON)
+        JsonNode paramsNode = getAsArray(arguments, "insertionPointParams");
+        if (paramsNode != null) {
+            for (JsonNode paramNode : paramsNode) {
+                String paramName = paramNode.asText();
+                boolean found = false;
+
+                // Try URL query param: name=value (& or end-of-string terminated)
+                String queryPattern = paramName + "=";
+                int idx = normalized.indexOf(queryPattern);
+                while (idx >= 0 && !found) {
+                    int valueStart = idx + queryPattern.length();
+                    // Value ends at & or space or \r or end
+                    int valueEnd = valueStart;
+                    while (valueEnd < normalized.length()) {
+                        char c = normalized.charAt(valueEnd);
+                        if (c == '&' || c == ' ' || c == '\r' || c == '\n' || c == '#') break;
+                        valueEnd++;
+                    }
+                    if (valueEnd > valueStart) {
+                        ranges.add(Range.range(valueStart, valueEnd));
+                        String paramValue = normalized.substring(valueStart, valueEnd);
+                        result.append("📍 Insertion point for param \"").append(paramName)
+                              .append("\" = \"").append(paramValue)
+                              .append("\" at bytes ").append(valueStart).append("-").append(valueEnd).append("\n");
+                        found = true;
+                    }
+                    idx = normalized.indexOf(queryPattern, valueEnd);
+                }
+
+                // Try JSON: "name": "value" or "name":"value"
+                if (!found) {
+                    String jsonPattern1 = "\"" + paramName + "\":\"";
+                    String jsonPattern2 = "\"" + paramName + "\": \"";
+                    for (String jp : new String[]{jsonPattern1, jsonPattern2}) {
+                        idx = normalized.indexOf(jp);
+                        if (idx >= 0) {
+                            int valueStart = idx + jp.length();
+                            int valueEnd = normalized.indexOf("\"", valueStart);
+                            if (valueEnd > valueStart) {
+                                ranges.add(Range.range(valueStart, valueEnd));
+                                String paramValue = normalized.substring(valueStart, valueEnd);
+                                result.append("📍 Insertion point for JSON param \"").append(paramName)
+                                      .append("\" = \"").append(paramValue)
+                                      .append("\" at bytes ").append(valueStart).append("-").append(valueEnd).append("\n");
+                                found = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (!found) {
+                    result.append("⚠️ Parameter \"").append(paramName).append("\" not found in request\n");
+                }
+            }
+        }
+
+        return ranges;
+    }
+
     /**
      * Build an HttpRequest with a proper HttpService from a raw request string.
      * Parses host/port from the Host header if not provided as arguments.
