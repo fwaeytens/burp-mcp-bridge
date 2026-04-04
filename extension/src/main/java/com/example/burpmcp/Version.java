@@ -7,8 +7,8 @@ package com.example.burpmcp;
 public class Version {
     
     // Version components
-    public static final String VERSION = "2.3.0";
-    public static final String BUILD_DATE = "2026-04-02";
+    public static final String VERSION = "2.3.1";
+    public static final String BUILD_DATE = "2026-04-04";
     public static final String RELEASE_NAME = "Montoya API 2026.2";
 
     // Feature tracking
@@ -54,7 +54,18 @@ public class Version {
      * Get detailed changelog for this version.
      */
     public static String getChangelog() {
-        return "## Version 2.3.0 - MCP SDK 1.29.0 (2026-04-02)\n\n" +
+        return "## Version 2.3.1 - Scanner insertion points, collaborator logging (2026-04-04)\n\n" +
+               "### 🎯 Scanner Improvements\n" +
+               "- ✅ **insertionPointParams**: Scan specific parameters by name (auto-resolves byte offsets)\n" +
+               "- ✅ **insertionPointValues**: Scan specific values by string match\n" +
+               "- ✅ **getAsArray**: Handles LLMs sending arrays as JSON strings\n" +
+               "\n" +
+               "### 🔍 Collaborator Logging\n" +
+               "- ✅ **Client creation**: Logged to Extensions > Output on first use\n" +
+               "- ✅ **Payload generation**: Logged with payload string and ID\n" +
+               "- ✅ **Interactions**: Logged with type, client IP, and timestamp\n" +
+               "\n" +
+               "## Version 2.3.0 - MCP SDK 1.29.0 (2026-04-02)\n\n" +
                "### 🔄 MCP SDK Upgrade\n" +
                "- ✅ **MCP SDK**: Upgraded from 0.6.0 to 1.29.0\n" +
                "- ✅ **StreamableHTTP**: New transport available for modern MCP clients\n" +

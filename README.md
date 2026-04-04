@@ -1,6 +1,6 @@
 # Burp MCP Bridge
 
-[![Version](https://img.shields.io/badge/version-2.3.0-blue.svg)](https://github.com/fwaeytens/burp-mcp-bridge/releases)
+[![Version](https://img.shields.io/badge/version-2.3.1-blue.svg)](https://github.com/fwaeytens/burp-mcp-bridge/releases)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Java](https://img.shields.io/badge/java-17+-orange.svg)](https://www.oracle.com/java/)
 [![Burp Suite](https://img.shields.io/badge/Burp%20Suite-Professional%202026.2+-red.svg)](https://portswigger.net/burp)
@@ -96,7 +96,7 @@ mvn clean package
 1. **Start Burp Suite Professional** (must be running first)
 2. Go to **Extensions** → **Extensions** tab
 3. Click **Add** → Select **Extension type: Java**
-4. Choose `extension/target/burp-mcp-bridge-2.3.0.jar`
+4. Choose `extension/target/burp-mcp-bridge-2.3.1.jar`
 5. ✅ **VERIFY**: Look for these messages in the output:
    - "MCP Server listening on http://127.0.0.1:8081"
    - "=== Available MCP Tools ==="
@@ -434,7 +434,7 @@ await use_mcp_tool("burp-mcp-bridge", "burp_add_issue", {
 2. **"Unknown tool" errors**
    - ✅ Reload the extension in Burp
    - ✅ Check extension output for errors
-   - ✅ Verify version 2.3.0 is loaded
+   - ✅ Verify version 2.3.1 is loaded
 
 3. **Claude can't connect**
    - ✅ Check `.mcp.json` is in project root
@@ -513,4 +513,4 @@ MIT License - See [LICENSE](LICENSE) file for details
 
 ---
 
-**Current Version**: 2.3.0 | **Burp Suite**: 2026.2+ | **Tools**: 22 | **Status**: Production Ready with AI-Powered Anomaly Detection
+**Current Version**: 2.3.1 | **Burp Suite**: 2026.2+ | **Tools**: 22 | **Status**: Production Ready with AI-Powered Anomaly Detection
