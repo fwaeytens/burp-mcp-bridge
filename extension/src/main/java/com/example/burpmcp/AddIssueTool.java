@@ -225,74 +225,108 @@ public class AddIssueTool implements McpTool {
             // Determine the standard issue type for grouping (now with dynamic checking)
             String standardIssueType = determineStandardIssueType(issueType, specificName, url);
             
-            // Build the issue detail in Burp's native format (no headers, inline bold tags)
+            // Build the issue detail with proper HTML formatting.
+            // Burp's issue detail pane renders HTML — use paragraphs, lists, and code blocks.
             StringBuilder instanceDetail = new StringBuilder();
-            
-            // Format the main vulnerability description with parameter names in bold
-            String formattedDetail = detail;
+
+            // Vulnerability description
             if (!parameters.isEmpty()) {
-                // Make parameter names bold in the detail text
-                String[] paramNames = parameters.split(",\\s*");
-                for (String param : paramNames) {
-                    formattedDetail = formattedDetail.replaceAll(
-                        "\\b" + param.trim() + "\\b",
-                        "<b>" + param.trim() + "</b>"
-                    );
-                }
-                // Start with "The <b>parameter</b> parameter appears to be vulnerable..."
-                if (!formattedDetail.contains("<b>") && !formattedDetail.startsWith("The ")) {
-                    instanceDetail.append("The <b>").append(parameters).append("</b> parameter appears to be vulnerable to ")
-                                 .append(standardIssueType.toLowerCase()).append(". ");
-                }
+                instanceDetail.append("<p>The <b>").append(escapeHtml(parameters))
+                    .append("</b> parameter is vulnerable to ").append(escapeHtml(standardIssueType)).append(".</p>");
             }
-            
-            instanceDetail.append(formattedDetail);
-            
-            // Add payload information if provided
+            instanceDetail.append("<p>").append(escapeHtml(detail)).append("</p>");
+
+            // Payload
             if (!payload.isEmpty()) {
-                instanceDetail.append("<br><br>The payload <b>").append(escapeHtml(payload))
-                             .append("</b> was submitted in the ").append(!parameters.isEmpty() ? parameters : "request")
-                             .append(" parameter.");
+                instanceDetail.append("<p><b>Payload:</b></p>");
+                instanceDetail.append("<pre>").append(escapeHtml(payload)).append("</pre>");
             }
-            
-            // Add evidence inline with bold tags for payloads/values
+
+            // Evidence
             if (!evidence.isEmpty()) {
-                instanceDetail.append("<br><br>");
-                
-                // Format evidence - look for payloads or specific values
-                String formattedEvidence = evidence;
-                // Try to identify and bold any code/payload-like content
-                if (evidence.contains("payload") || evidence.contains("Payload")) {
-                    formattedEvidence = evidence.replaceAll(
-                        "payload[:\\s]+([^\\s<]+)",
-                        "payload <b>$1</b>"
-                    );
-                } else if (evidence.contains(":")) {
-                    // Bold values after colons for key:value pairs
-                    formattedEvidence = evidence.replaceAll(
-                        ":\\s*([^,\\n]+)",
-                        ": <b>$1</b>"
-                    );
+                instanceDetail.append("<p><b>Evidence:</b></p>");
+                // Check if evidence looks like it has line-separated items
+                String[] evidenceLines = evidence.split("\n");
+                if (evidenceLines.length > 2) {
+                    instanceDetail.append("<ul>");
+                    for (String line : evidenceLines) {
+                        String trimmed = line.trim();
+                        if (!trimmed.isEmpty()) {
+                            instanceDetail.append("<li>").append(escapeHtml(trimmed)).append("</li>");
+                        }
+                    }
+                    instanceDetail.append("</ul>");
+                } else {
+                    instanceDetail.append("<p>").append(escapeHtml(evidence).replace("\n", "<br>")).append("</p>");
                 }
-                instanceDetail.append(formattedEvidence);
             }
-            
-            // If specific instance name differs from type, append it
+
+            // Specific instance name if different from type
             if (!specificName.isEmpty() && !specificName.equalsIgnoreCase(standardIssueType)) {
-                instanceDetail.append("<br><br>").append(specificName);
+                instanceDetail.append("<p><b>Instance:</b> ").append(escapeHtml(specificName)).append("</p>");
             }
-            
-            // Use AI-provided remediation or generic fallback
-            String finalRemediation = !remediation.isEmpty() ? remediation :
-                "The AI agent did not provide specific remediation. Please review the vulnerability and implement appropriate fixes.";
 
-            // Use AI-provided background or generic fallback
-            String background = !backgroundParam.isEmpty() ? backgroundParam :
-                "The AI agent did not provide specific background information for this vulnerability.";
+            // Remediation
+            String finalRemediation;
+            if (!remediation.isEmpty()) {
+                // Format remediation with proper HTML
+                String[] remLines = remediation.split("\n");
+                if (remLines.length > 1) {
+                    StringBuilder remHtml = new StringBuilder("<ul>");
+                    for (String line : remLines) {
+                        String trimmed = line.trim();
+                        if (!trimmed.isEmpty()) {
+                            // Strip leading bullet chars
+                            trimmed = trimmed.replaceFirst("^[-*•]\\s*", "");
+                            remHtml.append("<li>").append(escapeHtml(trimmed)).append("</li>");
+                        }
+                    }
+                    remHtml.append("</ul>");
+                    finalRemediation = remHtml.toString();
+                } else {
+                    finalRemediation = "<p>" + escapeHtml(remediation) + "</p>";
+                }
+            } else {
+                finalRemediation = "<p>Review the vulnerability and implement appropriate fixes.</p>";
+            }
 
-            // Add references if provided
+            // Background
+            String background;
+            if (!backgroundParam.isEmpty()) {
+                background = "<p>" + escapeHtml(backgroundParam) + "</p>";
+            } else {
+                background = "";
+            }
+
+            // References
             if (!references.isEmpty()) {
-                background += "<br><br><b>References:</b><br>" + escapeHtml(references).replace("\n", "<br>");
+                StringBuilder refsHtml = new StringBuilder("<p><b>References:</b></p><ul>");
+                for (String line : references.split("\n")) {
+                    String trimmed = line.trim();
+                    if (trimmed.isEmpty()) continue;
+                    // Extract URL from line (if present) — URL ends at whitespace or end-of-string
+                    java.util.regex.Matcher urlMatcher = java.util.regex.Pattern
+                        .compile("(https?://[^\\s]+)").matcher(trimmed);
+                    if (urlMatcher.find()) {
+                        String href = urlMatcher.group(1);
+                        String textBefore = trimmed.substring(0, urlMatcher.start()).trim();
+                        String textAfter = trimmed.substring(urlMatcher.end()).trim();
+                        refsHtml.append("<li>");
+                        if (!textBefore.isEmpty()) {
+                            refsHtml.append(escapeHtml(textBefore)).append(" ");
+                        }
+                        refsHtml.append("<a href=\"").append(escapeHtml(href)).append("\">")
+                            .append(escapeHtml(href)).append("</a>");
+                        if (!textAfter.isEmpty()) {
+                            refsHtml.append(" ").append(escapeHtml(textAfter));
+                        }
+                        refsHtml.append("</li>");
+                    } else {
+                        refsHtml.append("<li>").append(escapeHtml(trimmed)).append("</li>");
+                    }
+                }
+                refsHtml.append("</ul>");
+                background += refsHtml.toString();
             }
             
             // Create proof-of-concept request/response pairs
@@ -383,7 +417,16 @@ public class AddIssueTool implements McpTool {
         // Normalize the issue type
         String normalizedType = normalizeIssueType(issueType, specificName);
 
-        // Try to find an existing issue group to add to
+        // If the user explicitly provided an issueType, use it as-is.
+        // Don't fuzzy-match to existing scanner findings — this causes
+        // "SQL injection" to get remapped to "SQL statement in request parameter" etc.
+        if (issueType != null && !issueType.trim().isEmpty()) {
+            api.logging().logToOutput(String.format(
+                "Using explicit issue type '%s'", normalizedType));
+            return normalizedType;
+        }
+
+        // Only try to find an existing group when no explicit type was provided
         String existingGroup = findExistingIssueGroup(normalizedType, url);
         if (existingGroup != null) {
             api.logging().logToOutput(String.format(
@@ -742,6 +785,45 @@ public class AddIssueTool implements McpTool {
         return findInProxyHistory(url, requestData, null);
     }
 
+    /**
+     * Find a matching request/response in the Site Map (where burp_custom_http requests go).
+     * Uses SiteMapFilter.prefixFilter for efficient lookup.
+     */
+    private HttpRequestResponse findInSiteMap(String targetUrl, String rawRequest) {
+        try {
+            // Use prefix filter to narrow the search
+            String prefix = targetUrl;
+            int queryIdx = prefix.indexOf('?');
+            if (queryIdx > 0) {
+                prefix = prefix.substring(0, queryIdx);
+            }
+
+            List<HttpRequestResponse> entries = api.siteMap().requestResponses(
+                burp.api.montoya.sitemap.SiteMapFilter.prefixFilter(prefix));
+
+            // Find best match
+            for (HttpRequestResponse entry : entries) {
+                if (entry.response() == null) continue;
+                try {
+                    String entryUrl = entry.request().url();
+                    if (entryUrl.equals(targetUrl)) {
+                        return entry;
+                    }
+                } catch (Exception ignored) {}
+            }
+
+            // Fallback: partial URL match
+            for (HttpRequestResponse entry : entries) {
+                if (entry.response() != null) {
+                    return entry;
+                }
+            }
+        } catch (Exception e) {
+            api.logging().logToOutput("Error searching Site Map: " + e.getMessage());
+        }
+        return null;
+    }
+
     private static class HostPort {
         String host;
         Integer port;
@@ -799,11 +881,21 @@ public class AddIssueTool implements McpTool {
                 continue;
             }
 
+            // Try proxy history first
             ProxyHttpRequestResponse proxyEntry = findInProxyHistory(request.url(), rawRequest);
             if (proxyEntry != null) {
                 pairs.add(HttpRequestResponse.httpRequestResponse(proxyEntry.finalRequest(), proxyEntry.response()));
             } else {
-                api.logging().logToOutput("Could not find matching response for evidence request; skipping");
+                // Not in proxy history — try the Site Map (where burp_custom_http requests go)
+                HttpRequestResponse siteMapEntry = findInSiteMap(request.url(), rawRequest);
+                if (siteMapEntry != null) {
+                    pairs.add(siteMapEntry);
+                    api.logging().logToOutput("Using request/response from Site Map");
+                } else {
+                    // Last resort: add request without response rather than replaying
+                    pairs.add(HttpRequestResponse.httpRequestResponse(request, HttpResponse.httpResponse("HTTP/1.1 0 No Response Captured\r\n\r\n")));
+                    api.logging().logToOutput("No matching response found in proxy history or Site Map; added request without response");
+                }
             }
         }
 

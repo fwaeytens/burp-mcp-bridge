@@ -293,8 +293,12 @@ public class CollaboratorTool implements McpTool {
 
             if (!interactions.isEmpty()) {
                 for (Interaction ix : interactions) {
+                    String clientAddr = "unknown";
+                    try {
+                        if (ix.clientIp() != null) clientAddr = ix.clientIp().getHostAddress();
+                    } catch (Exception ignored) {}
                     api.logging().logToOutput("[Collaborator] Interaction detected: " + ix.type()
-                        + " from " + ix.clientIp().getHostAddress()
+                        + " from " + clientAddr
                         + " at " + ix.timeStamp()
                         + " (ID: " + ix.id() + ")");
                 }
@@ -672,8 +676,12 @@ public class CollaboratorTool implements McpTool {
             result.append("**Total Matching:** ").append(interactions.size()).append("\n\n");
 
             for (Interaction ix : interactions) {
+                String clientAddr = "unknown";
+                try {
+                    if (ix.clientIp() != null) clientAddr = ix.clientIp().getHostAddress();
+                } catch (Exception ignored) {}
                 api.logging().logToOutput("[Collaborator] Filtered interaction: " + ix.type()
-                    + " from " + ix.clientIp().getHostAddress()
+                    + " from " + clientAddr
                     + " at " + ix.timeStamp()
                     + " (ID: " + ix.id() + ")");
             }
