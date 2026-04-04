@@ -24,6 +24,7 @@ import java.net.InetAddress;
 public class CollaboratorTool implements McpTool {
     private final MontoyaApi api;
     private CollaboratorClient collaboratorClient;
+    private boolean clientLogged = false;
     private static final List<String> SUPPORTED_ACTIONS = List.of(
         "GENERATE_PAYLOAD",
         "CHECK_INTERACTIONS",
@@ -139,6 +140,12 @@ public class CollaboratorTool implements McpTool {
 
         String action = actionResolution.getAction();
         
+        // Log client info on first use
+        if (!clientLogged && collaboratorClient != null) {
+            clientLogged = true;
+            api.logging().logToOutput("[Collaborator] Client active. Server: " + collaboratorClient.server().address());
+        }
+
         // Check if Collaborator is available
         if (collaboratorClient == null) {
             Map<String, Object> errorResult = new HashMap<>();
@@ -228,7 +235,8 @@ public class CollaboratorTool implements McpTool {
                 
                 payloadInfo.put("payload", payloadString);
                 payloadInfo.put("id", payload.id().toString());
-                
+                api.logging().logToOutput("[Collaborator] Generated payload: " + payloadString + " (ID: " + payload.id() + ")");
+
                 // Get server info if available
                 Optional<CollaboratorServer> server = payload.server();
                 if (server.isPresent()) {
@@ -282,7 +290,16 @@ public class CollaboratorTool implements McpTool {
             
             result.append("**Total Interactions:** ").append(interactions.size()).append("\n");
             result.append("**Filter:** ").append(interactionType).append("\n\n");
-            
+
+            if (!interactions.isEmpty()) {
+                for (Interaction ix : interactions) {
+                    api.logging().logToOutput("[Collaborator] Interaction detected: " + ix.type()
+                        + " from " + ix.clientIp().getHostAddress()
+                        + " at " + ix.timeStamp()
+                        + " (ID: " + ix.id() + ")");
+                }
+            }
+
             if (interactions.isEmpty()) {
                 result.append("ℹ️ No interactions found. Payloads may not have been triggered yet.\n\n");
                 result.append("💡 **Troubleshooting:**\n");
@@ -653,7 +670,14 @@ public class CollaboratorTool implements McpTool {
             }
             
             result.append("**Total Matching:** ").append(interactions.size()).append("\n\n");
-            
+
+            for (Interaction ix : interactions) {
+                api.logging().logToOutput("[Collaborator] Filtered interaction: " + ix.type()
+                    + " from " + ix.clientIp().getHostAddress()
+                    + " at " + ix.timeStamp()
+                    + " (ID: " + ix.id() + ")");
+            }
+
             if (interactions.isEmpty()) {
                 result.append("ℹ️ No matching interactions found.\n");
             } else {

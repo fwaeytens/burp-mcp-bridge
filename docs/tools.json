@@ -494,7 +494,7 @@
       "name": "burp_scanner",
       "title": "Vulnerability Scanner",
       "category": "Scanning & Analysis",
-      "description": "Comprehensive vulnerability scanner and crawler with full automation. Use this to scan targets for security vulnerabilities, discover content via crawling, and retrieve scan results. Actions: START_SCAN (scan with optional crawl), CRAWL_ONLY (content discovery), GET_STATUS (check progress), GET_ISSUES (retrieve vulnerabilities), CANCEL_SCAN, LIST_SCANS, GENERATE_REPORT. Supports authenticated scanning via headers/cookies parameters. Use insertionPoints for targeted parameter testing.",
+      "description": "Comprehensive vulnerability scanner and crawler with full automation. Use this to scan targets for security vulnerabilities, discover content via crawling, and retrieve scan results. Actions: START_SCAN (scan with optional crawl), CRAWL_ONLY (content discovery), GET_STATUS (check progress), GET_ISSUES (retrieve vulnerabilities), CANCEL_SCAN, LIST_SCANS, GENERATE_REPORT. Supports authenticated scanning via headers/cookies parameters. For targeted scanning use insertionPointParams (by parameter name) or insertionPointValues (by value string) to scan only specific insertion points, like Burp UI's 'Scan selected insertion point'.",
       "inputSchema": {
         "type": "object",
         "properties": {

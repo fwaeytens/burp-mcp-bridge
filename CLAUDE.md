@@ -91,13 +91,29 @@ await use_mcp_tool("burp-mcp-bridge", "burp_repeater", {...}); // ❌
 **Line endings**: Both `\n` and `\r\n` work (auto-normalized to CRLF).
 **Content-Length**: Automatically calculated — no need to specify it accurately.
 
-### Scanning with Targeted Parameters
+### Scanning with Targeted Parameters (Scan Selected Insertion Points)
 ```javascript
-// Scan only specific parameter (like UI's "scan selected insertion points")
+// By parameter name (PREFERRED - auto-finds byte offsets)
+await use_mcp_tool("burp-mcp-bridge", "burp_scanner", {
+  "action": "SCAN_SPECIFIC_REQUEST",
+  "request": "POST /login HTTP/1.1\r\nHost: target.com:443\r\n\r\nusername=admin&password=secret",
+  "useHttps": true,
+  "insertionPointParams": ["username", "password"]  // Scans only these parameters
+});
+
+// By value string (finds the value anywhere in the request)
+await use_mcp_tool("burp-mcp-bridge", "burp_scanner", {
+  "action": "SCAN_SPECIFIC_REQUEST",
+  "request": "GET /api?token=abc123 HTTP/1.1\r\nHost: target.com:443\r\n\r\n",
+  "useHttps": true,
+  "insertionPointValues": ["abc123"]  // Scans only this value
+});
+
+// By byte offsets (manual - only if you need exact control)
 await use_mcp_tool("burp-mcp-bridge", "burp_scanner", {
   "action": "ADD_TO_SCAN",
   "request": "POST /login HTTP/1.1\r\n...",
-  "insertionPoints": [{"start": 50, "end": 55}] // Just username value
+  "insertionPoints": [{"start": 50, "end": 55}]
 });
 ```
 
@@ -134,7 +150,7 @@ await use_mcp_tool("burp-mcp-bridge", "burp_help", {
 
 1. Use `burp_custom_http` for ALL HTTP sending operations
 2. Start with PASSIVE scans before ACTIVE
-3. Use `insertionPoints` for targeted scanning
+3. Use `insertionPointParams` or `insertionPointValues` for targeted scanning (like "Scan selected insertion point" in Burp UI)
 4. Filter proxy history queries to reduce data
 5. Monitor async operations with status tools
 

@@ -335,7 +335,8 @@ public class McpServer {
                     "4. LINE ENDINGS: Both \\n and \\r\\n work (auto-normalized to CRLF).\n\n" +
                     "5. PARALLEL REQUESTS: Use burp_custom_http SEND_PARALLEL with 'requests' array (not 'request' + 'count').\n\n" +
                     "6. DISCOVERY: Use burp_help to list tools or search by capability before starting.\n\n" +
-                    "7. SCANNING: Always use burp_scanner GET_STATUS to check scan progress after starting a scan.\n\n" +
+                    "7. SCANNING: Always use burp_scanner GET_STATUS to check scan progress after starting a scan. " +
+                    "Use insertionPointParams to scan specific parameters by name (like Burp UI's 'Scan selected insertion point').\n\n" +
                     "8. VISIBILITY: burp_custom_http requests appear in the Target tab (Site Map), NOT in Proxy History. " +
                     "Proxy History only contains traffic that flowed through the proxy (browser requests).\n\n" +
                     "Tool quick reference:\n" +

@@ -82,7 +82,9 @@ public class ScannerTool implements McpTool {
             "Actions: START_SCAN (scan with optional crawl), CRAWL_ONLY (content discovery), GET_STATUS (check progress), " +
             "GET_ISSUES (retrieve vulnerabilities), CANCEL_SCAN, LIST_SCANS, ADD_TO_SCAN, GENERATE_REPORT, " +
             "IMPORT_BCHECK (custom checks), CLEAR_ISSUES, SCAN_SPECIFIC_REQUEST, SCAN_METRICS, FILTER_ISSUES. " +
-            "Supports authenticated scanning via headers/cookies parameters. Use insertionPoints for targeted parameter testing.");
+            "Supports authenticated scanning via headers/cookies parameters. " +
+            "For targeted scanning use insertionPointParams (by parameter name) or insertionPointValues (by value string) " +
+            "to scan only specific insertion points, like Burp UI's 'Scan selected insertion point'.");
 
         // MCP 2025-06-18 annotations
         Map<String, Object> annotations = new HashMap<>();

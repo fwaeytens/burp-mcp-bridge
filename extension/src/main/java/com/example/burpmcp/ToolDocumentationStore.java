@@ -514,12 +514,32 @@ public class ToolDocumentationStore {
                     "input", Map.of("action", "GET_ISSUES"),
                     "output", Map.of("issues", "array of vulnerabilities"),
                     "explanation", "Retrieve all vulnerabilities found by scanner"
+                ),
+                Map.of(
+                    "title", "Scan specific parameter (like 'Scan selected insertion point')",
+                    "input", Map.of("action", "SCAN_SPECIFIC_REQUEST",
+                        "request", "GET /search?q=test HTTP/1.1\\r\\nHost: target.com:443\\r\\n\\r\\n",
+                        "useHttps", true,
+                        "insertionPointParams", List.of("q")),
+                    "output", Map.of("scanId", "scan_456", "insertionPoints", 1),
+                    "explanation", "Scans only the 'q' parameter, auto-resolving byte offsets"
+                ),
+                Map.of(
+                    "title", "Scan specific value in request",
+                    "input", Map.of("action", "SCAN_SPECIFIC_REQUEST",
+                        "request", "GET /api?token=abc123 HTTP/1.1\\r\\nHost: target.com:443\\r\\n\\r\\n",
+                        "useHttps", true,
+                        "insertionPointValues", List.of("abc123")),
+                    "output", Map.of("scanId", "scan_789", "insertionPoints", 1),
+                    "explanation", "Finds 'abc123' in the request and scans only that position"
                 )
             ),
             List.of(
                 "Start with PASSIVE mode before ACTIVE to avoid disruption",
                 "Use GET_STATUS to monitor scan progress",
-                "Filter issues by severity with FILTER_ISSUES action"
+                "Filter issues by severity with FILTER_ISSUES action",
+                "Use insertionPointParams to scan specific parameters by name (preferred over manual byte offsets)",
+                "Use insertionPointValues to scan specific values found anywhere in the request"
             ));
 
         // burp_proxy_history with examples
