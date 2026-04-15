@@ -224,7 +224,7 @@ public class SiteMapAnalysisTool implements McpTool {
             if (target != null) {
                 result.put("target", target);
             }
-            result.put("montoyaApiVersion", "2025.8");
+            result.put("montoyaApiVersion", Version.MONTOYA_API_VERSION);
             result.put("enhancedFeatures", true);
             
             switch (action) {

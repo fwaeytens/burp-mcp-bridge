@@ -368,7 +368,7 @@ public class AnnotateTool implements McpTool {
                                         targetEntry != null ? targetEntry.request().url() : null);
         } catch (NoSuchMethodError e) {
             result.append("⚠️ **Note:** Organizer annotation is not yet fully implemented in this version of Burp Suite.\n");
-            result.append("The Montoya API 2025.8 defines the items() method, but it's not available at runtime.\n");
+            result.append("The Montoya API defines the items() method, but it's not available at runtime.\n");
             return McpUtils.createSuccessResponse(result.toString());
         }
     }

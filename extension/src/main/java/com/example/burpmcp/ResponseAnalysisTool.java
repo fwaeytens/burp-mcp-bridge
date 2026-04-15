@@ -637,7 +637,7 @@ public class ResponseAnalysisTool implements McpTool {
                 rankingUtils = api.utilities().rankingUtils();
             } catch (NoSuchMethodError e) {
                 return McpUtils.createErrorResponse("rank_anomalies is not supported in this version of Burp Suite. " +
-                    "This feature requires Burp Suite 2025.11 or later with rankingUtils() API support.");
+                    "This feature requires Burp Suite " + Version.MIN_BURP_VERSION + " or later with rankingUtils() API support.");
             }
 
             // Get proxy history responses
@@ -762,7 +762,7 @@ public class ResponseAnalysisTool implements McpTool {
             api.logging().logToError("Anomaly ranking failed: " + e.getMessage());
             e.printStackTrace();
             return McpUtils.createErrorResponse("Failed to rank responses: " + e.getMessage() +
-                ". Ensure Burp Suite 2025.10+ is installed for RankingUtils support.");
+                ". Ensure Burp Suite " + Version.MIN_BURP_VERSION + "+ is installed for RankingUtils support.");
         }
     }
 

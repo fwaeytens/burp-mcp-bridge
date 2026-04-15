@@ -107,7 +107,7 @@ public class UtilitiesTool implements McpTool {
         properties.put("useRegex", McpUtils.createProperty("boolean",
             "Whether searchPattern is a regex", false));
 
-        // Shell execution parameters (NEW in Montoya 2025.12)
+        // Shell execution parameters
         properties.put("command", McpUtils.createProperty("string",
             "Shell command to execute (for shell_execute/shell_execute_dangerous)"));
 
@@ -834,7 +834,7 @@ public class UtilitiesTool implements McpTool {
     }
 
     /**
-     * Execute shell commands using Montoya 2025.12 ShellUtils API.
+     * Execute shell commands using the Montoya ShellUtils API.
      *
      * @param arguments JSON arguments containing command and options
      * @param dangerous If true, use dangerouslyExecute (splits on whitespace - injection risk)
@@ -869,7 +869,7 @@ public class UtilitiesTool implements McpTool {
                 shellUtils = api.utilities().shellUtils();
             } catch (NoSuchMethodError e) {
                 return McpUtils.createErrorResponse(
-                    "Shell execution requires Burp Suite 2025.12 or later with shellUtils() API support.");
+                    "Shell execution requires Burp Suite " + Version.MIN_BURP_VERSION + " or later with shellUtils() API support.");
             }
 
             // Build execution options

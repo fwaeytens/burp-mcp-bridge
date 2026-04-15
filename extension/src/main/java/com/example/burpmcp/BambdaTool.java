@@ -422,7 +422,7 @@ public class BambdaTool implements McpTool {
         
         // Document the Montoya API limitation
         result.append("⚠️ **Montoya API Limitation:**\n");
-        result.append("The Bambda interface in Montoya API 2025.8 only provides:\n");
+        result.append("The Bambda interface in the Montoya API only provides:\n");
         result.append("  • `importBambda(String script)` - To import/apply a Bambda\n\n");
         
         result.append("**Not Available via API:**\n");
