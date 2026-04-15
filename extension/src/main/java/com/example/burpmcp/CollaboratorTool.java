@@ -123,7 +123,13 @@ public class CollaboratorTool implements McpTool {
         secretKeyProperty.put("type", "string");
         secretKeyProperty.put("description", "Secret key for restoring a collaborator client session");
         properties.put("secretKey", secretKeyProperty);
-        
+
+        Map<String, Object> verboseProperty = new HashMap<>();
+        verboseProperty.put("type", "boolean");
+        verboseProperty.put("default", false);
+        verboseProperty.put("description", "Return decorated markdown (for human debugging). Default returns compact JSON.");
+        properties.put("verbose", verboseProperty);
+
         inputSchema.put("properties", properties);
         inputSchema.put("required", List.of("action"));
         
@@ -164,15 +170,15 @@ public class CollaboratorTool implements McpTool {
                 case "CHECK_INTERACTIONS":
                     return checkInteractions(arguments, result);
                 case "LIST_PAYLOADS":
-                    return listPayloads(result);
+                    return listPayloads(arguments, result);
                 case "CLEAR_INTERACTIONS":
-                    return clearInteractions(result);
+                    return clearInteractions(arguments, result);
                 case "STATUS":
-                    return getStatus(result);
+                    return getStatus(arguments, result);
                 case "GET_SECRET_KEY":
-                    return getSecretKey(result);
+                    return getSecretKey(arguments, result);
                 case "SERVER_INFO":
-                    return getServerInfo(result);
+                    return getServerInfo(arguments, result);
                 case "GENERATE_WITH_CUSTOM_DATA":
                     return generatePayloadWithCustomData(arguments, result);
                 case "FILTER_INTERACTIONS":
@@ -247,10 +253,20 @@ public class CollaboratorTool implements McpTool {
                 payloads.add(payloadInfo);
             }
             
+            // Compact JSON by default
+            if (!McpUtils.isVerbose(arguments)) {
+                Map<String, Object> data = new HashMap<>();
+                data.put("payloadType", payloadType.toUpperCase());
+                data.put("count", count);
+                data.put("includeServerLocation", includeServer);
+                data.put("payloads", payloads);
+                return McpUtils.createJsonResponse(data);
+            }
+
             result.append("**Payload Type:** ").append(payloadType.toUpperCase()).append("\n");
             result.append("**Count:** ").append(count).append("\n");
             result.append("**Server Location:** ").append(includeServer ? "Included" : "Excluded").append("\n\n");
-            
+
             result.append("**Generated Payloads:**\n");
             for (int i = 0; i < payloads.size(); i++) {
                 Map<String, String> info = payloads.get(i);
@@ -261,48 +277,81 @@ public class CollaboratorTool implements McpTool {
                           .append(" (Literal: ").append(info.get("isLiteral")).append(")\n");
                 }
             }
-            
+
             result.append("\n💡 **Usage Tips:**\n");
             result.append("• Insert these payloads into vulnerable parameters\n");
             result.append("• Wait for the application to trigger out-of-band requests\n");
             result.append("• Use 'CHECK_INTERACTIONS' to monitor for callbacks\n");
             result.append("• Look for DNS, HTTP, or SMTP interactions\n");
             result.append("• Use payload IDs to track specific payloads\n");
-            
+
         } catch (Exception e) {
             result.append("❌ Error generating payloads: ").append(e.getMessage()).append("\n");
         }
-        
+
         Map<String, Object> resultMap = new HashMap<>();
         resultMap.put("type", "text");
         resultMap.put("text", result.toString());
-        
+
         return List.of(resultMap);
     }
     
     private Object checkInteractions(JsonNode arguments, StringBuilder result) {
         result.append("🔍 **COLLABORATOR INTERACTIONS**\n\n");
-        
+
         String interactionType = arguments.has("interactionType") ? arguments.get("interactionType").asText() : "ALL";
-        
+
         try {
             List<Interaction> interactions = collaboratorClient.getAllInteractions();
-            
-            result.append("**Total Interactions:** ").append(interactions.size()).append("\n");
-            result.append("**Filter:** ").append(interactionType).append("\n\n");
 
-            if (!interactions.isEmpty()) {
-                for (Interaction ix : interactions) {
-                    String clientAddr = "unknown";
-                    try {
-                        if (ix.clientIp() != null) clientAddr = ix.clientIp().getHostAddress();
-                    } catch (Exception ignored) {}
-                    api.logging().logToOutput("[Collaborator] Interaction detected: " + ix.type()
-                        + " from " + clientAddr
-                        + " at " + ix.timeStamp()
-                        + " (ID: " + ix.id() + ")");
+            // Always log to Burp output
+            for (Interaction ix : interactions) {
+                String clientAddr = "unknown";
+                try {
+                    if (ix.clientIp() != null) clientAddr = ix.clientIp().getHostAddress();
+                } catch (Exception ignored) {}
+                api.logging().logToOutput("[Collaborator] Interaction detected: " + ix.type()
+                    + " from " + clientAddr
+                    + " at " + ix.timeStamp()
+                    + " (ID: " + ix.id() + ")");
+            }
+
+            // Filter by type
+            List<Interaction> filteredList = new ArrayList<>();
+            for (Interaction interaction : interactions) {
+                if (interactionType.equals("ALL") ||
+                    interaction.type().toString().equalsIgnoreCase(interactionType)) {
+                    filteredList.add(interaction);
                 }
             }
+
+            // Compact JSON by default
+            if (!McpUtils.isVerbose(arguments)) {
+                List<Map<String, Object>> jsonInteractions = new ArrayList<>();
+                for (Interaction ix : filteredList) {
+                    Map<String, Object> e = new HashMap<>();
+                    e.put("id", ix.id().toString());
+                    e.put("type", ix.type().toString());
+                    e.put("timestamp", ix.timeStamp().toString());
+                    try {
+                        if (ix.clientIp() != null) e.put("clientIp", ix.clientIp().getHostAddress());
+                    } catch (Exception ignored) {}
+                    try {
+                        e.put("clientPort", ix.clientPort());
+                    } catch (Exception ignored) {}
+                    ix.customData().ifPresent(cd -> e.put("customData", cd));
+                    jsonInteractions.add(e);
+                }
+                Map<String, Object> data = new HashMap<>();
+                data.put("totalInteractions", interactions.size());
+                data.put("filter", interactionType);
+                data.put("matchingCount", filteredList.size());
+                data.put("interactions", jsonInteractions);
+                return McpUtils.createJsonResponse(data);
+            }
+
+            result.append("**Total Interactions:** ").append(interactions.size()).append("\n");
+            result.append("**Filter:** ").append(interactionType).append("\n\n");
 
             if (interactions.isEmpty()) {
                 result.append("ℹ️ No interactions found. Payloads may not have been triggered yet.\n\n");
@@ -398,177 +447,157 @@ public class CollaboratorTool implements McpTool {
         return List.of(resultMap);
     }
     
-    private Object listPayloads(StringBuilder result) {
-        result.append("📋 **COLLABORATOR PAYLOAD TYPES**\n\n");
-        
-        result.append("**Available Payload Types:**\n\n");
-        
-        result.append("**1. HOSTNAME**\n");
-        result.append("• Format: `abc123.collaborator.net`\n");
-        result.append("• Use for: DNS lookups, hostname injection\n");
-        result.append("• Example: `nslookup abc123.collaborator.net`\n\n");
-        
-        result.append("**2. HTTP_URL**\n");
-        result.append("• Format: `http://abc123.collaborator.net`\n");
-        result.append("• Use for: HTTP requests, URL injection\n");
-        result.append("• Example: `curl http://abc123.collaborator.net`\n\n");
-        
-        result.append("**3. HTTPS_URL**\n");
-        result.append("• Format: `https://abc123.collaborator.net`\n");
-        result.append("• Use for: HTTPS requests, secure URL injection\n");
-        result.append("• Example: `wget https://abc123.collaborator.net`\n\n");
-        
-        result.append("**4. EMAIL**\n");
-        result.append("• Format: `test@abc123.collaborator.net`\n");
-        result.append("• Use for: Email injection, SMTP testing\n");
-        result.append("• Example: Contact form with email field\n\n");
-        
-        result.append("**🎯 Attack Scenarios:**\n");
-        result.append("• **SSRF:** Server-Side Request Forgery testing\n");
-        result.append("• **XXE:** XML External Entity injection\n");
-        result.append("• **DNS Exfiltration:** Data extraction via DNS\n");
-        result.append("• **Blind SQLi:** Out-of-band SQL injection\n");
-        result.append("• **LDAP Injection:** Directory service attacks\n");
-        result.append("• **Email Injection:** SMTP header manipulation\n");
-        
-        Map<String, Object> resultMap = new HashMap<>();
-        resultMap.put("type", "text");
-        resultMap.put("text", result.toString());
-        
-        return List.of(resultMap);
-    }
-    
-    private Object clearInteractions(StringBuilder result) {
-        result.append("🗑️ **CLEAR COLLABORATOR INTERACTIONS**\n\n");
-        
-        try {
-            // Note: There might not be a direct API to clear interactions
-            // This is a placeholder for the functionality
-            result.append("⚠️ **Manual Action Required**\n");
-            result.append("To clear Collaborator interactions:\n");
-            result.append("1. Go to Burp Suite → Collaborator tab\n");
-            result.append("2. Right-click in the interactions list\n");
-            result.append("3. Select 'Clear interactions'\n\n");
-            
-            result.append("💡 Alternatively, create a new Collaborator client to start fresh.\n");
-            
-        } catch (Exception e) {
-            result.append("❌ Error clearing interactions: ").append(e.getMessage()).append("\n");
-        }
-        
-        Map<String, Object> resultMap = new HashMap<>();
-        resultMap.put("type", "text");
-        resultMap.put("text", result.toString());
-        
-        return List.of(resultMap);
-    }
-    
-    private Object getStatus(StringBuilder result) {
-        result.append("📊 **COLLABORATOR STATUS**\n\n");
-        
-        try {
-            if (collaboratorClient != null) {
-                result.append("✅ **Collaborator Client:** Active\n");
-                
-                // Get interaction count
-                List<Interaction> interactions = collaboratorClient.getAllInteractions();
-                result.append("**Total Interactions:** ").append(interactions.size()).append("\n");
-                
-                if (!interactions.isEmpty()) {
-                    result.append("**Latest Interaction:** ").append(interactions.get(interactions.size() - 1).timeStamp()).append("\n");
-                }
-                
-                // Count by type
-                Map<InteractionType, Integer> typeCounts = new HashMap<>();
-                for (Interaction interaction : interactions) {
-                    typeCounts.put(interaction.type(), typeCounts.getOrDefault(interaction.type(), 0) + 1);
-                }
-                
-                if (!typeCounts.isEmpty()) {
-                    result.append("\n**Interactions by Type:**\n");
-                    for (Map.Entry<InteractionType, Integer> entry : typeCounts.entrySet()) {
-                        result.append("• ").append(entry.getKey()).append(": ").append(entry.getValue()).append("\n");
-                    }
-                }
-                
-                result.append("\n💡 **Tips:**\n");
-                result.append("• Generate payloads with 'GENERATE_PAYLOAD'\n");
-                result.append("• Monitor interactions with 'CHECK_INTERACTIONS'\n");
-                result.append("• Use different payload types for various attack vectors\n");
-                
-            } else {
-                result.append("❌ **Collaborator Client:** Not available\n");
-                result.append("This feature requires Burp Suite Professional.\n");
+    private Object listPayloads(JsonNode arguments, StringBuilder result) {
+        if (!McpUtils.isVerbose(arguments)) {
+            Map<String, Object> data = new HashMap<>();
+            List<Map<String, String>> types = new ArrayList<>();
+            String[][] typeData = {
+                {"HOSTNAME", "abc123.collaborator.net", "DNS lookups, hostname injection"},
+                {"HTTP_URL", "http://abc123.collaborator.net", "HTTP requests, URL injection"},
+                {"HTTPS_URL", "https://abc123.collaborator.net", "HTTPS requests, secure URL injection"},
+                {"EMAIL", "test@abc123.collaborator.net", "Email injection, SMTP testing"}
+            };
+            for (String[] t : typeData) {
+                Map<String, String> tm = new HashMap<>();
+                tm.put("type", t[0]);
+                tm.put("format", t[1]);
+                tm.put("useFor", t[2]);
+                types.add(tm);
             }
-            
-        } catch (Exception e) {
-            result.append("❌ Error getting status: ").append(e.getMessage()).append("\n");
+            data.put("payloadTypes", types);
+            data.put("attackScenarios", java.util.Arrays.asList("SSRF", "XXE", "DNS Exfiltration", "Blind SQLi", "LDAP Injection", "Email Injection"));
+            return McpUtils.createJsonResponse(data);
         }
-        
-        Map<String, Object> resultMap = new HashMap<>();
-        resultMap.put("type", "text");
-        resultMap.put("text", result.toString());
-        
-        return List.of(resultMap);
+
+        result.append("📋 **COLLABORATOR PAYLOAD TYPES**\n\n");
+        result.append("**Available Payload Types:**\n\n");
+        result.append("**1. HOSTNAME**\n• Format: `abc123.collaborator.net`\n• Use for: DNS lookups, hostname injection\n\n");
+        result.append("**2. HTTP_URL**\n• Format: `http://abc123.collaborator.net`\n• Use for: HTTP requests, URL injection\n\n");
+        result.append("**3. HTTPS_URL**\n• Format: `https://abc123.collaborator.net`\n• Use for: HTTPS requests, secure URL injection\n\n");
+        result.append("**4. EMAIL**\n• Format: `test@abc123.collaborator.net`\n• Use for: Email injection, SMTP testing\n\n");
+        result.append("**🎯 Attack Scenarios:** SSRF, XXE, DNS Exfiltration, Blind SQLi, LDAP Injection, Email Injection\n");
+        return McpUtils.createSuccessResponse(result.toString());
     }
-    
-    private Object getSecretKey(StringBuilder result) {
-        result.append("🔑 **COLLABORATOR SECRET KEY**\n\n");
-        
+
+    private Object clearInteractions(JsonNode arguments, StringBuilder result) {
+        if (!McpUtils.isVerbose(arguments)) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("action", "CLEAR_INTERACTIONS");
+            data.put("supported", false);
+            data.put("note", "No direct API to clear; use Burp UI Collaborator tab → Right-click → Clear interactions, or create a new client.");
+            return McpUtils.createJsonResponse(data);
+        }
+        result.append("🗑️ **CLEAR COLLABORATOR INTERACTIONS**\n\n");
+        result.append("⚠️ **Manual Action Required**\n");
+        result.append("To clear Collaborator interactions:\n");
+        result.append("1. Go to Burp Suite → Collaborator tab\n");
+        result.append("2. Right-click in the interactions list\n");
+        result.append("3. Select 'Clear interactions'\n\n");
+        result.append("💡 Alternatively, create a new Collaborator client to start fresh.\n");
+        return McpUtils.createSuccessResponse(result.toString());
+    }
+
+    private Object getStatus(JsonNode arguments, StringBuilder result) {
+        if (collaboratorClient == null) {
+            if (!McpUtils.isVerbose(arguments)) {
+                Map<String, Object> data = new HashMap<>();
+                data.put("active", false);
+                data.put("error", "not_available");
+                data.put("message", "Requires Burp Suite Professional");
+                return McpUtils.createJsonResponse(data);
+            }
+            result.append("📊 **COLLABORATOR STATUS**\n\n");
+            result.append("❌ **Collaborator Client:** Not available\n");
+            result.append("This feature requires Burp Suite Professional.\n");
+            return McpUtils.createSuccessResponse(result.toString());
+        }
+
+        List<Interaction> interactions = collaboratorClient.getAllInteractions();
+        Map<InteractionType, Integer> typeCounts = new HashMap<>();
+        for (Interaction interaction : interactions) {
+            typeCounts.put(interaction.type(), typeCounts.getOrDefault(interaction.type(), 0) + 1);
+        }
+
+        if (!McpUtils.isVerbose(arguments)) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("active", true);
+            data.put("totalInteractions", interactions.size());
+            if (!interactions.isEmpty()) {
+                data.put("latestInteractionTime", interactions.get(interactions.size() - 1).timeStamp().toString());
+            }
+            Map<String, Integer> typeCountsStr = new HashMap<>();
+            for (Map.Entry<InteractionType, Integer> e : typeCounts.entrySet()) {
+                typeCountsStr.put(e.getKey().toString(), e.getValue());
+            }
+            data.put("interactionsByType", typeCountsStr);
+            return McpUtils.createJsonResponse(data);
+        }
+
+        result.append("📊 **COLLABORATOR STATUS**\n\n");
+        result.append("✅ **Collaborator Client:** Active\n");
+        result.append("**Total Interactions:** ").append(interactions.size()).append("\n");
+        if (!interactions.isEmpty()) {
+            result.append("**Latest Interaction:** ").append(interactions.get(interactions.size() - 1).timeStamp()).append("\n");
+        }
+        if (!typeCounts.isEmpty()) {
+            result.append("\n**Interactions by Type:**\n");
+            for (Map.Entry<InteractionType, Integer> entry : typeCounts.entrySet()) {
+                result.append("• ").append(entry.getKey()).append(": ").append(entry.getValue()).append("\n");
+            }
+        }
+        return McpUtils.createSuccessResponse(result.toString());
+    }
+
+    private Object getSecretKey(JsonNode arguments, StringBuilder result) {
         try {
             SecretKey secretKey = collaboratorClient.getSecretKey();
+            if (!McpUtils.isVerbose(arguments)) {
+                Map<String, Object> data = new HashMap<>();
+                data.put("secretKey", secretKey.toString());
+                data.put("usage", "Save to restore Collaborator session later via restoreClient()");
+                return McpUtils.createJsonResponse(data);
+            }
+            result.append("🔑 **COLLABORATOR SECRET KEY**\n\n");
             result.append("**Secret Key:** `").append(secretKey.toString()).append("`\n\n");
-            
             result.append("💡 **Usage:**\n");
             result.append("• Save this key to restore your Collaborator session later\n");
             result.append("• Use with `restoreClient()` to reconnect to existing payloads\n");
-            result.append("• Useful for persistent monitoring across Burp sessions\n");
-            result.append("• Keep this key secure - it provides access to your interactions\n");
-            
+            return McpUtils.createSuccessResponse(result.toString());
         } catch (Exception e) {
+            if (!McpUtils.isVerbose(arguments)) {
+                Map<String, Object> data = new HashMap<>();
+                data.put("error", e.getMessage());
+                return McpUtils.createJsonResponse(data);
+            }
             result.append("❌ Error getting secret key: ").append(e.getMessage()).append("\n");
+            return McpUtils.createSuccessResponse(result.toString());
         }
-        
-        Map<String, Object> resultMap = new HashMap<>();
-        resultMap.put("type", "text");
-        resultMap.put("text", result.toString());
-        
-        return List.of(resultMap);
     }
-    
-    private Object getServerInfo(StringBuilder result) {
-        result.append("🖥️ **COLLABORATOR SERVER INFO**\n\n");
-        
+
+    private Object getServerInfo(JsonNode arguments, StringBuilder result) {
         try {
             CollaboratorServer server = collaboratorClient.server();
-            
+            if (!McpUtils.isVerbose(arguments)) {
+                Map<String, Object> data = new HashMap<>();
+                data.put("address", server.address());
+                data.put("isLiteralAddress", server.isLiteralAddress());
+                data.put("supportedProtocols", java.util.Arrays.asList("DNS", "HTTP", "HTTPS", "SMTP"));
+                return McpUtils.createJsonResponse(data);
+            }
+            result.append("🖥️ **COLLABORATOR SERVER INFO**\n\n");
             result.append("**Server Address:** `").append(server.address()).append("`\n");
             result.append("**Is Literal Address:** ").append(server.isLiteralAddress()).append("\n\n");
-            
-            result.append("💡 **Information:**\n");
-            if (server.isLiteralAddress()) {
-                result.append("• This is a literal IP address or hostname\n");
-                result.append("• Direct connection without DNS resolution\n");
-            } else {
-                result.append("• This is a domain-based Collaborator server\n");
-                result.append("• DNS resolution will be used for connections\n");
-            }
-            
-            result.append("\n**Supported Protocols:**\n");
-            result.append("• DNS (port 53)\n");
-            result.append("• HTTP (port 80)\n");
-            result.append("• HTTPS (port 443)\n");
-            result.append("• SMTP (port 25/587)\n");
-            
+            result.append("**Supported Protocols:** DNS (53), HTTP (80), HTTPS (443), SMTP (25/587)\n");
+            return McpUtils.createSuccessResponse(result.toString());
         } catch (Exception e) {
+            if (!McpUtils.isVerbose(arguments)) {
+                Map<String, Object> data = new HashMap<>();
+                data.put("error", e.getMessage());
+                return McpUtils.createJsonResponse(data);
+            }
             result.append("❌ Error getting server info: ").append(e.getMessage()).append("\n");
+            return McpUtils.createSuccessResponse(result.toString());
         }
-        
-        Map<String, Object> resultMap = new HashMap<>();
-        resultMap.put("type", "text");
-        resultMap.put("text", result.toString());
-        
-        return List.of(resultMap);
     }
     
     private Object generatePayloadWithCustomData(JsonNode arguments, StringBuilder result) {
@@ -623,11 +652,20 @@ public class CollaboratorTool implements McpTool {
                 payloads.add(payloadInfo);
             }
             
+            if (!McpUtils.isVerbose(arguments)) {
+                Map<String, Object> data = new HashMap<>();
+                data.put("payloadType", payloadType.toUpperCase());
+                data.put("count", count);
+                data.put("customData", customData);
+                data.put("payloads", payloads);
+                return McpUtils.createJsonResponse(data);
+            }
+
             result.append("**Payload Type:** ").append(payloadType.toUpperCase()).append("\n");
             result.append("**Count:** ").append(count).append("\n");
             result.append("**Custom Data (sanitized):** ").append(customData).append("\n");
             result.append("**Note:** Custom data must be 16 chars max, alphanumeric only\n\n");
-            
+
             result.append("**Generated Payloads with Custom Data:**\n");
             for (int i = 0; i < payloads.size(); i++) {
                 Map<String, String> info = payloads.get(i);
@@ -635,21 +673,15 @@ public class CollaboratorTool implements McpTool {
                 result.append("   • **ID:** ").append(info.get("id")).append("\n");
                 result.append("   • **Custom Data:** ").append(info.get("customData")).append("\n");
             }
-            
-            result.append("\n💡 **Benefits of Custom Data:**\n");
-            result.append("• Track which payload was triggered by which test\n");
-            result.append("• Correlate interactions with specific injection points\n");
-            result.append("• Organize testing campaigns with meaningful labels\n");
-            result.append("• Identify vulnerable parameters more easily\n");
-            
+
         } catch (Exception e) {
             result.append("❌ Error generating payloads with custom data: ").append(e.getMessage()).append("\n");
         }
-        
+
         Map<String, Object> resultMap = new HashMap<>();
         resultMap.put("type", "text");
         resultMap.put("text", result.toString());
-        
+
         return List.of(resultMap);
     }
     
@@ -661,20 +693,18 @@ public class CollaboratorTool implements McpTool {
         
         try {
             List<Interaction> interactions;
-            
+            String filterDesc;
+
             if (payloadId != null) {
-                // Filter by payload ID
                 InteractionFilter filter = InteractionFilter.interactionPayloadFilter(payloadId);
                 interactions = collaboratorClient.getInteractions(filter);
-                result.append("**Filter:** Payload ID = ").append(payloadId).append("\n");
+                filterDesc = "payloadId=" + payloadId;
             } else {
-                // Get all interactions
                 interactions = collaboratorClient.getAllInteractions();
-                result.append("**Filter:** ").append(interactionType).append(" interactions\n");
+                filterDesc = interactionType;
             }
-            
-            result.append("**Total Matching:** ").append(interactions.size()).append("\n\n");
 
+            // Always log to Burp output
             for (Interaction ix : interactions) {
                 String clientAddr = "unknown";
                 try {
@@ -686,26 +716,52 @@ public class CollaboratorTool implements McpTool {
                     + " (ID: " + ix.id() + ")");
             }
 
+            // Apply type filter
+            List<Interaction> filteredList = new ArrayList<>();
+            for (Interaction interaction : interactions) {
+                if (interactionType.equals("ALL") ||
+                    interaction.type().toString().equalsIgnoreCase(interactionType)) {
+                    filteredList.add(interaction);
+                }
+            }
+
+            // Type counts
+            Map<InteractionType, Integer> typeCounts = new HashMap<>();
+            for (Interaction interaction : filteredList) {
+                typeCounts.put(interaction.type(), typeCounts.getOrDefault(interaction.type(), 0) + 1);
+            }
+
+            if (!McpUtils.isVerbose(arguments)) {
+                List<Map<String, Object>> jsonInteractions = new ArrayList<>();
+                for (Interaction ix : filteredList) {
+                    Map<String, Object> e = new HashMap<>();
+                    e.put("id", ix.id().toString());
+                    e.put("type", ix.type().toString());
+                    e.put("timestamp", ix.timeStamp().toString());
+                    ix.customData().ifPresent(cd -> e.put("customData", cd));
+                    jsonInteractions.add(e);
+                }
+                Map<String, Integer> typeCountsStr = new HashMap<>();
+                for (Map.Entry<InteractionType, Integer> e : typeCounts.entrySet()) {
+                    typeCountsStr.put(e.getKey().toString(), e.getValue());
+                }
+                Map<String, Object> data = new HashMap<>();
+                data.put("filter", filterDesc);
+                data.put("totalMatching", interactions.size());
+                data.put("filteredCount", filteredList.size());
+                data.put("typeCounts", typeCountsStr);
+                data.put("interactions", jsonInteractions);
+                return McpUtils.createJsonResponse(data);
+            }
+
+            result.append("**Filter:** ").append(filterDesc).append("\n");
+            result.append("**Total Matching:** ").append(interactions.size()).append("\n\n");
+
             if (interactions.isEmpty()) {
                 result.append("ℹ️ No matching interactions found.\n");
             } else {
-                // Apply type filter if specified
-                List<Interaction> filteredInteractions = new ArrayList<>();
-                for (Interaction interaction : interactions) {
-                    if (interactionType.equals("ALL") || 
-                        interaction.type().toString().equalsIgnoreCase(interactionType)) {
-                        filteredInteractions.add(interaction);
-                    }
-                }
-                
-                result.append("**Filtered Results:** ").append(filteredInteractions.size()).append(" interactions\n\n");
-                
-                // Group by type for summary
-                Map<InteractionType, Integer> typeCounts = new HashMap<>();
-                for (Interaction interaction : filteredInteractions) {
-                    typeCounts.put(interaction.type(), typeCounts.getOrDefault(interaction.type(), 0) + 1);
-                }
-                
+                result.append("**Filtered Results:** ").append(filteredList.size()).append(" interactions\n\n");
+
                 if (!typeCounts.isEmpty()) {
                     result.append("**Summary by Type:**\n");
                     for (Map.Entry<InteractionType, Integer> entry : typeCounts.entrySet()) {
@@ -713,35 +769,32 @@ public class CollaboratorTool implements McpTool {
                     }
                     result.append("\n");
                 }
-                
-                // Show first few interactions with details
-                for (int i = 0; i < Math.min(5, filteredInteractions.size()); i++) {
-                    Interaction interaction = filteredInteractions.get(i);
+
+                for (int i = 0; i < Math.min(5, filteredList.size()); i++) {
+                    Interaction interaction = filteredList.get(i);
                     result.append("**").append(i + 1).append(". ").append(interaction.type()).append(" Interaction**\n");
                     result.append("• **ID:** ").append(interaction.id().toString()).append("\n");
                     result.append("• **Time:** ").append(interaction.timeStamp()).append("\n");
-                    
                     Optional<String> customData = interaction.customData();
                     if (customData.isPresent()) {
                         result.append("• **Custom Data:** ").append(customData.get()).append("\n");
                     }
-                    
                     result.append("\n");
                 }
-                
-                if (filteredInteractions.size() > 5) {
-                    result.append("... and ").append(filteredInteractions.size() - 5).append(" more interactions\n");
+
+                if (filteredList.size() > 5) {
+                    result.append("... and ").append(filteredList.size() - 5).append(" more interactions\n");
                 }
             }
-            
+
         } catch (Exception e) {
             result.append("❌ Error filtering interactions: ").append(e.getMessage()).append("\n");
         }
-        
+
         Map<String, Object> resultMap = new HashMap<>();
         resultMap.put("type", "text");
         resultMap.put("text", result.toString());
-        
+
         return List.of(resultMap);
     }
 }

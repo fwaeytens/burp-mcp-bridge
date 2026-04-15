@@ -96,7 +96,7 @@ public class OrganizerTool implements McpTool {
             case "GET_ITEM_BY_ID":
                 return getItemById(arguments);
             case "GET_ITEM_COUNT":
-                return getItemCount();
+                return getItemCount(arguments);
             case "GET_ITEM_STATUS":
                 return getItemStatus(arguments);
             default:
@@ -105,33 +105,31 @@ public class OrganizerTool implements McpTool {
     }
     
     private Object sendToOrganizer(JsonNode arguments) {
-        StringBuilder result = new StringBuilder();
-        
         boolean fromProxy = McpUtils.getBooleanParam(arguments, "fromProxy", false);
-        
+        String sentUrl;
+        String sentMethod;
+
         if (fromProxy) {
             // Send from proxy history
             String url = arguments.has("url") ? arguments.get("url").asText() : null;
             if (url == null || url.isEmpty()) {
                 return McpUtils.createErrorResponse("URL is required when sending from proxy history");
             }
-            
+
             // Find in proxy history
             var proxyHistory = api.proxy().history();
             var matchingItem = proxyHistory.stream()
                 .filter(item -> item.finalRequest().url().equals(url))
                 .findFirst();
-                
+
             if (matchingItem.isPresent()) {
-                // Create a proper HttpRequestResponse from ProxyHttpRequestResponse
                 HttpRequestResponse httpReqResp = HttpRequestResponse.httpRequestResponse(
-                    matchingItem.get().finalRequest(), 
+                    matchingItem.get().finalRequest(),
                     matchingItem.get().response()
                 );
                 organizer.sendToOrganizer(httpReqResp);
-                result.append("✅ **Sent to Organizer from Proxy History**\n");
-                result.append("**URL:** ").append(url).append("\n");
-                result.append("**Method:** ").append(matchingItem.get().finalRequest().method()).append("\n");
+                sentUrl = url;
+                sentMethod = matchingItem.get().finalRequest().method();
             } else {
                 return McpUtils.createErrorResponse("URL not found in proxy history: " + url);
             }
@@ -139,42 +137,90 @@ public class OrganizerTool implements McpTool {
             // Create new request
             String url = arguments.get("url").asText();
             String method = McpUtils.getStringParam(arguments, "method", "GET");
-            
+
             try {
                 HttpRequest request = McpUtils.createSafeHttpRequest(url);
                 if (!method.equals("GET")) {
                     request = request.withMethod(method);
                 }
-                
+
                 organizer.sendToOrganizer(request);
-                
-                result.append("✅ **Sent to Organizer**\n");
-                result.append("**URL:** ").append(url).append("\n");
-                result.append("**Method:** ").append(method).append("\n");
+                sentUrl = url;
+                sentMethod = method;
             } catch (Exception e) {
                 return McpUtils.createErrorResponse("Failed to create request: " + e.getMessage());
             }
         }
-        
+
+        if (!McpUtils.isVerbose(arguments)) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("operation", "sendToOrganizer");
+            data.put("success", true);
+            data.put("fromProxy", fromProxy);
+            data.put("url", sentUrl);
+            data.put("method", sentMethod);
+            return McpUtils.createJsonResponse(data);
+        }
+
+        StringBuilder result = new StringBuilder();
+        if (fromProxy) {
+            result.append("✅ **Sent to Organizer from Proxy History**\n");
+        } else {
+            result.append("✅ **Sent to Organizer**\n");
+        }
+        result.append("**URL:** ").append(sentUrl).append("\n");
+        result.append("**Method:** ").append(sentMethod).append("\n");
+
         result.append("\n📋 **Next Steps:**\n");
         result.append("• Go to Burp Suite → Organizer tab\n");
         result.append("• View and manage organized items\n");
         result.append("• Use filters and search to find specific items\n");
-        
+
         return McpUtils.createSuccessResponse(result.toString());
     }
     
     private Object listItems(JsonNode arguments) {
         int limit = McpUtils.getIntParam(arguments, "limit", 20);
-        
+
         List<OrganizerItem> items = organizer.items();
         int totalCount = items.size();
-        
+
         // Limit the items
         if (items.size() > limit) {
             items = items.subList(0, limit);
         }
-        
+
+        if (!McpUtils.isVerbose(arguments)) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("operation", "listItems");
+            data.put("totalItems", totalCount);
+            data.put("showing", items.size());
+            List<Map<String, Object>> itemList = new java.util.ArrayList<>();
+            for (OrganizerItem item : items) {
+                Map<String, Object> entry = new HashMap<>();
+                entry.put("id", item.id());
+                entry.put("status", item.status().name());
+                entry.put("method", item.request().method());
+                entry.put("url", item.request().url());
+                if (item.hasResponse()) {
+                    entry.put("statusCode", item.response().statusCode());
+                    entry.put("responseBytes", item.response().body().length());
+                } else {
+                    entry.put("hasResponse", false);
+                }
+                item.timingData().ifPresent(timing -> {
+                    try {
+                        entry.put("responseTimeMs", timing.timeBetweenRequestSentAndEndOfResponse().toMillis());
+                    } catch (Exception e) {
+                        // skip
+                    }
+                });
+                itemList.add(entry);
+            }
+            data.put("items", itemList);
+            return McpUtils.createJsonResponse(data);
+        }
+
         StringBuilder result = new StringBuilder();
         result.append("📂 **ORGANIZER ITEMS**\n\n");
         result.append("**Total Items:** ").append(totalCount);
@@ -221,9 +267,16 @@ public class OrganizerTool implements McpTool {
         return McpUtils.createSuccessResponse(result.toString());
     }
     
-    private Object getItemCount() {
+    private Object getItemCount(JsonNode arguments) {
         int count = organizer.items().size();
-        
+
+        if (!McpUtils.isVerbose(arguments)) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("operation", "getItemCount");
+            data.put("totalItems", count);
+            return McpUtils.createJsonResponse(data);
+        }
+
         StringBuilder result = new StringBuilder();
         result.append("📊 **ORGANIZER STATUS**\n\n");
         result.append("**Total Items:** ").append(count).append("\n");
@@ -278,12 +331,41 @@ public class OrganizerTool implements McpTool {
         
         List<OrganizerItem> items = organizer.items(filter);
         int totalMatched = items.size();
-        
+
         // Limit the items
         if (items.size() > limit) {
             items = items.subList(0, limit);
         }
-        
+
+        if (!McpUtils.isVerbose(arguments)) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("operation", "listItemsFiltered");
+            data.put("totalMatched", totalMatched);
+            data.put("showing", items.size());
+            Map<String, Object> filterMap = new HashMap<>();
+            if (!statusFilter.equals("ALL")) filterMap.put("status", statusFilter);
+            if (urlPattern != null && !urlPattern.isEmpty()) filterMap.put("urlContains", urlPattern);
+            if (methodFilter != null && !methodFilter.isEmpty()) filterMap.put("method", methodFilter);
+            data.put("filter", filterMap);
+            List<Map<String, Object>> itemList = new java.util.ArrayList<>();
+            for (OrganizerItem item : items) {
+                Map<String, Object> entry = new HashMap<>();
+                entry.put("id", item.id());
+                entry.put("status", item.status().name());
+                entry.put("method", item.request().method());
+                entry.put("url", item.request().url());
+                if (item.hasResponse()) {
+                    entry.put("statusCode", item.response().statusCode());
+                    entry.put("responseBytes", item.response().body().length());
+                } else {
+                    entry.put("hasResponse", false);
+                }
+                itemList.add(entry);
+            }
+            data.put("items", itemList);
+            return McpUtils.createJsonResponse(data);
+        }
+
         StringBuilder result = new StringBuilder();
         result.append("📂 **FILTERED ORGANIZER ITEMS**\n\n");
         
@@ -352,7 +434,46 @@ public class OrganizerTool implements McpTool {
         if (foundItem == null) {
             return McpUtils.createErrorResponse("Item with ID " + targetId + " not found in Organizer");
         }
-        
+
+        if (!McpUtils.isVerbose(arguments)) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("operation", "getItemById");
+            data.put("id", foundItem.id());
+            data.put("status", foundItem.status().name());
+            Map<String, Object> request = new HashMap<>();
+            request.put("method", foundItem.request().method());
+            request.put("url", foundItem.request().url());
+            request.put("headerCount", foundItem.request().headers().size());
+            request.put("bodyLength", foundItem.request().body().length());
+            data.put("request", request);
+            if (foundItem.hasResponse()) {
+                Map<String, Object> response = new HashMap<>();
+                response.put("statusCode", foundItem.response().statusCode());
+                response.put("reasonPhrase", foundItem.response().reasonPhrase());
+                response.put("headerCount", foundItem.response().headers().size());
+                response.put("bodyLength", foundItem.response().body().length());
+                response.put("mimeType", foundItem.response().mimeType().toString());
+                data.put("response", response);
+            } else {
+                data.put("response", null);
+            }
+            final Map<String, Object> dataRef = data;
+            foundItem.timingData().ifPresent(timing -> {
+                try {
+                    dataRef.put("responseTimeMs", timing.timeBetweenRequestSentAndEndOfResponse().toMillis());
+                } catch (Exception e) {
+                    // skip
+                }
+            });
+            if (!foundItem.annotations().notes().isEmpty()) {
+                data.put("notes", foundItem.annotations().notes());
+            }
+            if (foundItem.annotations().highlightColor() != null) {
+                data.put("highlightColor", foundItem.annotations().highlightColor().toString());
+            }
+            return McpUtils.createJsonResponse(data);
+        }
+
         StringBuilder result = new StringBuilder();
         result.append("📄 **ORGANIZER ITEM DETAILS**\n\n");
         
@@ -420,7 +541,16 @@ public class OrganizerTool implements McpTool {
         if (foundItem == null) {
             return McpUtils.createErrorResponse("Item with ID " + targetId + " not found in Organizer");
         }
-        
+
+        if (!McpUtils.isVerbose(arguments)) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("operation", "getItemStatus");
+            data.put("id", foundItem.id());
+            data.put("status", foundItem.status().name());
+            data.put("url", foundItem.request().url());
+            return McpUtils.createJsonResponse(data);
+        }
+
         StringBuilder result = new StringBuilder();
         result.append("📊 **ITEM STATUS**\n\n");
         result.append("**Item ID:** ").append(foundItem.id()).append("\n");

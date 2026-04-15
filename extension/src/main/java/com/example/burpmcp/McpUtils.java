@@ -1,5 +1,7 @@
 package com.example.burpmcp;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -11,7 +13,49 @@ import java.util.stream.Collectors;
  * Utility class for common MCP tool operations and response formatting.
  */
 public class McpUtils {
-    
+
+    private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
+
+    /**
+     * Creates a compact JSON response. Use this as the default for tool output
+     * to minimize tokens consumed by the LLM context. The map is serialized to
+     * compact JSON (no pretty-printing) and wrapped in an MCP text content block.
+     */
+    public static Object createJsonResponse(Map<String, Object> data) {
+        Map<String, Object> result = new HashMap<>();
+        result.put("type", "text");
+        try {
+            result.put("text", JSON_MAPPER.writeValueAsString(data));
+        } catch (Exception e) {
+            result.put("text", "{\"error\":\"serialization_failed\",\"message\":\"" + e.getMessage() + "\"}");
+        }
+        return List.of(result);
+    }
+
+    /**
+     * Returns true if the agent passed verbose: true. Used to opt in to
+     * decorated markdown output for human debugging via direct tool calls.
+     */
+    public static boolean isVerbose(com.fasterxml.jackson.databind.JsonNode arguments) {
+        return getBooleanParam(arguments, "verbose", false);
+    }
+
+    /**
+     * Returns true if the args Map has verbose: true.
+     */
+    public static boolean isVerboseMap(Map<String, Object> args) {
+        return Boolean.TRUE.equals(args.get("verbose"));
+    }
+
+    /**
+     * Returns JSON success response if not verbose, markdown otherwise.
+     * Use for simple status messages where the JSON form is just a flat key-value object.
+     */
+    public static Object verboseOrJson(boolean verbose, String markdown, Map<String, Object> jsonData) {
+        if (verbose) return createSuccessResponse(markdown);
+        return createJsonResponse(jsonData);
+    }
+
     /**
      * Creates a standardized error response for MCP tools.
      */

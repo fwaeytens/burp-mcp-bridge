@@ -94,13 +94,13 @@ public class WebSocketInterceptorTool implements McpTool {
         
         switch (action) {
             case "enable":
-                return enableInterceptor();
+                return enableInterceptor(McpUtils.isVerbose(arguments));
             case "disable":
-                return disableInterceptor();
+                return disableInterceptor(McpUtils.isVerbose(arguments));
             case "status":
-                return getStatus();
+                return getStatus(McpUtils.isVerbose(arguments));
             case "get_queue":
-                return getMessageQueue();
+                return getMessageQueue(McpUtils.isVerbose(arguments));
             case "forward":
                 return forwardMessage(arguments);
             case "drop":
@@ -120,7 +120,7 @@ public class WebSocketInterceptorTool implements McpTool {
         }
     }
     
-    private Object enableInterceptor() {
+    private Object enableInterceptor(boolean verbose) {
         if (interceptEnabled.get()) {
             return McpUtils.createErrorResponse("WebSocket interceptor is already enabled");
         }
@@ -157,99 +157,121 @@ public class WebSocketInterceptorTool implements McpTool {
             interceptEnabled.set(true);
             messageQueue.clear();
             pendingMessages.clear();
-            
-            return McpUtils.createSuccessResponse("✅ WebSocket interceptor enabled\n\n" +
-                "All new WebSocket connections will be intercepted.\n" +
-                "Use 'get_queue' to see intercepted messages.\n" +
-                "Use 'forward', 'drop', or 'modify' to handle messages.");
-            
+
+            if (!verbose) return McpUtils.createJsonResponse(Map.of("enabled", true));
+            return McpUtils.createSuccessResponse("✅ WebSocket interceptor enabled");
+
         } catch (Exception e) {
             return McpUtils.createErrorResponse("Failed to enable interceptor: " + e.getMessage());
         }
     }
-    
-    private Object disableInterceptor() {
+
+    private Object disableInterceptor(boolean verbose) {
         if (!interceptEnabled.get()) {
             return McpUtils.createErrorResponse("WebSocket interceptor is not enabled");
         }
-        
         if (currentRegistration != null) {
             currentRegistration.deregister();
             currentRegistration = null;
         }
-        
         interceptEnabled.set(false);
-        
-        // Forward all pending messages
+
         int forwarded = 0;
         for (InterceptedMessage msg : pendingMessages.values()) {
             msg.action = MessageAction.FORWARD;
             forwarded++;
         }
-        
-        return McpUtils.createSuccessResponse("✅ WebSocket interceptor disabled\n\n" +
-            "Forwarded " + forwarded + " pending messages.");
+
+        if (!verbose) return McpUtils.createJsonResponse(Map.of("enabled", false, "messagesForwarded", forwarded));
+        return McpUtils.createSuccessResponse("✅ WebSocket interceptor disabled. Forwarded " + forwarded + " pending messages.");
     }
-    
-    private Object getStatus() {
+
+    private Object getStatus(boolean verbose) {
+        Map<String, String> filters = new HashMap<>();
+        for (Map.Entry<String, Pattern> entry : activeFilters.entrySet()) {
+            filters.put(entry.getKey(), entry.getValue().pattern());
+        }
+        if (!verbose) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("enabled", interceptEnabled.get());
+            data.put("pendingMessages", pendingMessages.size());
+            data.put("totalIntercepted", totalIntercepted.get());
+            data.put("totalModified", totalModified.get());
+            data.put("totalDropped", totalDropped.get());
+            data.put("filters", filters);
+            data.put("autoModifyRules", new HashMap<>(autoModifyRules));
+            return McpUtils.createJsonResponse(data);
+        }
+
         StringBuilder result = new StringBuilder();
         result.append("## WebSocket Interceptor Status\n\n");
-        result.append("**Enabled:** ").append(interceptEnabled.get() ? "✅ Yes" : "❌ No").append("\n");
+        result.append("**Enabled:** ").append(interceptEnabled.get() ? "✅" : "❌").append("\n");
         result.append("**Pending Messages:** ").append(pendingMessages.size()).append("\n");
         result.append("**Total Intercepted:** ").append(totalIntercepted.get()).append("\n");
         result.append("**Total Modified:** ").append(totalModified.get()).append("\n");
-        result.append("**Total Dropped:** ").append(totalDropped.get()).append("\n\n");
-        
-        if (!activeFilters.isEmpty()) {
-            result.append("### Active Filters\n");
-            for (Map.Entry<String, Pattern> entry : activeFilters.entrySet()) {
-                result.append("- **").append(entry.getKey()).append(":** `")
-                      .append(entry.getValue().pattern()).append("`\n");
+        result.append("**Total Dropped:** ").append(totalDropped.get()).append("\n");
+        if (!filters.isEmpty()) {
+            result.append("\n### Active Filters\n");
+            for (Map.Entry<String, String> entry : filters.entrySet()) {
+                result.append("- **").append(entry.getKey()).append(":** `").append(entry.getValue()).append("`\n");
             }
-            result.append("\n");
         }
-        
         if (!autoModifyRules.isEmpty()) {
-            result.append("### Auto-Modify Rules\n");
+            result.append("\n### Auto-Modify Rules\n");
             for (Map.Entry<String, String> entry : autoModifyRules.entrySet()) {
-                result.append("- **").append(entry.getKey()).append(":** ")
-                      .append(entry.getValue()).append("\n");
+                result.append("- **").append(entry.getKey()).append(":** ").append(entry.getValue()).append("\n");
             }
         }
-        
         return McpUtils.createSuccessResponse(result.toString());
     }
-    
-    private Object getMessageQueue() {
+
+    private Object getMessageQueue(boolean verbose) {
+        List<Map<String, Object>> messages = new ArrayList<>();
+        int count = 0;
+        for (InterceptedMessage msg : pendingMessages.values()) {
+            if (count++ >= 10) break;
+            Map<String, Object> m = new HashMap<>();
+            m.put("id", msg.id);
+            m.put("direction", msg.direction.name());
+            m.put("type", msg.type);
+            if ("binary".equals(msg.type)) {
+                m.put("payloadBase64", McpUtils.truncateText(msg.payload, 200));
+                m.put("size", msg.binaryPayload != null ? msg.binaryPayload.length : 0);
+            } else {
+                m.put("payload", McpUtils.truncateText(msg.payload, 200));
+            }
+            messages.add(m);
+        }
+
+        if (!verbose) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("totalPending", pendingMessages.size());
+            data.put("showing", messages.size());
+            data.put("messages", messages);
+            return McpUtils.createJsonResponse(data);
+        }
+
         StringBuilder result = new StringBuilder();
         result.append("## Intercepted WebSocket Messages\n\n");
-        
         if (pendingMessages.isEmpty()) {
             result.append("No messages in queue");
         } else {
-            int count = 0;
-            for (InterceptedMessage msg : pendingMessages.values()) {
-                if (count++ >= 10) break; // Limit to 10 messages
-                
-                result.append("### Message ").append(msg.id).append("\n");
-                result.append("**Direction:** ").append(msg.direction.name()).append("\n");
-                result.append("**Type:** ").append(msg.type).append("\n");
-                
-                if ("binary".equals(msg.type)) {
-                    result.append("**Payload (Base64):** ").append(McpUtils.truncateText(msg.payload, 200)).append("\n");
-                    result.append("**Size:** ").append(msg.binaryPayload != null ? msg.binaryPayload.length : "N/A").append(" bytes\n");
+            for (Map<String, Object> m : messages) {
+                result.append("### Message ").append(m.get("id")).append("\n");
+                result.append("**Direction:** ").append(m.get("direction")).append("\n");
+                result.append("**Type:** ").append(m.get("type")).append("\n");
+                if (m.containsKey("payloadBase64")) {
+                    result.append("**Payload (Base64):** ").append(m.get("payloadBase64")).append("\n");
+                    result.append("**Size:** ").append(m.get("size")).append(" bytes\n");
                 } else {
-                    result.append("**Payload:** ").append(McpUtils.truncateText(msg.payload, 200)).append("\n");
+                    result.append("**Payload:** ").append(m.get("payload")).append("\n");
                 }
-                
-                result.append("**Status:** PENDING\n\n");
+                result.append("\n");
             }
-            
             if (pendingMessages.size() > 10) {
                 result.append("... and ").append(pendingMessages.size() - 10).append(" more messages\n");
             }
         }
-        
         return McpUtils.createSuccessResponse(result.toString());
     }
     
@@ -265,6 +287,7 @@ public class WebSocketInterceptorTool implements McpTool {
         }
         
         msg.action = MessageAction.FORWARD;
+        if (!McpUtils.isVerbose(arguments)) return McpUtils.createJsonResponse(Map.of("success", true, "messageId", messageId, "action", "forward"));
         return McpUtils.createSuccessResponse("Message " + messageId + " forwarded");
     }
     
@@ -281,6 +304,7 @@ public class WebSocketInterceptorTool implements McpTool {
         
         msg.action = MessageAction.DROP;
         totalDropped.incrementAndGet();
+        if (!McpUtils.isVerbose(arguments)) return McpUtils.createJsonResponse(Map.of("success", true, "messageId", messageId, "action", "drop"));
         return McpUtils.createSuccessResponse("Message " + messageId + " dropped");
     }
     
@@ -311,7 +335,7 @@ public class WebSocketInterceptorTool implements McpTool {
         
         msg.action = MessageAction.MODIFY;
         totalModified.incrementAndGet();
-        
+        if (!McpUtils.isVerbose(arguments)) return McpUtils.createJsonResponse(Map.of("success", true, "messageId", messageId, "action", "modify"));
         return McpUtils.createSuccessResponse("Message " + messageId + " modified and forwarded");
     }
     
@@ -325,47 +349,37 @@ public class WebSocketInterceptorTool implements McpTool {
         
         try {
             activeFilters.put(name, Pattern.compile(pattern));
+            if (!McpUtils.isVerbose(arguments)) return McpUtils.createJsonResponse(Map.of("success", true, "filterName", name));
             return McpUtils.createSuccessResponse("Filter '" + name + "' added");
         } catch (Exception e) {
             return McpUtils.createErrorResponse("Invalid regex pattern: " + e.getMessage());
         }
     }
-    
+
     private Object removeFilter(JsonNode arguments) {
         String name = McpUtils.getStringParam(arguments, "filter_name", "");
-        if (name.isEmpty()) {
-            return McpUtils.createErrorResponse("filter_name is required");
-        }
-        
-        if (activeFilters.remove(name) != null) {
-            return McpUtils.createSuccessResponse("Filter '" + name + "' removed");
-        }
-        return McpUtils.createErrorResponse("Filter not found: " + name);
+        if (name.isEmpty()) return McpUtils.createErrorResponse("filter_name is required");
+        if (activeFilters.remove(name) == null) return McpUtils.createErrorResponse("Filter not found: " + name);
+        if (!McpUtils.isVerbose(arguments)) return McpUtils.createJsonResponse(Map.of("success", true, "filterName", name));
+        return McpUtils.createSuccessResponse("Filter '" + name + "' removed");
     }
-    
+
     private Object addAutoModifyRule(JsonNode arguments) {
         String name = McpUtils.getStringParam(arguments, "rule_name", "");
         String search = McpUtils.getStringParam(arguments, "search_pattern", "");
         String replace = McpUtils.getStringParam(arguments, "replace_with", "");
-        
-        if (name.isEmpty() || search.isEmpty()) {
-            return McpUtils.createErrorResponse("rule_name and search_pattern are required");
-        }
-        
+        if (name.isEmpty() || search.isEmpty()) return McpUtils.createErrorResponse("rule_name and search_pattern are required");
         autoModifyRules.put(name, search + "|||" + replace);
+        if (!McpUtils.isVerbose(arguments)) return McpUtils.createJsonResponse(Map.of("success", true, "ruleName", name));
         return McpUtils.createSuccessResponse("Auto-modify rule '" + name + "' added");
     }
-    
+
     private Object removeAutoModifyRule(JsonNode arguments) {
         String name = McpUtils.getStringParam(arguments, "rule_name", "");
-        if (name.isEmpty()) {
-            return McpUtils.createErrorResponse("rule_name is required");
-        }
-        
-        if (autoModifyRules.remove(name) != null) {
-            return McpUtils.createSuccessResponse("Auto-modify rule '" + name + "' removed");
-        }
-        return McpUtils.createErrorResponse("Rule not found: " + name);
+        if (name.isEmpty()) return McpUtils.createErrorResponse("rule_name is required");
+        if (autoModifyRules.remove(name) == null) return McpUtils.createErrorResponse("Rule not found: " + name);
+        if (!McpUtils.isVerbose(arguments)) return McpUtils.createJsonResponse(Map.of("success", true, "ruleName", name));
+        return McpUtils.createSuccessResponse("Auto-modify rule '" + name + "' removed");
     }
     
     private TextMessageReceivedAction processTextMessageReceived(InterceptedTextMessage message, Direction direction) {

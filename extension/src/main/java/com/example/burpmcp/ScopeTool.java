@@ -114,7 +114,13 @@ public class ScopeTool implements McpTool {
         limitProperty.put("default", 100);
         limitProperty.put("description", "Limit for analyze action");
         properties.put("limit", limitProperty);
-        
+
+        Map<String, Object> verboseProperty = new HashMap<>();
+        verboseProperty.put("type", "boolean");
+        verboseProperty.put("default", false);
+        verboseProperty.put("description", "Return decorated markdown (for human debugging). Default returns compact JSON.");
+        properties.put("verbose", verboseProperty);
+
         inputSchema.put("properties", properties);
         inputSchema.put("required", List.of("action"));
         tool.put("inputSchema", inputSchema);
@@ -140,8 +146,19 @@ public class ScopeTool implements McpTool {
             
             switch (action.toLowerCase()) {
                 case "view":
+                    if (!McpUtils.isVerbose(arguments)) {
+                        // Compact JSON
+                        Map<String, Object> data = new HashMap<>();
+                        data.put("recentChanges", new ArrayList<>(recentScopeChanges));
+                        data.put("scopeChecksPerformed", scopeCheckCount.get());
+                        data.put("knownInScopeCount", knownInScopeUrls.size());
+                        data.put("knownOutOfScopeCount", knownOutOfScopeUrls.size());
+                        data.put("inScopeUrls", knownInScopeUrls.stream().limit(10).collect(java.util.stream.Collectors.toList()));
+                        return McpUtils.createJsonResponse(data);
+                    }
+
                     result.append("=== 🎯 Burp Suite Scope Status ===\n\n");
-                    
+
                     // Show recent scope changes
                     result.append("📝 **Recent Scope Changes:**\n");
                     if (recentScopeChanges.isEmpty()) {
@@ -151,22 +168,22 @@ public class ScopeTool implements McpTool {
                             result.append("• ").append(change).append("\n");
                         }
                     }
-                    
+
                     result.append("\n📊 **Scope Statistics:**\n");
                     result.append("• Scope checks performed: ").append(scopeCheckCount.get()).append("\n");
                     result.append("• Known in-scope URLs: ").append(knownInScopeUrls.size()).append("\n");
                     result.append("• Known out-of-scope URLs: ").append(knownOutOfScopeUrls.size()).append("\n");
-                    
+
                     // Sample some known in-scope URLs
                     if (!knownInScopeUrls.isEmpty()) {
                         result.append("\n✅ **Sample In-Scope URLs:**\n");
-                        knownInScopeUrls.stream().limit(10).forEach(u -> 
+                        knownInScopeUrls.stream().limit(10).forEach(u ->
                             result.append("• ").append(u).append("\n"));
                         if (knownInScopeUrls.size() > 10) {
                             result.append("• ... and ").append(knownInScopeUrls.size() - 10).append(" more\n");
                         }
                     }
-                    
+
                     result.append("\n💡 **Available Actions:**\n");
                     result.append("• add <url> - Add URL to scope\n");
                     result.append("• remove <url> - Remove URL from scope\n");
@@ -176,288 +193,378 @@ public class ScopeTool implements McpTool {
                     result.append("• bulk_check - Check multiple URLs at once\n");
                     break;
                     
-                case "add":
+                case "add": {
                     if (url == null || url.trim().isEmpty()) {
                         return createErrorResponse("URL or host is required for 'add' action");
                     }
-                    
-                    // Check if input is a wildcard, host, or full URL
-                    String urlToAdd;
+
                     boolean isWildcard = url.startsWith("*.") || url.contains("*");
                     boolean isHost = !url.contains("://") && !url.startsWith("/") && !isWildcard;
-                    
+                    List<String> addedUrls = new ArrayList<>();
+                    List<String> failedUrls = new ArrayList<>();
+
                     if (isWildcard) {
-                        // Wildcard patterns not supported through API
+                        // Compact JSON
+                        if (!McpUtils.isVerbose(arguments)) {
+                            Map<String, Object> data = new HashMap<>();
+                            data.put("action", "add");
+                            data.put("success", false);
+                            data.put("url", url);
+                            data.put("error", "wildcard_not_supported");
+                            data.put("message", "Montoya API doesn't support wildcard patterns. Use Burp UI for 'Include subdomains'.");
+                            return McpUtils.createJsonResponse(data);
+                        }
                         result.append("❌ **Wildcard patterns not supported**\n\n");
                         result.append("The Montoya API doesn't support wildcard patterns like `").append(url).append("`.\n\n");
                         result.append("**Options:**\n");
                         result.append("• Use Burp's Target > Scope UI to add wildcards with 'Include subdomains' checked\n");
                         result.append("• Add specific subdomains as you discover them (e.g., `api.example.com`)\n");
                         result.append("• Add the base domain without wildcard (e.g., `example.com`)\n");
-                        
+
                     } else if (isHost) {
-                        // Input is just a hostname - add both HTTP and HTTPS versions
-                        result.append("🌐 Adding host to scope: ").append(url).append("\n\n");
-                        
-                        boolean addedAny = false;
-                        
-                        // Add HTTPS version
-                        try {
-                            String httpsUrl = "https://" + url;
-                            scope.includeInScope(httpsUrl);
-                            result.append("✅ Added: ").append(httpsUrl).append("\n");
-                            knownInScopeUrls.add(httpsUrl);
-                            addedAny = true;
-                        } catch (Exception e) {
-                            result.append("❌ Failed to add HTTPS: ").append(e.getMessage()).append("\n");
-                            api.logging().logToError("Failed to add HTTPS: " + e.getMessage());
+                        for (String scheme : new String[]{"https://", "http://"}) {
+                            String full = scheme + url;
+                            try {
+                                scope.includeInScope(full);
+                                addedUrls.add(full);
+                                knownInScopeUrls.add(full);
+                            } catch (Exception e) {
+                                failedUrls.add(full);
+                                api.logging().logToError("Failed to add " + scheme + ": " + e.getMessage());
+                            }
                         }
-                        
-                        // Add HTTP version
-                        try {
-                            String httpUrl = "http://" + url;
-                            scope.includeInScope(httpUrl);
-                            result.append("✅ Added: ").append(httpUrl).append("\n");
-                            knownInScopeUrls.add(httpUrl);
-                            addedAny = true;
-                        } catch (Exception e) {
-                            result.append("❌ Failed to add HTTP: ").append(e.getMessage()).append("\n");
-                            api.logging().logToError("Failed to add HTTP: " + e.getMessage());
+                        if (McpUtils.isVerbose(arguments)) {
+                            result.append("🌐 Adding host to scope: ").append(url).append("\n\n");
+                            for (String u : addedUrls) result.append("✅ Added: ").append(u).append("\n");
+                            for (String u : failedUrls) result.append("❌ Failed to add: ").append(u).append("\n");
+                            if (!addedUrls.isEmpty()) {
+                                result.append("\n📌 Host added to scope for both HTTP and HTTPS protocols.\n");
+                            } else {
+                                result.append("\n⚠️ Failed to add host to scope.\n");
+                            }
                         }
-                        
-                        if (addedAny) {
-                            result.append("\n📌 Host added to scope for both HTTP and HTTPS protocols.\n");
-                        } else {
-                            result.append("\n⚠️ Failed to add host to scope.\n");
-                            result.append("💡 The host format might be invalid. Try using a full URL: https://").append(url).append("\n");
-                        }
-                        
+
                     } else {
-                        // Input is a full URL
-                        urlToAdd = normalizeUrl(url);
-                        
+                        String urlToAdd = normalizeUrl(url);
                         if (includeSubdomains) {
                             try {
                                 URL parsedUrl = new URL(urlToAdd);
-                                String wildcardUrl = parsedUrl.getProtocol() + "://*." + 
-                                    parsedUrl.getHost().replaceFirst("^www\\.", "") + 
+                                String wildcardUrl = parsedUrl.getProtocol() + "://*." +
+                                    parsedUrl.getHost().replaceFirst("^www\\.", "") +
                                     (parsedUrl.getPort() != -1 ? ":" + parsedUrl.getPort() : "") + "/*";
                                 scope.includeInScope(wildcardUrl);
                                 scope.includeInScope(urlToAdd);
-                                result.append("✅ Added to scope with subdomains:\n");
-                                result.append("  • ").append(urlToAdd).append("\n");
-                                result.append("  • ").append(wildcardUrl).append("\n");
+                                addedUrls.add(urlToAdd);
+                                addedUrls.add(wildcardUrl);
                             } catch (Exception e) {
-                                // Fall back to simple inclusion
                                 scope.includeInScope(urlToAdd);
-                                result.append("✅ Added to scope: ").append(urlToAdd).append("\n");
+                                addedUrls.add(urlToAdd);
                             }
                         } else {
                             scope.includeInScope(urlToAdd);
-                            result.append("✅ Added to scope: ").append(urlToAdd).append("\n");
+                            addedUrls.add(urlToAdd);
                         }
-                        
                         knownInScopeUrls.add(urlToAdd);
                         knownOutOfScopeUrls.remove(urlToAdd);
+
+                        if (McpUtils.isVerbose(arguments)) {
+                            if (addedUrls.size() > 1) {
+                                result.append("✅ Added to scope with subdomains:\n");
+                                for (String u : addedUrls) result.append("  • ").append(u).append("\n");
+                            } else {
+                                result.append("✅ Added to scope: ").append(addedUrls.get(0)).append("\n");
+                            }
+                        }
                     }
-                    
+
                     // Record the change
                     String timestamp = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date());
                     recentScopeChanges.offer(String.format("[%s] Added: %s", timestamp, url));
                     while (recentScopeChanges.size() > 20) {
                         recentScopeChanges.poll();
                     }
-                    
+
+                    // Compact JSON
+                    if (!McpUtils.isVerbose(arguments)) {
+                        Map<String, Object> data = new HashMap<>();
+                        data.put("action", "add");
+                        data.put("success", !addedUrls.isEmpty());
+                        data.put("addedUrls", addedUrls);
+                        if (!failedUrls.isEmpty()) data.put("failedUrls", failedUrls);
+                        return McpUtils.createJsonResponse(data);
+                    }
+
                     result.append("\n📌 This host/URL and all its subdomains/subpaths are now included in the target scope.\n");
                     break;
+                }
                     
-                case "remove":
+                case "remove": {
                     if (url == null || url.trim().isEmpty()) {
                         return createErrorResponse("URL is required for 'remove' action");
                     }
-                    
+
                     String urlToRemove = normalizeUrl(url);
                     scope.excludeFromScope(urlToRemove);
-                    result.append("❌ Removed from scope: ").append(urlToRemove).append("\n");
-                    
                     knownInScopeUrls.remove(urlToRemove);
                     knownOutOfScopeUrls.add(urlToRemove);
-                    
-                    // Record the change
-                    timestamp = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date());
+
+                    String timestamp = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date());
                     recentScopeChanges.offer(String.format("[%s] Removed: %s", timestamp, url));
                     while (recentScopeChanges.size() > 20) {
                         recentScopeChanges.poll();
                     }
-                    
+
+                    if (!McpUtils.isVerbose(arguments)) {
+                        Map<String, Object> data = new HashMap<>();
+                        data.put("action", "remove");
+                        data.put("success", true);
+                        data.put("url", urlToRemove);
+                        return McpUtils.createJsonResponse(data);
+                    }
+
+                    result.append("❌ Removed from scope: ").append(urlToRemove).append("\n");
                     result.append("📌 This URL and its subpaths are now excluded from the target scope.\n");
                     break;
+                }
                     
-                case "check":
+                case "check": {
                     if (url == null || url.trim().isEmpty()) {
                         return createErrorResponse("URL is required for 'check' action");
                     }
-                    
+
                     String urlToCheck = normalizeUrl(url);
                     boolean isInScope = scope.isInScope(urlToCheck);
                     scopeCheckCount.incrementAndGet();
-                    
+
                     if (isInScope) {
                         knownInScopeUrls.add(urlToCheck);
                         knownOutOfScopeUrls.remove(urlToCheck);
-                        result.append("✅ **IN SCOPE**: ").append(urlToCheck).append("\n");
                     } else {
                         knownOutOfScopeUrls.add(urlToCheck);
                         knownInScopeUrls.remove(urlToCheck);
-                        result.append("❌ **NOT IN SCOPE**: ").append(urlToCheck).append("\n");
                     }
-                    
+
                     // Check variations
-                    result.append("\n🔍 **Checking variations:**\n");
                     String[] variations = generateUrlVariations(urlToCheck);
+                    List<Map<String, Object>> variationResults = new ArrayList<>();
                     for (String variation : variations) {
+                        Map<String, Object> v = new HashMap<>();
+                        v.put("url", variation);
                         try {
-                            boolean varInScope = scope.isInScope(variation);
-                            result.append("• ").append(variation).append(" - ");
-                            result.append(varInScope ? "✅ In Scope" : "❌ Not in Scope").append("\n");
+                            v.put("inScope", scope.isInScope(variation));
                             scopeCheckCount.incrementAndGet();
                         } catch (IllegalArgumentException e) {
-                            // Skip wildcards and invalid URLs (Burp doesn't support wildcards in isInScope)
-                            result.append("• ").append(variation).append(" - ⚠️ Skipped (wildcards not supported)\n");
+                            v.put("skipped", "wildcards_not_supported");
+                        }
+                        variationResults.add(v);
+                    }
+
+                    if (!McpUtils.isVerbose(arguments)) {
+                        Map<String, Object> data = new HashMap<>();
+                        data.put("action", "check");
+                        data.put("url", urlToCheck);
+                        data.put("inScope", isInScope);
+                        data.put("variations", variationResults);
+                        return McpUtils.createJsonResponse(data);
+                    }
+
+                    result.append(isInScope ? "✅ **IN SCOPE**: " : "❌ **NOT IN SCOPE**: ").append(urlToCheck).append("\n");
+                    result.append("\n🔍 **Checking variations:**\n");
+                    for (Map<String, Object> v : variationResults) {
+                        result.append("• ").append(v.get("url")).append(" - ");
+                        if (v.containsKey("skipped")) {
+                            result.append("⚠️ Skipped (wildcards not supported)\n");
+                        } else {
+                            result.append((Boolean) v.get("inScope") ? "✅ In Scope" : "❌ Not in Scope").append("\n");
                         }
                     }
                     break;
+                }
                     
-                case "analyze":
-                    result.append("=== 📊 Scope Coverage Analysis ===\n\n");
-                    
-                    // Analyze proxy history for scope coverage
+                case "analyze": {
                     List<ProxyHttpRequestResponse> proxyHistory = api.proxy().history();
                     int totalRequests = 0;
                     int inScopeRequests = 0;
                     Map<String, Integer> hostCounts = new HashMap<>();
                     Map<String, Boolean> hostScopeStatus = new HashMap<>();
-                    
+
                     for (ProxyHttpRequestResponse item : proxyHistory) {
                         if (totalRequests >= limit) break;
-                        
                         HttpRequest request = item.finalRequest();
                         String requestUrl = request.url();
                         String host = request.httpService().host();
-                        
                         totalRequests++;
                         boolean isRequestInScope = scope.isInScope(requestUrl);
-                        
                         if (isRequestInScope) {
                             inScopeRequests++;
                             knownInScopeUrls.add(requestUrl);
                         } else {
                             knownOutOfScopeUrls.add(requestUrl);
                         }
-                        
                         hostCounts.merge(host, 1, Integer::sum);
                         hostScopeStatus.put(host, hostScopeStatus.getOrDefault(host, false) || isRequestInScope);
                     }
-                    
-                    result.append("📈 **Analysis Results:**\n");
-                    result.append("• Total requests analyzed: ").append(totalRequests).append("\n");
-                    result.append("• In-scope requests: ").append(inScopeRequests)
-                        .append(" (").append(String.format("%.1f%%", (inScopeRequests * 100.0 / totalRequests)))
-                        .append(")\n");
-                    result.append("• Out-of-scope requests: ").append(totalRequests - inScopeRequests)
-                        .append(" (").append(String.format("%.1f%%", ((totalRequests - inScopeRequests) * 100.0 / totalRequests)))
-                        .append(")\n\n");
-                    
-                    result.append("🌐 **Host Distribution:**\n");
+
+                    int outOfScopeRequests = totalRequests - inScopeRequests;
+                    double inScopePct = totalRequests > 0 ? inScopeRequests * 100.0 / totalRequests : 0;
+
+                    // Build top hosts list
+                    List<Map<String, Object>> topHosts = new ArrayList<>();
                     hostCounts.entrySet().stream()
                         .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
                         .limit(10)
                         .forEach(entry -> {
-                            String host = entry.getKey();
-                            int count = entry.getValue();
-                            boolean isHostInScope = hostScopeStatus.get(host);
-                            result.append("• ").append(host)
-                                .append(" - ").append(count).append(" requests ")
-                                .append(isHostInScope ? "✅" : "❌").append("\n");
+                            Map<String, Object> h = new HashMap<>();
+                            h.put("host", entry.getKey());
+                            h.put("requests", entry.getValue());
+                            h.put("inScope", hostScopeStatus.get(entry.getKey()));
+                            topHosts.add(h);
                         });
-                    
-                    result.append("\n💡 **Recommendations:**\n");
+
+                    String recommendation;
                     if (inScopeRequests == 0) {
-                        result.append("• No in-scope requests found. Consider adding target URLs to scope.\n");
+                        recommendation = "No in-scope requests found. Consider adding target URLs to scope.";
                     } else if (inScopeRequests < totalRequests / 2) {
-                        result.append("• Most traffic is out of scope. Consider refining your scope configuration.\n");
+                        recommendation = "Most traffic is out of scope. Consider refining your scope configuration.";
                     } else {
-                        result.append("• Good scope coverage! Most traffic is within target scope.\n");
+                        recommendation = "Good scope coverage! Most traffic is within target scope.";
                     }
+
+                    if (!McpUtils.isVerbose(arguments)) {
+                        Map<String, Object> data = new HashMap<>();
+                        data.put("action", "analyze");
+                        data.put("totalRequests", totalRequests);
+                        data.put("inScopeRequests", inScopeRequests);
+                        data.put("outOfScopeRequests", outOfScopeRequests);
+                        data.put("inScopePercent", Math.round(inScopePct * 10.0) / 10.0);
+                        data.put("topHosts", topHosts);
+                        data.put("recommendation", recommendation);
+                        return McpUtils.createJsonResponse(data);
+                    }
+
+                    result.append("=== 📊 Scope Coverage Analysis ===\n\n");
+                    result.append("📈 **Analysis Results:**\n");
+                    result.append("• Total requests analyzed: ").append(totalRequests).append("\n");
+                    result.append("• In-scope requests: ").append(inScopeRequests)
+                        .append(" (").append(String.format("%.1f%%", inScopePct)).append(")\n");
+                    result.append("• Out-of-scope requests: ").append(outOfScopeRequests)
+                        .append(" (").append(String.format("%.1f%%", 100 - inScopePct)).append(")\n\n");
+
+                    result.append("🌐 **Host Distribution:**\n");
+                    for (Map<String, Object> h : topHosts) {
+                        result.append("• ").append(h.get("host"))
+                            .append(" - ").append(h.get("requests")).append(" requests ")
+                            .append((Boolean) h.get("inScope") ? "✅" : "❌").append("\n");
+                    }
+                    result.append("\n💡 **Recommendation:** ").append(recommendation).append("\n");
                     break;
+                }
                     
-                case "bulk_add":
+                case "bulk_add": {
                     if (!arguments.has("urls")) {
                         return createErrorResponse("'urls' array is required for bulk_add action");
                     }
-                    
-                    result.append("=== 📦 Bulk Add to Scope ===\n\n");
+
                     JsonNode urlsNode = arguments.get("urls");
-                    int addedCount = 0;
-                    int failedCount = 0;
-                    
+                    List<String> bulkAdded = new ArrayList<>();
+                    List<Map<String, String>> bulkFailed = new ArrayList<>();
+
                     for (JsonNode urlNode : urlsNode) {
                         String bulkUrl = urlNode.asText();
                         try {
                             String normalizedUrl = normalizeUrl(bulkUrl);
                             scope.includeInScope(normalizedUrl);
                             knownInScopeUrls.add(normalizedUrl);
-                            result.append("✅ Added: ").append(bulkUrl).append("\n");
-                            addedCount++;
+                            bulkAdded.add(bulkUrl);
                         } catch (Exception e) {
-                            result.append("❌ Failed: ").append(bulkUrl)
-                                .append(" - ").append(e.getMessage()).append("\n");
-                            failedCount++;
+                            Map<String, String> f = new HashMap<>();
+                            f.put("url", bulkUrl);
+                            f.put("error", e.getMessage());
+                            bulkFailed.add(f);
                         }
                     }
-                    
+
+                    if (!McpUtils.isVerbose(arguments)) {
+                        Map<String, Object> data = new HashMap<>();
+                        data.put("action", "bulk_add");
+                        data.put("addedCount", bulkAdded.size());
+                        data.put("failedCount", bulkFailed.size());
+                        data.put("added", bulkAdded);
+                        if (!bulkFailed.isEmpty()) data.put("failed", bulkFailed);
+                        return McpUtils.createJsonResponse(data);
+                    }
+
+                    result.append("=== 📦 Bulk Add to Scope ===\n\n");
+                    for (String u : bulkAdded) result.append("✅ Added: ").append(u).append("\n");
+                    for (Map<String, String> f : bulkFailed) {
+                        result.append("❌ Failed: ").append(f.get("url")).append(" - ").append(f.get("error")).append("\n");
+                    }
                     result.append("\n📊 **Summary:**\n");
-                    result.append("• Successfully added: ").append(addedCount).append("\n");
-                    result.append("• Failed: ").append(failedCount).append("\n");
+                    result.append("• Successfully added: ").append(bulkAdded.size()).append("\n");
+                    result.append("• Failed: ").append(bulkFailed.size()).append("\n");
                     break;
-                    
-                case "bulk_check":
+                }
+
+                case "bulk_check": {
                     if (!arguments.has("urls")) {
                         return createErrorResponse("'urls' array is required for bulk_check action");
                     }
-                    
-                    result.append("=== 🔍 Bulk Scope Check ===\n\n");
-                    urlsNode = arguments.get("urls");
-                    int inScope = 0;
-                    int outScope = 0;
-                    
+
+                    JsonNode urlsNode = arguments.get("urls");
+                    List<Map<String, Object>> checkResults = new ArrayList<>();
+                    int inScopeCount = 0;
+                    int outScopeCount = 0;
+                    int errorCount = 0;
+
                     for (JsonNode urlNode : urlsNode) {
                         String checkUrl = urlNode.asText();
+                        Map<String, Object> r = new HashMap<>();
+                        r.put("url", checkUrl);
                         try {
                             String normalizedUrl = normalizeUrl(checkUrl);
                             boolean isIn = scope.isInScope(normalizedUrl);
                             scopeCheckCount.incrementAndGet();
-                            
+                            r.put("inScope", isIn);
                             if (isIn) {
-                                result.append("✅ IN SCOPE: ").append(checkUrl).append("\n");
                                 knownInScopeUrls.add(normalizedUrl);
-                                inScope++;
+                                inScopeCount++;
                             } else {
-                                result.append("❌ NOT IN SCOPE: ").append(checkUrl).append("\n");
                                 knownOutOfScopeUrls.add(normalizedUrl);
-                                outScope++;
+                                outScopeCount++;
                             }
                         } catch (Exception e) {
-                            result.append("⚠️ ERROR checking: ").append(checkUrl)
-                                .append(" - ").append(e.getMessage()).append("\n");
+                            r.put("error", e.getMessage());
+                            errorCount++;
+                        }
+                        checkResults.add(r);
+                    }
+
+                    if (!McpUtils.isVerbose(arguments)) {
+                        Map<String, Object> data = new HashMap<>();
+                        data.put("action", "bulk_check");
+                        data.put("inScopeCount", inScopeCount);
+                        data.put("outOfScopeCount", outScopeCount);
+                        data.put("errorCount", errorCount);
+                        data.put("results", checkResults);
+                        return McpUtils.createJsonResponse(data);
+                    }
+
+                    result.append("=== 🔍 Bulk Scope Check ===\n\n");
+                    for (Map<String, Object> r : checkResults) {
+                        if (r.containsKey("error")) {
+                            result.append("⚠️ ERROR checking: ").append(r.get("url")).append(" - ").append(r.get("error")).append("\n");
+                        } else if ((Boolean) r.get("inScope")) {
+                            result.append("✅ IN SCOPE: ").append(r.get("url")).append("\n");
+                        } else {
+                            result.append("❌ NOT IN SCOPE: ").append(r.get("url")).append("\n");
                         }
                     }
-                    
                     result.append("\n📊 **Summary:**\n");
-                    result.append("• In scope: ").append(inScope).append("\n");
-                    result.append("• Out of scope: ").append(outScope).append("\n");
-                    result.append("• Total checked: ").append(inScope + outScope).append("\n");
+                    result.append("• In scope: ").append(inScopeCount).append("\n");
+                    result.append("• Out of scope: ").append(outScopeCount).append("\n");
+                    result.append("• Total checked: ").append(inScopeCount + outScopeCount).append("\n");
                     break;
+                }
                     
                 default:
                     return createErrorResponse("Unknown action '" + action + 

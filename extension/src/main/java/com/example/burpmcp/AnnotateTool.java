@@ -282,8 +282,6 @@ public class AnnotateTool implements McpTool {
             return McpUtils.createErrorResponse("URL is required for ANNOTATE_PROXY action");
         }
 
-        StringBuilder result = createResultBuilder("Annotating Proxy Entry");
-
         List<ProxyHttpRequestResponse> proxyHistory = api.proxy().history();
         ProxyHttpRequestResponse targetEntry = null;
 
@@ -293,6 +291,36 @@ public class AnnotateTool implements McpTool {
                 break;
             }
         }
+
+        if (!McpUtils.isVerbose(arguments)) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("operation", "ANNOTATE_PROXY");
+            data.put("success", targetEntry != null);
+            data.put("location", "Proxy History");
+            data.put("requestedUrl", url);
+            if (targetEntry != null) {
+                if (notes != null && !notes.isEmpty()) {
+                    String existingNotes = targetEntry.annotations().notes();
+                    String newNotes = existingNotes != null && !existingNotes.isEmpty()
+                        ? existingNotes + "\n\n" + notes : notes;
+                    targetEntry.annotations().setNotes(newNotes);
+                }
+                if (highlightColorStr != null && !highlightColorStr.equals("NONE")) {
+                    try {
+                        targetEntry.annotations().setHighlightColor(HighlightColor.valueOf(highlightColorStr));
+                    } catch (IllegalArgumentException e) {
+                        data.put("invalidColor", highlightColorStr);
+                    }
+                }
+                data.put("matchedUrl", targetEntry.finalRequest().url());
+                data.put("notes", targetEntry.annotations().notes());
+                data.put("color", targetEntry.annotations().highlightColor() != null
+                    ? targetEntry.annotations().highlightColor().name() : "NONE");
+            }
+            return McpUtils.createJsonResponse(data);
+        }
+
+        StringBuilder result = createResultBuilder("Annotating Proxy Entry");
 
         if (targetEntry == null) {
             result.append("❌ No proxy entry found for URL: ").append(url).append("\n");
@@ -313,8 +341,6 @@ public class AnnotateTool implements McpTool {
             return McpUtils.createErrorResponse("URL is required for ANNOTATE_TARGET action");
         }
 
-        StringBuilder result = createResultBuilder("Annotating Target/Site Map Entry");
-
         SiteMap siteMap = api.siteMap();
         List<HttpRequestResponse> siteMapEntries = siteMap.requestResponses();
         HttpRequestResponse targetEntry = null;
@@ -325,6 +351,36 @@ public class AnnotateTool implements McpTool {
                 break;
             }
         }
+
+        if (!McpUtils.isVerbose(arguments)) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("operation", "ANNOTATE_TARGET");
+            data.put("success", targetEntry != null);
+            data.put("location", "Target/Site Map");
+            data.put("requestedUrl", url);
+            if (targetEntry != null) {
+                if (notes != null && !notes.isEmpty()) {
+                    String existingNotes = targetEntry.annotations().notes();
+                    String newNotes = existingNotes != null && !existingNotes.isEmpty()
+                        ? existingNotes + "\n\n" + notes : notes;
+                    targetEntry.annotations().setNotes(newNotes);
+                }
+                if (highlightColorStr != null && !highlightColorStr.equals("NONE")) {
+                    try {
+                        targetEntry.annotations().setHighlightColor(HighlightColor.valueOf(highlightColorStr));
+                    } catch (IllegalArgumentException e) {
+                        data.put("invalidColor", highlightColorStr);
+                    }
+                }
+                data.put("matchedUrl", targetEntry.request().url());
+                data.put("notes", targetEntry.annotations().notes());
+                data.put("color", targetEntry.annotations().highlightColor() != null
+                    ? targetEntry.annotations().highlightColor().name() : "NONE");
+            }
+            return McpUtils.createJsonResponse(data);
+        }
+
+        StringBuilder result = createResultBuilder("Annotating Target/Site Map Entry");
 
         if (targetEntry == null) {
             result.append("❌ No site map entry found for URL: ").append(url).append("\n");
@@ -343,6 +399,47 @@ public class AnnotateTool implements McpTool {
 
         if (url == null || url.isEmpty()) {
             return McpUtils.createErrorResponse("URL is required for ANNOTATE_ORGANIZER action");
+        }
+
+        if (!McpUtils.isVerbose(arguments)) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("operation", "ANNOTATE_ORGANIZER");
+            data.put("location", "Organizer");
+            data.put("requestedUrl", url);
+            try {
+                List<OrganizerItem> organizerItems = api.organizer().items();
+                OrganizerItem targetEntry = null;
+                for (OrganizerItem item : organizerItems) {
+                    if (item != null && item.request() != null && urlMatches(item.request().url(), url)) {
+                        targetEntry = item;
+                        break;
+                    }
+                }
+                data.put("success", targetEntry != null);
+                if (targetEntry != null) {
+                    if (notes != null && !notes.isEmpty()) {
+                        String existingNotes = targetEntry.annotations().notes();
+                        String newNotes = existingNotes != null && !existingNotes.isEmpty()
+                            ? existingNotes + "\n\n" + notes : notes;
+                        targetEntry.annotations().setNotes(newNotes);
+                    }
+                    if (highlightColorStr != null && !highlightColorStr.equals("NONE")) {
+                        try {
+                            targetEntry.annotations().setHighlightColor(HighlightColor.valueOf(highlightColorStr));
+                        } catch (IllegalArgumentException e) {
+                            data.put("invalidColor", highlightColorStr);
+                        }
+                    }
+                    data.put("matchedUrl", targetEntry.request().url());
+                    data.put("notes", targetEntry.annotations().notes());
+                    data.put("color", targetEntry.annotations().highlightColor() != null
+                        ? targetEntry.annotations().highlightColor().name() : "NONE");
+                }
+            } catch (NoSuchMethodError e) {
+                data.put("success", false);
+                data.put("error", "Organizer annotation is not available at runtime in this Burp version");
+            }
+            return McpUtils.createJsonResponse(data);
         }
 
         StringBuilder result = createResultBuilder("Annotating Organizer Entry");
@@ -382,10 +479,28 @@ public class AnnotateTool implements McpTool {
         if (url == null || url.isEmpty()) {
             return McpUtils.createErrorResponse("URL is required for ANNOTATE_REPEATER action");
         }
-        
+
+        if (!McpUtils.isVerbose(arguments)) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("operation", "ANNOTATE_REPEATER");
+            data.put("location", "Repeater");
+            data.put("url", url);
+            try {
+                storeAnnotationInDatabase(url, "REPEATER", notes, highlightColorStr);
+                data.put("success", true);
+                data.put("notes", notes);
+                data.put("color", highlightColorStr != null ? highlightColorStr : "NONE");
+                data.put("storage", "database");
+            } catch (Exception e) {
+                data.put("success", false);
+                data.put("error", e.getMessage());
+            }
+            return McpUtils.createJsonResponse(data);
+        }
+
         StringBuilder result = new StringBuilder();
         result.append("=== Annotating Repeater Entry ===\n\n");
-        
+
         try {
             // Store annotation in our database for Repeater items
             storeAnnotationInDatabase(url, "REPEATER", notes, highlightColorStr);
@@ -411,10 +526,28 @@ public class AnnotateTool implements McpTool {
         if (url == null || url.isEmpty()) {
             return McpUtils.createErrorResponse("URL is required for ANNOTATE_INTRUDER action");
         }
-        
+
+        if (!McpUtils.isVerbose(arguments)) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("operation", "ANNOTATE_INTRUDER");
+            data.put("location", "Intruder");
+            data.put("url", url);
+            try {
+                storeAnnotationInDatabase(url, "INTRUDER", notes, highlightColorStr);
+                data.put("success", true);
+                data.put("notes", notes);
+                data.put("color", highlightColorStr != null ? highlightColorStr : "NONE");
+                data.put("storage", "database");
+            } catch (Exception e) {
+                data.put("success", false);
+                data.put("error", e.getMessage());
+            }
+            return McpUtils.createJsonResponse(data);
+        }
+
         StringBuilder result = new StringBuilder();
         result.append("=== Annotating Intruder Results ===\n\n");
-        
+
         try {
             // Store annotation in our database for Intruder results
             storeAnnotationInDatabase(url, "INTRUDER", notes, highlightColorStr);
@@ -437,10 +570,31 @@ public class AnnotateTool implements McpTool {
         String url = arguments.has("url") ? arguments.get("url").asText() : null;
         String notes = arguments.has("notes") ? arguments.get("notes").asText() : null;
         String highlightColorStr = arguments.has("highlightColor") ? arguments.get("highlightColor").asText() : null;
-        
+
+        if (!McpUtils.isVerbose(arguments)) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("operation", "ANNOTATE_SCANNER");
+            data.put("location", "Scanner");
+            try {
+                String key = issueId != null ? "scanner_issue_" + issueId : "scanner_" + (url != null ? url.hashCode() : System.currentTimeMillis());
+                storeAnnotationInDatabase(key, "SCANNER", notes, highlightColorStr);
+                data.put("success", true);
+                data.put("key", key);
+                if (issueId != null) data.put("issueId", issueId);
+                if (url != null) data.put("url", url);
+                data.put("notes", notes);
+                data.put("color", highlightColorStr != null ? highlightColorStr : "NONE");
+                data.put("storage", "database");
+            } catch (Exception e) {
+                data.put("success", false);
+                data.put("error", e.getMessage());
+            }
+            return McpUtils.createJsonResponse(data);
+        }
+
         StringBuilder result = new StringBuilder();
         result.append("=== Annotating Scanner Issue ===\n\n");
-        
+
         try {
             // Scanner doesn't have a direct issues() method in the API
             // Store in our database for tracking
@@ -468,10 +622,41 @@ public class AnnotateTool implements McpTool {
         String messageId = arguments.has("messageId") ? arguments.get("messageId").asText() : null;
         String notes = arguments.has("notes") ? arguments.get("notes").asText() : null;
         String highlightColorStr = arguments.has("highlightColor") ? arguments.get("highlightColor").asText() : null;
-        
+
+        if (!McpUtils.isVerbose(arguments)) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("operation", "ANNOTATE_WEBSOCKET");
+            data.put("location", "WebSocket History");
+            if (url != null) data.put("url", url);
+            if (messageId != null) data.put("messageId", messageId);
+            try {
+                List<ProxyWebSocketMessage> wsHistory = api.proxy().webSocketHistory();
+                int annotatedCount = 0;
+                for (ProxyWebSocketMessage wsMessage : wsHistory) {
+                    if (url != null && wsMessage.upgradeRequest().url().contains(url)) {
+                        if (wsMessage.annotations() != null) {
+                            applyBulkAnnotation(wsMessage.annotations(),
+                                "[WebSocket] " + (notes != null ? notes : ""), highlightColorStr);
+                            annotatedCount++;
+                        }
+                        String key = url + (messageId != null ? "#" + messageId : "");
+                        storeAnnotationInDatabase(key, "WEBSOCKET", notes, highlightColorStr);
+                    }
+                }
+                data.put("success", annotatedCount > 0);
+                data.put("annotatedCount", annotatedCount);
+                data.put("notes", notes);
+                data.put("color", highlightColorStr != null ? highlightColorStr : "NONE");
+            } catch (Exception e) {
+                data.put("success", false);
+                data.put("error", e.getMessage());
+            }
+            return McpUtils.createJsonResponse(data);
+        }
+
         StringBuilder result = new StringBuilder();
         result.append("=== Annotating WebSocket Message ===\n\n");
-        
+
         try {
             List<ProxyWebSocketMessage> wsHistory = api.proxy().webSocketHistory();
             int annotatedCount = 0;
@@ -519,10 +704,30 @@ public class AnnotateTool implements McpTool {
         String interactionId = arguments.has("interactionId") ? arguments.get("interactionId").asText() : null;
         String notes = arguments.has("notes") ? arguments.get("notes").asText() : null;
         String highlightColorStr = arguments.has("highlightColor") ? arguments.get("highlightColor").asText() : null;
-        
+
+        if (!McpUtils.isVerbose(arguments)) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("operation", "ANNOTATE_COLLABORATOR");
+            data.put("location", "Collaborator Client");
+            try {
+                String key = "collaborator_" + (interactionId != null ? interactionId : System.currentTimeMillis());
+                storeAnnotationInDatabase(key, "COLLABORATOR", notes, highlightColorStr);
+                data.put("success", true);
+                data.put("key", key);
+                if (interactionId != null) data.put("interactionId", interactionId);
+                data.put("notes", notes);
+                data.put("color", highlightColorStr != null ? highlightColorStr : "NONE");
+                data.put("storage", "database");
+            } catch (Exception e) {
+                data.put("success", false);
+                data.put("error", e.getMessage());
+            }
+            return McpUtils.createJsonResponse(data);
+        }
+
         StringBuilder result = new StringBuilder();
         result.append("=== Annotating Collaborator Interaction ===\n\n");
-        
+
         try {
             // Collaborator interactions don't have direct annotations, store in database
             String key = "collaborator_" + (interactionId != null ? interactionId : System.currentTimeMillis());
@@ -547,7 +752,101 @@ public class AnnotateTool implements McpTool {
         String source = arguments.has("source") ? arguments.get("source").asText() : "ALL";
         String urlFilter = arguments.has("url") ? arguments.get("url").asText() : null;
         String methodFilter = arguments.has("method") ? arguments.get("method").asText() : null;
-        
+
+        if (!McpUtils.isVerbose(arguments)) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("operation", "GET_ANNOTATIONS");
+            data.put("source", source);
+            if (urlFilter != null) data.put("urlFilter", urlFilter);
+            if (methodFilter != null) data.put("methodFilter", methodFilter);
+
+            List<Map<String, Object>> items = new ArrayList<>();
+            int proxyCount = 0, targetCount = 0, wsCount = 0, dbCount = 0;
+
+            if (source.equals("PROXY") || source.equals("ALL")) {
+                for (ProxyHttpRequestResponse entry : api.proxy().history()) {
+                    if (shouldInclude(entry.finalRequest().url(), entry.finalRequest().method(), urlFilter, methodFilter)) {
+                        Annotations annotations = entry.annotations();
+                        if (hasAnnotations(annotations)) {
+                            Map<String, Object> item = new HashMap<>();
+                            item.put("source", "PROXY");
+                            item.put("url", entry.finalRequest().url());
+                            item.put("method", entry.finalRequest().method());
+                            item.put("notes", annotations.notes());
+                            item.put("color", annotations.highlightColor() != null ? annotations.highlightColor().name() : null);
+                            items.add(item);
+                            proxyCount++;
+                        }
+                    }
+                }
+            }
+
+            if (source.equals("TARGET") || source.equals("ALL")) {
+                for (HttpRequestResponse entry : api.siteMap().requestResponses()) {
+                    if (shouldInclude(entry.request().url(), entry.request().method(), urlFilter, methodFilter)) {
+                        Annotations annotations = entry.annotations();
+                        if (hasAnnotations(annotations)) {
+                            Map<String, Object> item = new HashMap<>();
+                            item.put("source", "TARGET");
+                            item.put("url", entry.request().url());
+                            item.put("method", entry.request().method());
+                            item.put("notes", annotations.notes());
+                            item.put("color", annotations.highlightColor() != null ? annotations.highlightColor().name() : null);
+                            items.add(item);
+                            targetCount++;
+                        }
+                    }
+                }
+            }
+
+            if (source.equals("WEBSOCKET") || source.equals("ALL")) {
+                try {
+                    for (ProxyWebSocketMessage wsMessage : api.proxy().webSocketHistory()) {
+                        if (wsMessage.annotations() != null) {
+                            Annotations annotations = wsMessage.annotations();
+                            if (hasAnnotations(annotations)) {
+                                Map<String, Object> item = new HashMap<>();
+                                item.put("source", "WEBSOCKET");
+                                item.put("url", wsMessage.upgradeRequest().url());
+                                item.put("method", "WEBSOCKET");
+                                item.put("notes", annotations.notes());
+                                item.put("color", annotations.highlightColor() != null ? annotations.highlightColor().name() : null);
+                                items.add(item);
+                                wsCount++;
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    data.put("webSocketError", e.getMessage());
+                }
+            }
+
+            if (source.equals("REPEATER") || source.equals("INTRUDER") || source.equals("SCANNER") ||
+                source.equals("COLLABORATOR") || source.equals("ALL")) {
+                for (Map.Entry<String, Map<String, Object>> entry : annotationDatabase.entrySet()) {
+                    Map<String, Object> annotation = entry.getValue();
+                    String annotationSource = (String) annotation.get("source");
+                    if (source.equals("ALL") || source.equals(annotationSource)) {
+                        Map<String, Object> item = new HashMap<>();
+                        item.put("source", annotationSource);
+                        item.put("key", entry.getKey());
+                        item.put("notes", annotation.get("notes"));
+                        item.put("color", annotation.get("color"));
+                        items.add(item);
+                        dbCount++;
+                    }
+                }
+            }
+
+            data.put("proxyCount", proxyCount);
+            data.put("targetCount", targetCount);
+            data.put("webSocketCount", wsCount);
+            data.put("databaseCount", dbCount);
+            data.put("totalAnnotated", proxyCount + targetCount + wsCount + dbCount);
+            data.put("items", items);
+            return McpUtils.createJsonResponse(data);
+        }
+
         StringBuilder result = new StringBuilder();
         result.append("=== Annotated Entries ===\n\n");
         
@@ -654,7 +953,70 @@ public class AnnotateTool implements McpTool {
     // Export annotations to JSON file
     private Object exportAnnotations(JsonNode arguments) {
         String filePath = arguments.has("filePath") ? arguments.get("filePath").asText() : "annotations_export.json";
-        
+
+        if (!McpUtils.isVerbose(arguments)) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("operation", "EXPORT_ANNOTATIONS");
+            data.put("filePath", filePath);
+            try {
+                ObjectNode exportData = objectMapper.createObjectNode();
+                ArrayNode annotations = objectMapper.createArrayNode();
+
+                for (ProxyHttpRequestResponse entry : api.proxy().history()) {
+                    if (hasAnnotations(entry.annotations())) {
+                        ObjectNode annotation = objectMapper.createObjectNode();
+                        annotation.put("source", "PROXY");
+                        annotation.put("url", entry.finalRequest().url());
+                        annotation.put("method", entry.finalRequest().method());
+                        annotation.put("notes", entry.annotations().notes());
+                        if (entry.annotations().highlightColor() != null) {
+                            annotation.put("color", entry.annotations().highlightColor().name());
+                        }
+                        annotations.add(annotation);
+                    }
+                }
+
+                for (HttpRequestResponse entry : api.siteMap().requestResponses()) {
+                    if (hasAnnotations(entry.annotations())) {
+                        ObjectNode annotation = objectMapper.createObjectNode();
+                        annotation.put("source", "TARGET");
+                        annotation.put("url", entry.request().url());
+                        annotation.put("method", entry.request().method());
+                        annotation.put("notes", entry.annotations().notes());
+                        if (entry.annotations().highlightColor() != null) {
+                            annotation.put("color", entry.annotations().highlightColor().name());
+                        }
+                        annotations.add(annotation);
+                    }
+                }
+
+                for (Map.Entry<String, Map<String, Object>> entry : annotationDatabase.entrySet()) {
+                    ObjectNode annotation = objectMapper.createObjectNode();
+                    Map<String, Object> d = entry.getValue();
+                    annotation.put("source", (String) d.get("source"));
+                    annotation.put("key", entry.getKey());
+                    annotation.put("notes", (String) d.get("notes"));
+                    annotation.put("color", (String) d.get("color"));
+                    annotations.add(annotation);
+                }
+
+                exportData.set("annotations", annotations);
+                exportData.put("exportTime", new Date().toString());
+                exportData.put("totalCount", annotations.size());
+
+                FileWriter writer = new FileWriter(filePath);
+                writer.write(objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(exportData));
+                writer.close();
+
+                data.put("success", true);
+                data.put("exportedCount", annotations.size());
+            } catch (Exception e) {
+                data.put("success", false);
+                data.put("error", e.getMessage());
+            }
+            return McpUtils.createJsonResponse(data);
+        }
+
         StringBuilder result = new StringBuilder();
         result.append("=== Export Annotations ===\n\n");
         
@@ -730,7 +1092,65 @@ public class AnnotateTool implements McpTool {
     // Import annotations from JSON file
     private Object importAnnotations(JsonNode arguments) {
         String filePath = arguments.has("filePath") ? arguments.get("filePath").asText() : "annotations_export.json";
-        
+
+        if (!McpUtils.isVerbose(arguments)) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("operation", "IMPORT_ANNOTATIONS");
+            data.put("filePath", filePath);
+            try {
+                String content = new String(Files.readAllBytes(Paths.get(filePath)));
+                JsonNode importData = objectMapper.readTree(content);
+                if (!importData.has("annotations")) {
+                    return McpUtils.createErrorResponse("Invalid import file: missing annotations field");
+                }
+                JsonNode annotations = importData.get("annotations");
+                int importedCount = 0;
+                int skippedCount = 0;
+                for (JsonNode annotation : annotations) {
+                    String source = annotation.get("source").asText();
+                    String notes = annotation.has("notes") ? annotation.get("notes").asText() : null;
+                    String color = annotation.has("color") ? annotation.get("color").asText() : null;
+                    if (source.equals("PROXY") || source.equals("TARGET")) {
+                        String url = annotation.get("url").asText();
+                        String method = annotation.get("method").asText();
+                        boolean found = false;
+                        if (source.equals("PROXY")) {
+                            for (ProxyHttpRequestResponse entry : api.proxy().history()) {
+                                if (entry.finalRequest().url().equals(url) && entry.finalRequest().method().equals(method)) {
+                                    applyImportedAnnotation(entry.annotations(), notes, color);
+                                    found = true;
+                                    importedCount++;
+                                    break;
+                                }
+                            }
+                        }
+                        if (source.equals("TARGET")) {
+                            for (HttpRequestResponse entry : api.siteMap().requestResponses()) {
+                                if (entry.request().url().equals(url) && entry.request().method().equals(method)) {
+                                    applyImportedAnnotation(entry.annotations(), notes, color);
+                                    found = true;
+                                    importedCount++;
+                                    break;
+                                }
+                            }
+                        }
+                        if (!found) skippedCount++;
+                    } else {
+                        String key = annotation.has("key") ? annotation.get("key").asText() : annotation.get("url").asText();
+                        storeAnnotationInDatabase(key, source, notes, color);
+                        importedCount++;
+                    }
+                }
+                data.put("success", true);
+                data.put("importedCount", importedCount);
+                data.put("skippedCount", skippedCount);
+            } catch (Exception e) {
+                data.put("success", false);
+                data.put("error", e.getMessage());
+            }
+            return McpUtils.createJsonResponse(data);
+        }
+
         StringBuilder result = new StringBuilder();
         result.append("=== Import Annotations ===\n\n");
         
@@ -813,11 +1233,62 @@ public class AnnotateTool implements McpTool {
     private Object searchByAnnotation(JsonNode arguments) {
         String searchQuery = arguments.has("searchQuery") ? arguments.get("searchQuery").asText() : "";
         String source = arguments.has("source") ? arguments.get("source").asText() : "ALL";
-        
+
+        if (!McpUtils.isVerbose(arguments)) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("operation", "SEARCH_BY_ANNOTATION");
+            data.put("query", searchQuery);
+            data.put("source", source);
+            List<Map<String, Object>> matches = new ArrayList<>();
+
+            if (source.equals("PROXY") || source.equals("ALL")) {
+                for (ProxyHttpRequestResponse entry : api.proxy().history()) {
+                    if (entry.annotations().notes() != null &&
+                        entry.annotations().notes().toLowerCase().contains(searchQuery.toLowerCase())) {
+                        Map<String, Object> match = new HashMap<>();
+                        match.put("source", "PROXY");
+                        match.put("url", entry.finalRequest().url());
+                        match.put("method", entry.finalRequest().method());
+                        match.put("notes", entry.annotations().notes());
+                        matches.add(match);
+                    }
+                }
+            }
+            if (source.equals("TARGET") || source.equals("ALL")) {
+                for (HttpRequestResponse entry : api.siteMap().requestResponses()) {
+                    if (entry.annotations().notes() != null &&
+                        entry.annotations().notes().toLowerCase().contains(searchQuery.toLowerCase())) {
+                        Map<String, Object> match = new HashMap<>();
+                        match.put("source", "TARGET");
+                        match.put("url", entry.request().url());
+                        match.put("method", entry.request().method());
+                        match.put("notes", entry.annotations().notes());
+                        matches.add(match);
+                    }
+                }
+            }
+            for (Map.Entry<String, Map<String, Object>> entry : annotationDatabase.entrySet()) {
+                Map<String, Object> annotation = entry.getValue();
+                String notes = (String) annotation.get("notes");
+                String annotationSource = (String) annotation.get("source");
+                if (notes != null && notes.toLowerCase().contains(searchQuery.toLowerCase()) &&
+                    (source.equals("ALL") || source.equals(annotationSource))) {
+                    Map<String, Object> match = new HashMap<>();
+                    match.put("source", annotationSource);
+                    match.put("key", entry.getKey());
+                    match.put("notes", notes);
+                    matches.add(match);
+                }
+            }
+            data.put("matchCount", matches.size());
+            data.put("matches", matches);
+            return McpUtils.createJsonResponse(data);
+        }
+
         StringBuilder result = new StringBuilder();
         result.append("=== Search by Annotation ===\n");
         result.append("Query: \"").append(searchQuery).append("\"\n\n");
-        
+
         List<Map<String, String>> searchResults = new ArrayList<>();
         
         // Search Proxy History
@@ -881,7 +1352,71 @@ public class AnnotateTool implements McpTool {
     // Enable auto-annotation with rules
     private Object enableAutoAnnotation(JsonNode arguments) {
         JsonNode autoRules = arguments.has("autoRules") ? arguments.get("autoRules") : null;
-        
+
+        if (!McpUtils.isVerbose(arguments)) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("operation", "ENABLE_AUTO_ANNOTATION");
+            try {
+                ProxyRequestHandler handler = new ProxyRequestHandler() {
+                    @Override
+                    public ProxyRequestReceivedAction handleRequestReceived(InterceptedRequest interceptedRequest) {
+                        return ProxyRequestReceivedAction.continueWith(interceptedRequest);
+                    }
+                    @Override
+                    public ProxyRequestToBeSentAction handleRequestToBeSent(InterceptedRequest interceptedRequest) {
+                        String url = interceptedRequest.url();
+                        if (autoRules != null && autoRules.has("urlPatterns")) {
+                            for (JsonNode pattern : autoRules.get("urlPatterns")) {
+                                if (url.contains(pattern.asText())) {
+                                    String notes = autoRules.has("notes") ? autoRules.get("notes").asText() : "Auto-annotated";
+                                    String color = autoRules.has("color") ? autoRules.get("color").asText() : "YELLOW";
+                                    interceptedRequest.annotations().setNotes(notes);
+                                    try {
+                                        interceptedRequest.annotations().setHighlightColor(HighlightColor.valueOf(color));
+                                    } catch (IllegalArgumentException e) {
+                                        // skip
+                                    }
+                                }
+                            }
+                        }
+                        return ProxyRequestToBeSentAction.continueWith(interceptedRequest, interceptedRequest.annotations());
+                    }
+                };
+
+                Registration existingRegistration = handlerRegistrations.get("auto_annotation");
+                if (existingRegistration != null) {
+                    if (existingRegistration.isRegistered()) {
+                        data.put("success", false);
+                        data.put("alreadyEnabled", true);
+                        return McpUtils.createJsonResponse(data);
+                    }
+                    handlerRegistrations.remove("auto_annotation");
+                }
+                activeHandlers.remove("auto_annotation");
+
+                Registration registration = api.proxy().registerRequestHandler(handler);
+                activeHandlers.put("auto_annotation", handler);
+                handlerRegistrations.put("auto_annotation", registration);
+
+                data.put("success", true);
+                if (autoRules != null) {
+                    Map<String, Object> rules = new HashMap<>();
+                    if (autoRules.has("urlPatterns")) {
+                        List<String> patterns = new ArrayList<>();
+                        for (JsonNode pattern : autoRules.get("urlPatterns")) patterns.add(pattern.asText());
+                        rules.put("urlPatterns", patterns);
+                    }
+                    if (autoRules.has("notes")) rules.put("notes", autoRules.get("notes").asText());
+                    if (autoRules.has("color")) rules.put("color", autoRules.get("color").asText());
+                    data.put("rules", rules);
+                }
+            } catch (Exception e) {
+                data.put("success", false);
+                data.put("error", e.getMessage());
+            }
+            return McpUtils.createJsonResponse(data);
+        }
+
         StringBuilder result = new StringBuilder();
         result.append("=== Enable Auto-Annotation ===\n\n");
         
@@ -969,9 +1504,27 @@ public class AnnotateTool implements McpTool {
     
     // Disable auto-annotation
     private Object disableAutoAnnotation(JsonNode arguments) {
+        if (!McpUtils.isVerbose(arguments)) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("operation", "DISABLE_AUTO_ANNOTATION");
+            if (activeHandlers.containsKey("auto_annotation") || handlerRegistrations.containsKey("auto_annotation")) {
+                activeHandlers.remove("auto_annotation");
+                Registration registration = handlerRegistrations.remove("auto_annotation");
+                if (registration != null && registration.isRegistered()) {
+                    registration.deregister();
+                }
+                data.put("success", true);
+                data.put("wasEnabled", true);
+            } else {
+                data.put("success", true);
+                data.put("wasEnabled", false);
+            }
+            return McpUtils.createJsonResponse(data);
+        }
+
         StringBuilder result = new StringBuilder();
         result.append("=== Disable Auto-Annotation ===\n\n");
-        
+
         if (activeHandlers.containsKey("auto_annotation") || handlerRegistrations.containsKey("auto_annotation")) {
             activeHandlers.remove("auto_annotation");
             Registration registration = handlerRegistrations.remove("auto_annotation");
@@ -998,7 +1551,51 @@ public class AnnotateTool implements McpTool {
         if (pattern == null || pattern.isEmpty()) {
             return McpUtils.createErrorResponse("Pattern is required for ANNOTATE_BY_PATTERN action");
         }
-        
+
+        if (!McpUtils.isVerbose(arguments)) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("operation", "ANNOTATE_BY_PATTERN");
+            data.put("pattern", pattern);
+            data.put("source", source);
+            int proxyAnnotated = 0, targetAnnotated = 0, wsAnnotated = 0;
+
+            if (source.equals("PROXY") || source.equals("ALL")) {
+                for (ProxyHttpRequestResponse entry : api.proxy().history()) {
+                    if (entry.finalRequest().url().contains(pattern)) {
+                        applyBulkAnnotation(entry.annotations(), notes, highlightColorStr);
+                        proxyAnnotated++;
+                    }
+                }
+            }
+            if (source.equals("TARGET") || source.equals("ALL")) {
+                for (HttpRequestResponse entry : api.siteMap().requestResponses()) {
+                    if (entry.request().url().contains(pattern)) {
+                        applyBulkAnnotation(entry.annotations(), notes, highlightColorStr);
+                        targetAnnotated++;
+                    }
+                }
+            }
+            if (source.equals("WEBSOCKET") || source.equals("ALL")) {
+                try {
+                    for (ProxyWebSocketMessage wsMessage : api.proxy().webSocketHistory()) {
+                        if (wsMessage.upgradeRequest().url().contains(pattern)) {
+                            applyBulkAnnotation(wsMessage.annotations(), notes, highlightColorStr);
+                            wsAnnotated++;
+                        }
+                    }
+                } catch (Exception e) {
+                    data.put("webSocketError", e.getMessage());
+                }
+            }
+            data.put("proxyAnnotated", proxyAnnotated);
+            data.put("targetAnnotated", targetAnnotated);
+            data.put("webSocketAnnotated", wsAnnotated);
+            data.put("totalAnnotated", proxyAnnotated + targetAnnotated + wsAnnotated);
+            if (notes != null) data.put("notes", notes);
+            if (highlightColorStr != null && !highlightColorStr.equals("NONE")) data.put("color", highlightColorStr);
+            return McpUtils.createJsonResponse(data);
+        }
+
         StringBuilder result = new StringBuilder();
         result.append("=== Bulk Annotation by Pattern ===\n\n");
         result.append("Pattern: ").append(pattern).append("\n");
@@ -1081,7 +1678,57 @@ public class AnnotateTool implements McpTool {
         String source = arguments.has("source") ? arguments.get("source").asText() : "ALL";
         String url = arguments.has("url") ? arguments.get("url").asText() : null;
         String pattern = arguments.has("pattern") ? arguments.get("pattern").asText() : null;
-        
+
+        if (!McpUtils.isVerbose(arguments)) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("operation", "CLEAR_ANNOTATIONS");
+            data.put("source", source);
+            if (url != null) data.put("url", url);
+            if (pattern != null) data.put("pattern", pattern);
+
+            int proxyCleared = 0, targetCleared = 0, dbCleared = 0;
+
+            if (source.equals("PROXY") || source.equals("ALL")) {
+                for (ProxyHttpRequestResponse entry : api.proxy().history()) {
+                    if (shouldClear(entry.finalRequest().url(), url, pattern, entry.annotations())) {
+                        clearAnnotation(entry.annotations());
+                        proxyCleared++;
+                    }
+                }
+            }
+            if (source.equals("TARGET") || source.equals("ALL")) {
+                for (HttpRequestResponse entry : api.siteMap().requestResponses()) {
+                    if (shouldClear(entry.request().url(), url, pattern, entry.annotations())) {
+                        clearAnnotation(entry.annotations());
+                        targetCleared++;
+                    }
+                }
+            }
+            if (source.equals("ALL") || source.equals("REPEATER") || source.equals("INTRUDER") ||
+                source.equals("SCANNER") || source.equals("COLLABORATOR") || source.equals("WEBSOCKET") ||
+                source.equals("PROXY") || source.equals("TARGET") || source.equals("ORGANIZER")) {
+                List<String> keysToRemove = new ArrayList<>();
+                for (Map.Entry<String, Map<String, Object>> entry : annotationDatabase.entrySet()) {
+                    Map<String, Object> annotation = entry.getValue();
+                    String annotationSource = (String) annotation.get("source");
+                    if (source.equals("ALL") || source.equals(annotationSource)) {
+                        if (pattern == null || entry.getKey().contains(pattern)) {
+                            keysToRemove.add(entry.getKey());
+                            dbCleared++;
+                        }
+                    }
+                }
+                for (String key : keysToRemove) annotationDatabase.remove(key);
+            }
+
+            data.put("success", true);
+            data.put("proxyCleared", proxyCleared);
+            data.put("targetCleared", targetCleared);
+            data.put("databaseCleared", dbCleared);
+            data.put("totalCleared", proxyCleared + targetCleared + dbCleared);
+            return McpUtils.createJsonResponse(data);
+        }
+
         StringBuilder result = new StringBuilder();
         result.append("=== Clear Annotations ===\n\n");
         

@@ -221,59 +221,60 @@ public class GlobalInterceptorTool implements McpTool {
     public Object execute(JsonNode arguments) throws Exception {
         Map<String, Object> args = objectMapper.convertValue(arguments, Map.class);
         String action = (String) args.get("action");
-        
+        boolean verbose = McpUtils.isVerboseMap(args);
+
         try {
             switch (action.toLowerCase()) {
                 case "enable":
-                    return enableInterceptor();
+                    return enableInterceptor(verbose);
                 case "disable":
-                    return disableInterceptor();
+                    return disableInterceptor(verbose);
                 case "get_status":
-                    return getStatus();
+                    return getStatus(verbose);
                 case "set_auth":
-                    return setAuthentication(args);
+                    return setAuthentication(args, verbose);
                 case "clear_auth":
-                    return clearAuthentication();
+                    return clearAuthentication(verbose);
                 case "add_header":
-                    return addGlobalHeader(args);
+                    return addGlobalHeader(args, verbose);
                 case "remove_header":
-                    return removeGlobalHeader(args);
+                    return removeGlobalHeader(args, verbose);
                 case "list_headers":
-                    return listGlobalHeaders();
+                    return listGlobalHeaders(verbose);
                 case "add_request_rule":
-                    return addRequestRule(args);
+                    return addRequestRule(args, verbose);
                 case "add_response_rule":
-                    return addResponseRule(args);
+                    return addResponseRule(args, verbose);
                 case "remove_rule":
-                    return removeRule(args);
+                    return removeRule(args, verbose);
                 case "list_rules":
-                    return listRules();
+                    return listRules(verbose);
                 case "add_websocket_rule":
-                    return addWebSocketRule(args);
+                    return addWebSocketRule(args, verbose);
                 case "remove_websocket_rule":
-                    return removeWebSocketRule(args);
+                    return removeWebSocketRule(args, verbose);
                 case "list_websocket_rules":
-                    return listWebSocketRules();
+                    return listWebSocketRules(verbose);
                 case "set_mode":
-                    return setMode(args);
+                    return setMode(args, verbose);
                 case "get_stats":
-                    return getStatistics();
+                    return getStatistics(verbose);
                 case "clear_stats":
-                    return clearStatistics();
+                    return clearStatistics(verbose);
                 case "set_tool_filter":
-                    return setToolFilter(args);
+                    return setToolFilter(args, verbose);
                 case "get_tool_filter":
-                    return getToolFilter();
+                    return getToolFilter(verbose);
                 case "reset_tool_filter":
-                    return resetToolFilter();
+                    return resetToolFilter(verbose);
                 case "set_rate_limit":
-                    return setRateLimit(args);
+                    return setRateLimit(args, verbose);
                 case "get_timing_data":
-                    return getTimingData();
+                    return getTimingData(verbose);
                 case "export_rules":
-                    return exportRules();
+                    return exportRules(verbose);
                 case "import_rules":
-                    return importRules(args);
+                    return importRules(args, verbose);
                 default:
                     return McpUtils.createErrorResponse("Unknown action: " + action);
             }
@@ -282,130 +283,117 @@ public class GlobalInterceptorTool implements McpTool {
         }
     }
     
-    private Object enableInterceptor() {
+    private Object enableInterceptor(boolean verbose) {
         if (interceptorEnabled.get()) {
+            if (!verbose) return McpUtils.createJsonResponse(Map.of("enabled", true, "alreadyEnabled", true));
             return McpUtils.createSuccessResponse("⚠️ Global interceptor already enabled");
         }
-        
-        // Register the HTTP handler
+
         Http http = api.http();
         httpHandlerRegistration = http.registerHttpHandler(new OptimizedHttpHandler());
-        
-        // Register the global WebSocket handler if enabled
+
         if (webSocketInterceptionEnabled.get()) {
             WebSockets webSockets = api.websockets();
             webSocketRegistration = webSockets.registerWebSocketCreatedHandler(new GlobalWebSocketHandler());
         }
-        
+
         interceptorEnabled.set(true);
-        
+
+        if (!verbose) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("enabled", true);
+            data.put("requestInterception", requestInterceptionEnabled.get());
+            data.put("responseInterception", responseInterceptionEnabled.get());
+            data.put("webSocketInterception", webSocketInterceptionEnabled.get());
+            data.put("globalHeaders", globalHeaders.size());
+            data.put("requestRules", requestRules.size());
+            data.put("responseRules", responseRules.size());
+            data.put("webSocketRules", webSocketRules.size());
+            data.put("rateLimit", rateLimitDelay.get());
+            return McpUtils.createJsonResponse(data);
+        }
+
         StringBuilder message = new StringBuilder();
         message.append("✅ **Global Interceptor Enabled**\n\n");
-        message.append("🌐 **Scope**: ALL Burp tools (Scanner, Intruder, Repeater, etc.)\n");
-        message.append("📋 **Current Configuration**:\n");
+        message.append("📋 **Configuration**:\n");
         message.append("  • Request interception: ").append(requestInterceptionEnabled.get() ? "✅" : "❌").append("\n");
         message.append("  • Response interception: ").append(responseInterceptionEnabled.get() ? "✅" : "❌").append("\n");
         message.append("  • WebSocket interception: ").append(webSocketInterceptionEnabled.get() ? "✅" : "❌").append("\n");
-        message.append("  • Event queue mode: ").append(useEventQueue.get() ? "✅" : "❌").append("\n");
-        message.append("  • Global headers: ").append(globalHeaders.size()).append(" configured\n");
-        message.append("  • Request rules: ").append(requestRules.size()).append(" active\n");
-        message.append("  • Response rules: ").append(responseRules.size()).append(" active\n");
-        message.append("  • WebSocket rules: ").append(webSocketRules.size()).append(" active\n");
-        message.append("  • Rate limit: ").append(rateLimitDelay.get() > 0 ? rateLimitDelay.get() + "ms" : "None").append("\n");
-        message.append("  • Tool filter: ").append(enabledToolSources.size() < ToolType.values().length ? "Custom" : "All tools").append("\n");
-        
-        if (authType != null) {
-            message.append("  • Authentication: ").append(authType).append(" configured\n");
-        }
-        
+        message.append("  • Global headers: ").append(globalHeaders.size()).append("\n");
+        message.append("  • Request rules: ").append(requestRules.size()).append("\n");
+        message.append("  • Response rules: ").append(responseRules.size()).append("\n");
         return McpUtils.createSuccessResponse(message.toString());
     }
-    
-    private Object disableInterceptor() {
+
+    private Object disableInterceptor(boolean verbose) {
         if (!interceptorEnabled.get()) {
+            if (!verbose) return McpUtils.createJsonResponse(Map.of("enabled", false, "alreadyDisabled", true));
             return McpUtils.createSuccessResponse("⚠️ Global interceptor already disabled");
         }
-        
-        // Unregister handlers
         if (httpHandlerRegistration != null) {
             httpHandlerRegistration.deregister();
             httpHandlerRegistration = null;
         }
-        
         if (webSocketRegistration != null) {
             webSocketRegistration.deregister();
             webSocketRegistration = null;
         }
-        
         interceptorEnabled.set(false);
-        
+        if (!verbose) return McpUtils.createJsonResponse(Map.of("enabled", false));
         return McpUtils.createSuccessResponse("❌ Global interceptor disabled");
     }
-    
-    private Object getStatus() {
+
+    private Object getStatus(boolean verbose) {
+        if (!verbose) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("enabled", interceptorEnabled.get());
+            data.put("requestInterception", requestInterceptionEnabled.get());
+            data.put("responseInterception", responseInterceptionEnabled.get());
+            data.put("webSocketInterception", webSocketInterceptionEnabled.get());
+            data.put("eventQueue", useEventQueue.get());
+            data.put("rateLimitMs", rateLimitDelay.get());
+            data.put("globalHeaders", globalHeaders.size());
+            data.put("requestRules", requestRules.size());
+            data.put("responseRules", responseRules.size());
+            data.put("webSocketRules", webSocketRules.size());
+            if (authType != null) {
+                data.put("authType", authType);
+                data.put("authHeader", authHeader);
+            }
+            data.put("toolFilter", enabledToolSources.size() < ToolType.values().length ? "custom" : "all");
+            Map<String, Long> stats = new HashMap<>();
+            stats.put("requestsIntercepted", requestsIntercepted.get());
+            stats.put("requestsModified", requestsModified.get());
+            stats.put("requestsDropped", requestsDropped.get());
+            stats.put("responsesIntercepted", responsesIntercepted.get());
+            stats.put("responsesModified", responsesModified.get());
+            stats.put("webSocketMessagesIntercepted", webSocketMessagesIntercepted.get());
+            stats.put("webSocketMessagesModified", webSocketMessagesModified.get());
+            stats.put("webSocketMessagesDropped", webSocketMessagesDropped.get());
+            data.put("stats", stats);
+            return McpUtils.createJsonResponse(data);
+        }
+
         StringBuilder status = new StringBuilder();
         status.append("## 🌐 Global Interceptor Status\n\n");
         status.append("**State**: ").append(interceptorEnabled.get() ? "✅ Enabled" : "❌ Disabled").append("\n");
         status.append("**Request Interception**: ").append(requestInterceptionEnabled.get() ? "✅" : "❌").append("\n");
         status.append("**Response Interception**: ").append(responseInterceptionEnabled.get() ? "✅" : "❌").append("\n");
         status.append("**WebSocket Interception**: ").append(webSocketInterceptionEnabled.get() ? "✅" : "❌").append("\n");
-        status.append("**Event Queue Mode**: ").append(useEventQueue.get() ? "✅" : "❌").append("\n");
         status.append("**Rate Limit**: ").append(rateLimitDelay.get() > 0 ? rateLimitDelay.get() + "ms" : "None").append("\n\n");
-        
         status.append("### Configuration\n");
         status.append("**Global Headers**: ").append(globalHeaders.size()).append("\n");
         status.append("**Request Rules**: ").append(requestRules.size()).append("\n");
         status.append("**Response Rules**: ").append(responseRules.size()).append("\n");
         status.append("**WebSocket Rules**: ").append(webSocketRules.size()).append("\n");
-        
-        if (authType != null) {
-            status.append("**Authentication**: ").append(authType).append(" (").append(authHeader).append(")\n");
-        }
-        
-        // Tool filter status
-        if (enabledToolSources.size() < ToolType.values().length) {
-            status.append("**Tool Filter**: ");
-            for (ToolType tool : enabledToolSources) {
-                status.append(tool.name()).append(" ");
-            }
-            status.append("\n");
-        } else {
-            status.append("**Tool Filter**: All tools\n");
-        }
-        
         status.append("\n### Statistics\n");
         status.append("**Requests Intercepted**: ").append(requestsIntercepted.get()).append("\n");
         status.append("**Requests Modified**: ").append(requestsModified.get()).append("\n");
-        status.append("**Requests Dropped**: ").append(requestsDropped.get()).append("\n");
         status.append("**Responses Intercepted**: ").append(responsesIntercepted.get()).append("\n");
-        status.append("**Responses Modified**: ").append(responsesModified.get()).append("\n");
-        status.append("**WebSocket Messages Intercepted**: ").append(webSocketMessagesIntercepted.get()).append("\n");
-        status.append("**WebSocket Messages Modified**: ").append(webSocketMessagesModified.get()).append("\n");
-        status.append("**WebSocket Messages Dropped**: ").append(webSocketMessagesDropped.get()).append("\n");
-        
-        if (requestsIntercepted.get() > 0) {
-            double modRate = (requestsModified.get() * 100.0) / requestsIntercepted.get();
-            status.append("\n**Request Modification Rate**: ").append(String.format("%.1f%%", modRate)).append("\n");
-        }
-        
-        if (!timingHistory.isEmpty()) {
-            status.append("\n### Recent Timing Data\n");
-            status.append("**Samples**: ").append(timingHistory.size()).append("/100\n");
-            
-            // Calculate average timing
-            long totalTime = 0;
-            for (TimingInfo info : timingHistory) {
-                totalTime += info.responseTime;
-            }
-            if (!timingHistory.isEmpty()) {
-                status.append("**Average Response Time**: ").append(totalTime / timingHistory.size()).append("ms\n");
-            }
-        }
-        
         return McpUtils.createSuccessResponse(status.toString());
     }
-    
-    private Object setAuthentication(Map<String, Object> args) {
+
+    private Object setAuthentication(Map<String, Object> args, boolean verbose) {
         String type = (String) args.get("auth_type");
         String value = (String) args.get("auth_value");
         String customHeader = (String) args.get("header_name");
@@ -440,73 +428,61 @@ public class GlobalInterceptorTool implements McpTool {
         // Add to global headers
         globalHeaders.put(authHeader, authValue);
         
+        if (!verbose) return McpUtils.createJsonResponse(Map.of("success", true, "authType", authType, "authHeader", authHeader));
         return McpUtils.createSuccessResponse(
-            "✅ Authentication configured\n" +
-            "Type: " + authType + "\n" +
-            "Header: " + authHeader + "\n" +
-            "This will be added to ALL requests from ALL Burp tools"
-        );
+            "✅ Authentication configured\nType: " + authType + "\nHeader: " + authHeader);
     }
-    
-    private Object clearAuthentication() {
-        if (authHeader != null) {
-            globalHeaders.remove(authHeader);
-        }
+
+    private Object clearAuthentication(boolean verbose) {
+        if (authHeader != null) globalHeaders.remove(authHeader);
         authType = null;
         authValue = null;
         authHeader = "Authorization";
-        
+        if (!verbose) return McpUtils.createJsonResponse(Map.of("success", true, "action", "clear_auth"));
         return McpUtils.createSuccessResponse("✅ Authentication cleared");
     }
-    
-    private Object addGlobalHeader(Map<String, Object> args) {
+
+    private Object addGlobalHeader(Map<String, Object> args, boolean verbose) {
         String name = (String) args.get("header_name");
         String value = (String) args.get("header_value");
-        
-        if (name == null || value == null) {
-            return McpUtils.createErrorResponse("header_name and header_value are required");
-        }
-        
+        if (name == null || value == null) return McpUtils.createErrorResponse("header_name and header_value are required");
         globalHeaders.put(name, value);
-        
-        return McpUtils.createSuccessResponse(
-            "✅ Global header added: " + name + "\n" +
-            "This will be added to ALL requests from ALL Burp tools"
-        );
+        if (!verbose) return McpUtils.createJsonResponse(Map.of("success", true, "header", name));
+        return McpUtils.createSuccessResponse("✅ Global header added: " + name);
     }
-    
-    private Object removeGlobalHeader(Map<String, Object> args) {
+
+    private Object removeGlobalHeader(Map<String, Object> args, boolean verbose) {
         String name = (String) args.get("header_name");
-        
-        if (name == null) {
-            return McpUtils.createErrorResponse("header_name is required");
-        }
-        
+        if (name == null) return McpUtils.createErrorResponse("header_name is required");
         globalHeaders.remove(name);
-        
+        if (!verbose) return McpUtils.createJsonResponse(Map.of("success", true, "header", name));
         return McpUtils.createSuccessResponse("✅ Global header removed: " + name);
     }
-    
-    private Object listGlobalHeaders() {
+
+    private Object listGlobalHeaders(boolean verbose) {
+        if (!verbose) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("count", globalHeaders.size());
+            data.put("headers", new HashMap<>(globalHeaders));
+            return McpUtils.createJsonResponse(data);
+        }
         StringBuilder result = new StringBuilder();
         result.append("## 📋 Global Headers\n\n");
-        
         if (globalHeaders.isEmpty()) {
             result.append("*No global headers configured*\n");
         } else {
             for (Map.Entry<String, String> header : globalHeaders.entrySet()) {
                 result.append("• **").append(header.getKey()).append("**: `")
-                      .append(header.getValue().length() > 50 ? 
-                             header.getValue().substring(0, 50) + "..." : 
+                      .append(header.getValue().length() > 50 ?
+                             header.getValue().substring(0, 50) + "..." :
                              header.getValue())
                       .append("`\n");
             }
         }
-        
         return McpUtils.createSuccessResponse(result.toString());
     }
-    
-    private Object addRequestRule(Map<String, Object> args) {
+
+    private Object addRequestRule(Map<String, Object> args, boolean verbose) {
         String ruleId = (String) args.get("rule_id");
         Map<String, Object> rule = (Map<String, Object>) args.get("rule");
         Integer priority = (Integer) args.get("priority");
@@ -521,11 +497,11 @@ public class GlobalInterceptorTool implements McpTool {
         
         ModificationRule modRule = new ModificationRule(ruleId, rule, priority);
         requestRules.put(priority, modRule);
-        
+        if (!verbose) return McpUtils.createJsonResponse(Map.of("success", true, "ruleId", ruleId, "priority", priority, "type", "request"));
         return McpUtils.createSuccessResponse("✅ Request rule added: " + ruleId + " (priority: " + priority + ")");
     }
-    
-    private Object addResponseRule(Map<String, Object> args) {
+
+    private Object addResponseRule(Map<String, Object> args, boolean verbose) {
         String ruleId = (String) args.get("rule_id");
         Map<String, Object> rule = (Map<String, Object>) args.get("rule");
         Integer priority = (Integer) args.get("priority");
@@ -540,11 +516,11 @@ public class GlobalInterceptorTool implements McpTool {
         
         ModificationRule modRule = new ModificationRule(ruleId, rule, priority);
         responseRules.put(priority, modRule);
-        
+        if (!verbose) return McpUtils.createJsonResponse(Map.of("success", true, "ruleId", ruleId, "priority", priority, "type", "response"));
         return McpUtils.createSuccessResponse("✅ Response rule added: " + ruleId + " (priority: " + priority + ")");
     }
-    
-    private Object removeRule(Map<String, Object> args) {
+
+    private Object removeRule(Map<String, Object> args, boolean verbose) {
         String ruleId = (String) args.get("rule_id");
         
         if (ruleId == null) {
@@ -575,49 +551,62 @@ public class GlobalInterceptorTool implements McpTool {
             }
         }
         
-        if (removed) {
-            return McpUtils.createSuccessResponse("✅ Rule removed: " + ruleId);
-        } else {
-            return McpUtils.createErrorResponse("Rule not found: " + ruleId);
-        }
+        if (!removed) return McpUtils.createErrorResponse("Rule not found: " + ruleId);
+        if (!verbose) return McpUtils.createJsonResponse(Map.of("success", true, "ruleId", ruleId));
+        return McpUtils.createSuccessResponse("✅ Rule removed: " + ruleId);
     }
-    
-    private Object listRules() {
+
+    private Object listRules(boolean verbose) {
+        List<Map<String, Object>> reqRules = new ArrayList<>();
+        for (Map.Entry<Integer, ModificationRule> entry : requestRules.entrySet()) {
+            ModificationRule rule = entry.getValue();
+            Map<String, Object> r = new HashMap<>();
+            r.put("priority", entry.getKey());
+            r.put("id", rule.id);
+            r.put("description", rule.description);
+            if (rule.pattern != null) r.put("pattern", rule.patternString);
+            reqRules.add(r);
+        }
+        List<Map<String, Object>> respRules = new ArrayList<>();
+        for (Map.Entry<Integer, ModificationRule> entry : responseRules.entrySet()) {
+            ModificationRule rule = entry.getValue();
+            Map<String, Object> r = new HashMap<>();
+            r.put("priority", entry.getKey());
+            r.put("id", rule.id);
+            r.put("description", rule.description);
+            if (rule.pattern != null) r.put("pattern", rule.patternString);
+            respRules.add(r);
+        }
+
+        if (!verbose) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("requestRules", reqRules);
+            data.put("responseRules", respRules);
+            return McpUtils.createJsonResponse(data);
+        }
+
         StringBuilder result = new StringBuilder();
         result.append("## 📋 Active Rules\n\n");
-        
-        result.append("### Request Rules (by priority)\n");
-        if (requestRules.isEmpty()) {
-            result.append("*No request rules configured*\n");
-        } else {
-            for (Map.Entry<Integer, ModificationRule> entry : requestRules.entrySet()) {
-                ModificationRule rule = entry.getValue();
-                result.append("• [").append(entry.getKey()).append("] **").append(rule.id).append("**: ")
-                      .append(rule.description).append("\n");
-                if (rule.pattern != null) {
-                    result.append("  Pattern: `").append(rule.patternString).append("`\n");
-                }
+        result.append("### Request Rules\n");
+        if (reqRules.isEmpty()) result.append("*No request rules configured*\n");
+        else {
+            for (Map<String, Object> r : reqRules) {
+                result.append("• [").append(r.get("priority")).append("] **").append(r.get("id")).append("**: ").append(r.get("description")).append("\n");
+                if (r.containsKey("pattern")) result.append("  Pattern: `").append(r.get("pattern")).append("`\n");
             }
         }
-        
-        result.append("\n### Response Rules (by priority)\n");
-        if (responseRules.isEmpty()) {
-            result.append("*No response rules configured*\n");
-        } else {
-            for (Map.Entry<Integer, ModificationRule> entry : responseRules.entrySet()) {
-                ModificationRule rule = entry.getValue();
-                result.append("• [").append(entry.getKey()).append("] **").append(rule.id).append("**: ")
-                      .append(rule.description).append("\n");
-                if (rule.pattern != null) {
-                    result.append("  Pattern: `").append(rule.patternString).append("`\n");
-                }
+        result.append("\n### Response Rules\n");
+        if (respRules.isEmpty()) result.append("*No response rules configured*\n");
+        else {
+            for (Map<String, Object> r : respRules) {
+                result.append("• [").append(r.get("priority")).append("] **").append(r.get("id")).append("**: ").append(r.get("description")).append("\n");
+                if (r.containsKey("pattern")) result.append("  Pattern: `").append(r.get("pattern")).append("`\n");
             }
         }
-        
         return McpUtils.createSuccessResponse(result.toString());
     }
-    
-    private Object setMode(Map<String, Object> args) {
+
+    private Object setMode(Map<String, Object> args, boolean verbose) {
         Map<String, Object> mode = (Map<String, Object>) args.get("mode");
         
         if (mode == null) {
@@ -654,53 +643,45 @@ public class GlobalInterceptorTool implements McpTool {
             useEventQueue.set(eventQueue);
         }
         
+        if (!verbose) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("success", true);
+            data.put("requestInterception", requestInterceptionEnabled.get());
+            data.put("responseInterception", responseInterceptionEnabled.get());
+            data.put("webSocketInterception", webSocketInterceptionEnabled.get());
+            data.put("eventQueue", useEventQueue.get());
+            return McpUtils.createJsonResponse(data);
+        }
         return McpUtils.createSuccessResponse(
-            "✅ Mode updated\n" +
-            "Request interception: " + requestInterceptionEnabled.get() + "\n" +
-            "Response interception: " + responseInterceptionEnabled.get() + "\n" +
-            "WebSocket interception: " + webSocketInterceptionEnabled.get() + "\n" +
-            "Event queue mode: " + useEventQueue.get()
-        );
+            "✅ Mode updated\nRequest: " + requestInterceptionEnabled.get() +
+            ", Response: " + responseInterceptionEnabled.get() +
+            ", WebSocket: " + webSocketInterceptionEnabled.get());
     }
-    
-    private Object getStatistics() {
+
+    private Object getStatistics(boolean verbose) {
+        if (!verbose) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("requestsIntercepted", requestsIntercepted.get());
+            data.put("requestsModified", requestsModified.get());
+            data.put("requestsDropped", requestsDropped.get());
+            data.put("responsesIntercepted", responsesIntercepted.get());
+            data.put("responsesModified", responsesModified.get());
+            data.put("webSocketMessagesIntercepted", webSocketMessagesIntercepted.get());
+            data.put("webSocketMessagesModified", webSocketMessagesModified.get());
+            data.put("webSocketMessagesDropped", webSocketMessagesDropped.get());
+            return McpUtils.createJsonResponse(data);
+        }
         StringBuilder stats = new StringBuilder();
         stats.append("## 📊 Global Interceptor Statistics\n\n");
-        stats.append("### HTTP Statistics\n");
         stats.append("**Requests Intercepted**: ").append(requestsIntercepted.get()).append("\n");
         stats.append("**Requests Modified**: ").append(requestsModified.get()).append("\n");
         stats.append("**Requests Dropped**: ").append(requestsDropped.get()).append("\n");
         stats.append("**Responses Intercepted**: ").append(responsesIntercepted.get()).append("\n");
         stats.append("**Responses Modified**: ").append(responsesModified.get()).append("\n");
-        
-        if (requestsIntercepted.get() > 0) {
-            double modRate = (requestsModified.get() * 100.0) / requestsIntercepted.get();
-            double dropRate = (requestsDropped.get() * 100.0) / requestsIntercepted.get();
-            stats.append("\n**Request Modification Rate**: ").append(String.format("%.1f%%", modRate)).append("\n");
-            stats.append("**Request Drop Rate**: ").append(String.format("%.1f%%", dropRate)).append("\n");
-        }
-        
-        if (responsesIntercepted.get() > 0) {
-            double modRate = (responsesModified.get() * 100.0) / responsesIntercepted.get();
-            stats.append("**Response Modification Rate**: ").append(String.format("%.1f%%", modRate)).append("\n");
-        }
-        
-        stats.append("\n### WebSocket Statistics\n");
-        stats.append("**Messages Intercepted**: ").append(webSocketMessagesIntercepted.get()).append("\n");
-        stats.append("**Messages Modified**: ").append(webSocketMessagesModified.get()).append("\n");
-        stats.append("**Messages Dropped**: ").append(webSocketMessagesDropped.get()).append("\n");
-        
-        if (webSocketMessagesIntercepted.get() > 0) {
-            double modRate = (webSocketMessagesModified.get() * 100.0) / webSocketMessagesIntercepted.get();
-            double dropRate = (webSocketMessagesDropped.get() * 100.0) / webSocketMessagesIntercepted.get();
-            stats.append("**Message Modification Rate**: ").append(String.format("%.1f%%", modRate)).append("\n");
-            stats.append("**Message Drop Rate**: ").append(String.format("%.1f%%", dropRate)).append("\n");
-        }
-        
         return McpUtils.createSuccessResponse(stats.toString());
     }
-    
-    private Object clearStatistics() {
+
+    private Object clearStatistics(boolean verbose) {
         requestsIntercepted.set(0);
         responsesIntercepted.set(0);
         requestsModified.set(0);
@@ -710,11 +691,11 @@ public class GlobalInterceptorTool implements McpTool {
         webSocketMessagesModified.set(0);
         webSocketMessagesDropped.set(0);
         timingHistory.clear();
-        
+        if (!verbose) return McpUtils.createJsonResponse(Map.of("success", true, "action", "clear_stats"));
         return McpUtils.createSuccessResponse("✅ Statistics cleared");
     }
-    
-    private Object setToolFilter(Map<String, Object> args) {
+
+    private Object setToolFilter(Map<String, Object> args, boolean verbose) {
         // Handle both List and single String
         Object toolsObj = args.get("tools");
         List<String> tools = null;
@@ -777,51 +758,57 @@ public class GlobalInterceptorTool implements McpTool {
             );
         }
         
+        if (!verbose) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("success", true);
+            List<String> enabled = new ArrayList<>();
+            for (ToolType t : enabledToolSources) enabled.add(t.name());
+            data.put("enabledTools", enabled);
+            if (!invalidTools.isEmpty()) data.put("invalidTools", invalidTools);
+            return McpUtils.createJsonResponse(data);
+        }
         StringBuilder message = new StringBuilder();
         message.append("✅ Tool filter updated\n");
         message.append("Enabled tools: ").append(enabledToolSources).append("\n");
-        
-        if (!invalidTools.isEmpty()) {
-            message.append("⚠️ Invalid tools ignored: ").append(String.join(", ", invalidTools));
-        }
-        
+        if (!invalidTools.isEmpty()) message.append("⚠️ Invalid tools ignored: ").append(String.join(", ", invalidTools));
         return McpUtils.createSuccessResponse(message.toString());
     }
-    
-    private Object getToolFilter() {
+
+    private Object getToolFilter(boolean verbose) {
+        List<String> enabled = new ArrayList<>();
+        List<String> disabled = new ArrayList<>();
+        for (ToolType tool : ToolType.values()) {
+            if (enabledToolSources.contains(tool)) enabled.add(tool.name());
+            else disabled.add(tool.name());
+        }
+        if (!verbose) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("allEnabled", disabled.isEmpty());
+            data.put("enabledTools", enabled);
+            data.put("disabledTools", disabled);
+            return McpUtils.createJsonResponse(data);
+        }
         StringBuilder result = new StringBuilder();
         result.append("## 🛠️ Tool Filter Configuration\n\n");
-        
-        if (enabledToolSources.size() == ToolType.values().length) {
+        if (disabled.isEmpty()) {
             result.append("**All tools enabled**\n");
         } else {
             result.append("**Enabled tools:**\n");
-            for (ToolType tool : enabledToolSources) {
-                result.append("• ").append(tool.name()).append("\n");
-            }
-            
+            for (String t : enabled) result.append("• ").append(t).append("\n");
             result.append("\n**Disabled tools:**\n");
-            for (ToolType tool : ToolType.values()) {
-                if (!enabledToolSources.contains(tool)) {
-                    result.append("• ").append(tool.name()).append("\n");
-                }
-            }
+            for (String t : disabled) result.append("• ").append(t).append("\n");
         }
-        
         return McpUtils.createSuccessResponse(result.toString());
     }
-    
-    private Object resetToolFilter() {
+
+    private Object resetToolFilter(boolean verbose) {
         enabledToolSources.clear();
         enabledToolSources.addAll(Arrays.asList(ToolType.values()));
-        
-        return McpUtils.createSuccessResponse(
-            "✅ Tool filter reset\n" +
-            "All tools are now enabled (" + enabledToolSources.size() + " tools)"
-        );
+        if (!verbose) return McpUtils.createJsonResponse(Map.of("success", true, "enabledCount", enabledToolSources.size()));
+        return McpUtils.createSuccessResponse("✅ Tool filter reset, all " + enabledToolSources.size() + " tools enabled");
     }
-    
-    private Object setRateLimit(Map<String, Object> args) {
+
+    private Object setRateLimit(Map<String, Object> args, boolean verbose) {
         // Handle both Integer and String types from JSON
         Object delayObj = args.get("delay");
         Integer delay = null;
@@ -843,55 +830,70 @@ public class GlobalInterceptorTool implements McpTool {
         }
         
         rateLimitDelay.set(delay);
-        
-        return McpUtils.createSuccessResponse(
-            "✅ Rate limit " + (delay > 0 ? "set to " + delay + "ms" : "disabled")
-        );
+        if (!verbose) return McpUtils.createJsonResponse(Map.of("success", true, "rateLimitMs", delay));
+        return McpUtils.createSuccessResponse("✅ Rate limit " + (delay > 0 ? "set to " + delay + "ms" : "disabled"));
     }
-    
-    private Object getTimingData() {
-        StringBuilder result = new StringBuilder();
-        result.append("## ⏱️ Timing Data (Last 100 Requests)\n\n");
-        
-        if (timingHistory.isEmpty()) {
-            result.append("*No timing data available*\n");
-        } else {
-            result.append("**Total samples**: ").append(timingHistory.size()).append("\n\n");
-            
-            // Calculate statistics
-            long totalTime = 0;
-            long minTime = Long.MAX_VALUE;
-            long maxTime = 0;
-            
-            List<TimingInfo> timingList = new ArrayList<>(timingHistory);
+
+    private Object getTimingData(boolean verbose) {
+        List<TimingInfo> timingList = new ArrayList<>(timingHistory);
+        Long avgTime = null, minTime = null, maxTime = null;
+        if (!timingList.isEmpty()) {
+            long total = 0;
+            long min = Long.MAX_VALUE;
+            long max = 0;
             for (TimingInfo info : timingList) {
-                totalTime += info.responseTime;
-                minTime = Math.min(minTime, info.responseTime);
-                maxTime = Math.max(maxTime, info.responseTime);
+                total += info.responseTime;
+                min = Math.min(min, info.responseTime);
+                max = Math.max(max, info.responseTime);
             }
-            
-            long avgTime = totalTime / timingList.size();
-            
-            result.append("### Statistics\n");
-            result.append("**Average Response Time**: ").append(avgTime).append("ms\n");
-            result.append("**Min Response Time**: ").append(minTime).append("ms\n");
-            result.append("**Max Response Time**: ").append(maxTime).append("ms\n\n");
-            
-            result.append("### Recent Requests\n");
+            avgTime = total / timingList.size();
+            minTime = min;
+            maxTime = max;
+        }
+
+        if (!verbose) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("samples", timingList.size());
+            if (avgTime != null) {
+                data.put("avgMs", avgTime);
+                data.put("minMs", minTime);
+                data.put("maxMs", maxTime);
+            }
+            List<Map<String, Object>> recent = new ArrayList<>();
             int count = 0;
             for (TimingInfo info : timingList) {
-                if (count++ >= 10) break; // Show only last 10
-                result.append("• [").append(info.timestamp).append("] ")
-                      .append(info.method).append(" ").append(info.url)
-                      .append(" - ").append(info.responseTime).append("ms")
-                      .append(" (").append(info.toolSource).append(")\n");
+                if (count++ >= 10) break;
+                Map<String, Object> r = new HashMap<>();
+                r.put("timestamp", info.timestamp);
+                r.put("method", info.method);
+                r.put("url", info.url);
+                r.put("responseTimeMs", info.responseTime);
+                r.put("toolSource", info.toolSource);
+                recent.add(r);
+            }
+            data.put("recent", recent);
+            return McpUtils.createJsonResponse(data);
+        }
+
+        StringBuilder result = new StringBuilder();
+        result.append("## ⏱️ Timing Data\n\n");
+        if (timingList.isEmpty()) {
+            result.append("*No timing data available*\n");
+        } else {
+            result.append("**Samples**: ").append(timingList.size()).append("\n");
+            result.append("**Avg**: ").append(avgTime).append("ms | **Min**: ").append(minTime).append("ms | **Max**: ").append(maxTime).append("ms\n\n");
+            result.append("### Recent\n");
+            int count = 0;
+            for (TimingInfo info : timingList) {
+                if (count++ >= 10) break;
+                result.append("• [").append(info.timestamp).append("] ").append(info.method).append(" ").append(info.url)
+                      .append(" - ").append(info.responseTime).append("ms (").append(info.toolSource).append(")\n");
             }
         }
-        
         return McpUtils.createSuccessResponse(result.toString());
     }
-    
-    private Object exportRules() {
+
+    private Object exportRules(boolean verbose) {
         Map<String, Object> exportData = new HashMap<>();
         
         // Export request rules
@@ -941,22 +943,20 @@ public class GlobalInterceptorTool implements McpTool {
         settings.put("authHeader", authHeader);
         exportData.put("settings", settings);
         
-        // Return as MCP text response with JSON
+        if (!verbose) return McpUtils.createJsonResponse(exportData);
         try {
             ObjectMapper mapper = new ObjectMapper();
             String jsonData = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(exportData);
-            
             Map<String, Object> resultMap = new HashMap<>();
             resultMap.put("type", "text");
             resultMap.put("text", "## Exported Rules Configuration\n\n```json\n" + jsonData + "\n```");
-            
             return List.of(resultMap);
         } catch (Exception e) {
             return McpUtils.createErrorResponse("Failed to export rules: " + e.getMessage());
         }
     }
-    
-    private Object importRules(Map<String, Object> args) {
+
+    private Object importRules(Map<String, Object> args, boolean verbose) {
         Map<String, Object> rulesData = (Map<String, Object>) args.get("rules_data");
         
         if (rulesData == null) {
@@ -1027,38 +1027,29 @@ public class GlobalInterceptorTool implements McpTool {
                 authHeader = (String) settings.get("authHeader");
             }
             
+            if (!verbose) return McpUtils.createJsonResponse(Map.of("success", true, "action", "import_rules"));
             return McpUtils.createSuccessResponse("✅ Rules imported successfully");
         } catch (Exception e) {
             return McpUtils.createErrorResponse("Failed to import rules: " + e.getMessage());
         }
     }
-    
-    private Object addWebSocketRule(Map<String, Object> args) {
+
+    private Object addWebSocketRule(Map<String, Object> args, boolean verbose) {
         String ruleId = (String) args.get("rule_id");
         Map<String, Object> rule = (Map<String, Object>) args.get("rule");
         Integer priority = (Integer) args.get("priority");
-        
-        if (ruleId == null || rule == null) {
-            return McpUtils.createErrorResponse("rule_id and rule are required");
-        }
-        
-        if (priority == null) {
-            priority = nextRulePriority++;
-        }
-        
+        if (ruleId == null || rule == null) return McpUtils.createErrorResponse("rule_id and rule are required");
+        if (priority == null) priority = nextRulePriority++;
+
         WebSocketRule wsRule = new WebSocketRule(ruleId, rule, priority);
         webSocketRules.put(priority, wsRule);
-        
-        return McpUtils.createSuccessResponse("✅ WebSocket rule added: " + ruleId + " (priority: " + priority + ")");
+        if (!verbose) return McpUtils.createJsonResponse(Map.of("success", true, "ruleId", ruleId, "priority", priority));
+        return McpUtils.createSuccessResponse("✅ WebSocket rule added: " + ruleId);
     }
-    
-    private Object removeWebSocketRule(Map<String, Object> args) {
+
+    private Object removeWebSocketRule(Map<String, Object> args, boolean verbose) {
         String ruleId = (String) args.get("rule_id");
-        
-        if (ruleId == null) {
-            return McpUtils.createErrorResponse("rule_id is required");
-        }
-        
+        if (ruleId == null) return McpUtils.createErrorResponse("rule_id is required");
         boolean removed = false;
         Iterator<Map.Entry<Integer, WebSocketRule>> iter = webSocketRules.entrySet().iterator();
         while (iter.hasNext()) {
@@ -1068,38 +1059,40 @@ public class GlobalInterceptorTool implements McpTool {
                 break;
             }
         }
-        
-        if (removed) {
-            return McpUtils.createSuccessResponse("✅ WebSocket rule removed: " + ruleId);
-        }
-        return McpUtils.createErrorResponse("WebSocket rule not found: " + ruleId);
+        if (!removed) return McpUtils.createErrorResponse("WebSocket rule not found: " + ruleId);
+        if (!verbose) return McpUtils.createJsonResponse(Map.of("success", true, "ruleId", ruleId));
+        return McpUtils.createSuccessResponse("✅ WebSocket rule removed: " + ruleId);
     }
-    
-    private Object listWebSocketRules() {
+
+    private Object listWebSocketRules(boolean verbose) {
+        List<Map<String, Object>> rules = new ArrayList<>();
+        for (Map.Entry<Integer, WebSocketRule> entry : webSocketRules.entrySet()) {
+            WebSocketRule rule = entry.getValue();
+            Map<String, Object> r = new HashMap<>();
+            r.put("priority", entry.getKey());
+            r.put("id", rule.id);
+            r.put("description", rule.description);
+            if (rule.matchPattern != null) r.put("pattern", rule.matchPatternString);
+            if (rule.replaceText != null) r.put("replace", rule.replaceText);
+            r.put("direction", rule.direction.toString());
+            r.put("drop", rule.dropMessage);
+            rules.add(r);
+        }
+        if (!verbose) return McpUtils.createJsonResponse(Map.of("rules", rules));
+
         StringBuilder result = new StringBuilder();
-        result.append("## 📝 WebSocket Rules (by priority)\n\n");
-        
-        if (webSocketRules.isEmpty()) {
+        result.append("## 📝 WebSocket Rules\n\n");
+        if (rules.isEmpty()) {
             result.append("*No WebSocket rules configured*\n");
         } else {
-            for (Map.Entry<Integer, WebSocketRule> entry : webSocketRules.entrySet()) {
-                WebSocketRule rule = entry.getValue();
-                result.append("• [").append(entry.getKey()).append("] **").append(rule.id).append("**: ")
-                      .append(rule.description).append("\n");
-                if (rule.matchPattern != null) {
-                    result.append("  - **Pattern**: `").append(rule.matchPatternString).append("`\n");
-                }
-                if (rule.replaceText != null) {
-                    result.append("  - **Replace**: `").append(rule.replaceText).append("`\n");
-                }
-                result.append("  - **Direction**: ").append(rule.direction).append("\n");
-                if (rule.dropMessage) {
-                    result.append("  - **Action**: DROP\n");
-                }
-                result.append("\n");
+            for (Map<String, Object> r : rules) {
+                result.append("• [").append(r.get("priority")).append("] **").append(r.get("id")).append("**: ").append(r.get("description")).append("\n");
+                if (r.containsKey("pattern")) result.append("  - Pattern: `").append(r.get("pattern")).append("`\n");
+                if (r.containsKey("replace")) result.append("  - Replace: `").append(r.get("replace")).append("`\n");
+                result.append("  - Direction: ").append(r.get("direction")).append("\n");
+                if ((Boolean) r.get("drop")) result.append("  - Action: DROP\n");
             }
         }
-        
         return McpUtils.createSuccessResponse(result.toString());
     }
     

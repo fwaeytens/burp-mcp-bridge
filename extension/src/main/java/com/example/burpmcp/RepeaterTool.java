@@ -141,13 +141,22 @@ public class RepeaterTool implements McpTool {
             }
             
             api.repeater().sendToRepeater(request, tabName);
-            
+
+            if (!McpUtils.isVerbose(arguments)) {
+                Map<String, Object> data = new HashMap<>();
+                data.put("success", true);
+                data.put("tabName", tabName);
+                data.put("url", url);
+                data.put("method", method);
+                if (!body.isEmpty()) data.put("bodyLength", body.length());
+                return McpUtils.createJsonResponse(data);
+            }
+
             StringBuilder result = new StringBuilder();
             result.append("✅ **Request sent to Repeater**\n\n");
             result.append("**Tab Name:** ").append(tabName).append("\n");
             result.append("**URL:** ").append(url).append("\n");
             result.append("**Method:** ").append(method).append("\n");
-            
             if (!customHeaders.isEmpty()) {
                 result.append("\n**Custom Headers:**\n");
                 String[] headerLines = customHeaders.split("\n");
@@ -155,23 +164,11 @@ public class RepeaterTool implements McpTool {
                     result.append("  • ").append(headerLine).append("\n");
                 }
             }
-            
             if (!body.isEmpty()) {
                 result.append("\n**Body:** ");
-                if (body.length() > 100) {
-                    result.append(body.substring(0, 100)).append("...");
-                } else {
-                    result.append(body);
-                }
+                result.append(body.length() > 100 ? body.substring(0, 100) + "..." : body);
                 result.append("\n");
             }
-            
-            result.append("\n📝 **Next Steps:**\n");
-            result.append("1. Go to the **Repeater** tab in Burp Suite\n");
-            result.append("2. Find the tab named '").append(tabName).append("'\n");
-            result.append("3. Click 'Send' to execute the request\n");
-            result.append("4. Modify and resend as needed for testing\n");
-            
             return McpUtils.createSuccessResponse(result.toString());
             
         } catch (Exception e) {
@@ -210,19 +207,22 @@ public class RepeaterTool implements McpTool {
             }
             
             api.repeater().sendToRepeater(foundItem.finalRequest(), tabName);
-            
+
+            if (!McpUtils.isVerbose(arguments)) {
+                Map<String, Object> data = new HashMap<>();
+                data.put("success", true);
+                data.put("tabName", tabName);
+                data.put("url", foundItem.finalRequest().url());
+                data.put("method", foundItem.finalRequest().method());
+                data.put("fromProxy", true);
+                return McpUtils.createJsonResponse(data);
+            }
+
             StringBuilder result = new StringBuilder();
             result.append("✅ **Proxy request sent to Repeater**\n\n");
             result.append("**Tab Name:** ").append(tabName).append("\n");
             result.append("**URL:** ").append(foundItem.finalRequest().url()).append("\n");
             result.append("**Method:** ").append(foundItem.finalRequest().method()).append("\n");
-            
-            result.append("\n📝 **Next Steps:**\n");
-            result.append("1. Go to the **Repeater** tab in Burp Suite\n");
-            result.append("2. Find the tab named '").append(tabName).append("'\n");
-            result.append("3. Click 'Send' to replay the request\n");
-            result.append("4. Modify parameters for security testing\n");
-            
             return McpUtils.createSuccessResponse(result.toString());
             
         } catch (Exception e) {

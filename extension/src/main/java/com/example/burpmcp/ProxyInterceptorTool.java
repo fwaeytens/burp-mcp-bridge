@@ -457,45 +457,44 @@ public class ProxyInterceptorTool implements McpTool {
     public Object execute(JsonNode arguments) throws Exception {
         Map<String, Object> args = objectMapper.convertValue(arguments, Map.class);
         String action = (String) args.get("action");
-        
+        boolean verbose = Boolean.TRUE.equals(args.get("verbose"));
+
         try {
             switch (action.toLowerCase()) {
                 case "enable":
-                    return enableInterceptor();
+                    return enableInterceptor(verbose);
                 case "disable":
-                    return disableInterceptor();
+                    return disableInterceptor(verbose);
                 case "get_queue":
-                    return getQueuedRequests();
+                    return getQueuedRequests(verbose);
                 case "modify_request":
-                    return modifyRequest(args);
+                    return modifyRequest(args, verbose);
                 case "forward_request":
-                    return forwardRequest(args);
+                    return forwardRequest(args, verbose);
                 case "drop_request":
-                    return dropRequest(args);
+                    return dropRequest(args, verbose);
                 case "get_stats":
-                    return getStatistics();
+                    return getStatistics(verbose);
                 case "clear_stats":
-                    return clearStatistics();
+                    return clearStatistics(verbose);
                 case "master_intercept_on":
-                    return setMasterIntercept(true);
+                    return setMasterIntercept(true, verbose);
                 case "master_intercept_off":
-                    return setMasterIntercept(false);
+                    return setMasterIntercept(false, verbose);
                 case "master_intercept_status":
-                    return getMasterInterceptStatus();
-                // NEW: Response actions
+                    return getMasterInterceptStatus(verbose);
                 case "get_response_queue":
-                    return getResponseQueue();
+                    return getResponseQueue(verbose);
                 case "modify_response":
-                    return modifyResponse(args);
+                    return modifyResponse(args, verbose);
                 case "forward_response":
-                    return forwardResponse(args);
+                    return forwardResponse(args, verbose);
                 case "drop_response":
-                    return dropResponse(args);
-                // NEW: WebSocket actions  
+                    return dropResponse(args, verbose);
                 case "get_websocket_queue":
-                    return getWebSocketQueue();
+                    return getWebSocketQueue(verbose);
                 case "get_websocket_history":
-                    return getWebSocketHistory();
+                    return getWebSocketHistory(verbose);
                 default:
                     return McpUtils.createErrorResponse("Unknown action: " + action);
             }
@@ -504,41 +503,32 @@ public class ProxyInterceptorTool implements McpTool {
         }
     }
     
-    private Object enableInterceptor() {
+    private Object enableInterceptor(boolean verbose) {
         if (interceptorEnabled.get()) {
+            if (!verbose) return McpUtils.createJsonResponse(Map.of("enabled", true, "alreadyEnabled", true));
             return McpUtils.createSuccessResponse("⚠️ Proxy interceptor already enabled");
         }
-        
         if (!handlersRegistered) {
             return McpUtils.createErrorResponse("Handlers not initialized. Please restart the extension.");
         }
-        
-        // Register handlers with proxy - FIXED: Store Registration objects
         requestHandlerRegistration = api.proxy().registerRequestHandler(requestHandler);
         responseHandlerRegistration = api.proxy().registerResponseHandler(responseHandler);
         webSocketHandlerRegistration = api.proxy().registerWebSocketCreationHandler(webSocketHandler);
-        
         interceptorEnabled.set(true);
-        
+
+        if (!verbose) return McpUtils.createJsonResponse(Map.of("enabled", true, "alreadyEnabled", false));
         return McpUtils.createSuccessResponse(
-            "✅ **Proxy Interceptor Enabled**\n\n" +
-            "Event-driven interception is now active.\n" +
-            "⚠️ **IMPORTANT**: All requests will be held indefinitely until you:\n" +
-            "  • `forward_request` - Send unmodified\n" +
-            "  • `modify_request` - Apply changes and forward\n" +
-            "  • `drop_request` - Block the request\n" +
-            "\nUse `get_queue` to see pending requests."
-        );
+            "✅ **Proxy Interceptor Enabled**\n\nEvent-driven interception is now active.\n" +
+            "⚠️ All requests will be held until you call forward_request/modify_request/drop_request.\n" +
+            "Use get_queue to see pending requests.");
     }
-    
-    private Object disableInterceptor() {
+
+    private Object disableInterceptor(boolean verbose) {
         if (!interceptorEnabled.get()) {
+            if (!verbose) return McpUtils.createJsonResponse(Map.of("enabled", false, "alreadyDisabled", true));
             return McpUtils.createSuccessResponse("⚠️ Proxy interceptor already disabled");
         }
-        
         interceptorEnabled.set(false);
-        
-        // CRITICAL FIX: Properly deregister handlers
         if (requestHandlerRegistration != null && requestHandlerRegistration.isRegistered()) {
             requestHandlerRegistration.deregister();
             requestHandlerRegistration = null;
@@ -551,52 +541,60 @@ public class ProxyInterceptorTool implements McpTool {
             webSocketHandlerRegistration.deregister();
             webSocketHandlerRegistration = null;
         }
-        
-        // Clear pending queue
         pendingQueue.clear();
-        
-        // Cancel all pending futures
         for (CompletableFuture<ModificationResponse> future : responseMap.values()) {
             future.cancel(true);
         }
         responseMap.clear();
-        
+
+        if (!verbose) return McpUtils.createJsonResponse(Map.of("enabled", false));
         return McpUtils.createSuccessResponse("❌ Proxy interceptor disabled and handlers deregistered");
     }
-    
-    private Object getQueuedRequests() {
+
+    private Object getQueuedRequests(boolean verbose) {
+        List<PendingModification> queue = new ArrayList<>(pendingQueue);
+        long now = System.currentTimeMillis();
+
+        List<Map<String, Object>> jsonQueue = new ArrayList<>();
+        for (PendingModification pending : queue) {
+            long age = now - pending.timestamp;
+            Map<String, Object> e = new HashMap<>();
+            e.put("requestId", pending.requestId);
+            e.put("method", pending.request.method());
+            e.put("url", pending.request.url());
+            e.put("ageMs", age);
+            e.put("willTimeout", age > MODIFICATION_TIMEOUT_MS);
+            jsonQueue.add(e);
+        }
+
+        if (!verbose) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("queueSize", queue.size());
+            data.put("timeoutMs", MODIFICATION_TIMEOUT_MS);
+            data.put("queue", jsonQueue);
+            return McpUtils.createJsonResponse(data);
+        }
+
         StringBuilder result = new StringBuilder();
         result.append("## 📋 Queued Requests for Modification\n\n");
-        
-        List<PendingModification> queue = new ArrayList<>(pendingQueue);
-        
         if (queue.isEmpty()) {
             result.append("*No requests currently queued*\n");
         } else {
             result.append("**Queue Size:** ").append(queue.size()).append("\n\n");
-            
-            for (PendingModification pending : queue) {
-                long age = System.currentTimeMillis() - pending.timestamp;
-                result.append("### Request ID: `").append(pending.requestId).append("`\n");
-                result.append("- **Method:** ").append(pending.request.method()).append("\n");
-                result.append("- **URL:** ").append(pending.request.url()).append("\n");
-                result.append("- **Age:** ").append(age).append("ms\n");
-                
-                if (age > MODIFICATION_TIMEOUT_MS) {
-                    result.append("- **Status:** ⏱️ Will timeout\n");
-                }
-                
+            for (Map<String, Object> e : jsonQueue) {
+                result.append("### Request ID: `").append(e.get("requestId")).append("`\n");
+                result.append("- **Method:** ").append(e.get("method")).append("\n");
+                result.append("- **URL:** ").append(e.get("url")).append("\n");
+                result.append("- **Age:** ").append(e.get("ageMs")).append("ms\n");
+                if ((Boolean) e.get("willTimeout")) result.append("- **Status:** ⏱️ Will timeout\n");
                 result.append("\n");
             }
-            
-            result.append("**Note:** Requests timeout after ").append(MODIFICATION_TIMEOUT_MS).append("ms\n");
         }
-        
         return McpUtils.createSuccessResponse(result.toString());
     }
     
     @SuppressWarnings("unchecked")
-    private Object modifyRequest(Map<String, Object> args) {
+    private Object modifyRequest(Map<String, Object> args, boolean verbose) {
         String requestId = (String) args.get("request_id");
         
         if (requestId == null || requestId.isEmpty()) {
@@ -645,18 +643,17 @@ public class ProxyInterceptorTool implements McpTool {
             // Remove from pending queue
             pendingQueue.removeIf(p -> p.requestId.equals(requestId));
             
+            if (!verbose) return McpUtils.createJsonResponse(Map.of("success", true, "action", "modify_request", "requestId", requestId));
             return McpUtils.createSuccessResponse(
-                "✅ **Modifications Applied**\n\n" +
-                "Request ID: `" + requestId + "`\n" +
-                "The request will be modified and forwarded."
+                "✅ **Modifications Applied**\n\nRequest ID: `" + requestId + "`\nThe request will be modified and forwarded."
             );
-            
+
         } catch (Exception e) {
             return McpUtils.createErrorResponse("Failed to apply modifications: " + e.getMessage());
         }
     }
-    
-    private Object forwardRequest(Map<String, Object> args) {
+
+    private Object forwardRequest(Map<String, Object> args, boolean verbose) {
         String requestId = (String) args.get("request_id");
         
         if (requestId == null || requestId.isEmpty()) {
@@ -680,18 +677,17 @@ public class ProxyInterceptorTool implements McpTool {
             // Remove from pending queue
             pendingQueue.removeIf(p -> p.requestId.equals(requestId));
             
+            if (!verbose) return McpUtils.createJsonResponse(Map.of("success", true, "action", "forward_request", "requestId", requestId));
             return McpUtils.createSuccessResponse(
-                "✅ **Request Forwarded**\n\n" +
-                "Request ID: `" + requestId + "`\n" +
-                "The request has been forwarded without modification."
+                "✅ **Request Forwarded**\n\nRequest ID: `" + requestId + "`\nThe request has been forwarded without modification."
             );
-            
+
         } catch (Exception e) {
             return McpUtils.createErrorResponse("Failed to forward request: " + e.getMessage());
         }
     }
-    
-    private Object dropRequest(Map<String, Object> args) {
+
+    private Object dropRequest(Map<String, Object> args, boolean verbose) {
         String requestId = (String) args.get("request_id");
         
         if (requestId == null || requestId.isEmpty()) {
@@ -717,215 +713,244 @@ public class ProxyInterceptorTool implements McpTool {
             // Remove from pending queue
             pendingQueue.removeIf(p -> p.requestId.equals(requestId));
             
+            if (!verbose) return McpUtils.createJsonResponse(Map.of("success", true, "action", "drop_request", "requestId", requestId));
             return McpUtils.createSuccessResponse(
-                "🚫 **Request Dropped**\n\n" +
-                "Request ID: `" + requestId + "`\n" +
-                "The request has been blocked and will not be sent."
+                "🚫 **Request Dropped**\n\nRequest ID: `" + requestId + "`\nThe request has been blocked and will not be sent."
             );
-            
+
         } catch (Exception e) {
             return McpUtils.createErrorResponse("Failed to drop request: " + e.getMessage());
         }
     }
-    
-    private Object getStatistics() {
+
+    private Object getStatistics(boolean verbose) {
+        long intercepted = interceptedCount.get();
+        long modified = modifiedCount.get();
+        long timeouts = timeoutCount.get();
+
+        if (!verbose) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("enabled", interceptorEnabled.get());
+            data.put("intercepted", intercepted);
+            data.put("modified", modified);
+            data.put("timeouts", timeouts);
+            data.put("queueSize", pendingQueue.size());
+            data.put("pendingResponses", responseMap.size());
+            if (intercepted > 0) {
+                data.put("modificationRatePercent", Math.round((modified * 1000.0) / intercepted) / 10.0);
+                data.put("timeoutRatePercent", Math.round((timeouts * 1000.0) / intercepted) / 10.0);
+            }
+            return McpUtils.createJsonResponse(data);
+        }
+
         StringBuilder result = new StringBuilder();
         result.append("## 📊 Proxy Interceptor Statistics\n\n");
         result.append("**Status:** ").append(interceptorEnabled.get() ? "✅ Enabled" : "❌ Disabled").append("\n");
-        result.append("**Requests Intercepted:** ").append(interceptedCount.get()).append("\n");
-        result.append("**Requests Modified:** ").append(modifiedCount.get()).append("\n");
-        result.append("**Timeouts:** ").append(timeoutCount.get()).append("\n");
+        result.append("**Requests Intercepted:** ").append(intercepted).append("\n");
+        result.append("**Requests Modified:** ").append(modified).append("\n");
+        result.append("**Timeouts:** ").append(timeouts).append("\n");
         result.append("**Queue Size:** ").append(pendingQueue.size()).append("\n");
         result.append("**Pending Responses:** ").append(responseMap.size()).append("\n");
-        
-        if (interceptedCount.get() > 0) {
-            double modRate = (modifiedCount.get() * 100.0) / interceptedCount.get();
-            double timeoutRate = (timeoutCount.get() * 100.0) / interceptedCount.get();
+        if (intercepted > 0) {
+            double modRate = (modified * 100.0) / intercepted;
+            double timeoutRate = (timeouts * 100.0) / intercepted;
             result.append("\n**Modification Rate:** ").append(String.format("%.1f%%", modRate)).append("\n");
             result.append("**Timeout Rate:** ").append(String.format("%.1f%%", timeoutRate)).append("\n");
         }
-        
         return McpUtils.createSuccessResponse(result.toString());
     }
-    
-    private Object clearStatistics() {
+
+    private Object clearStatistics(boolean verbose) {
         interceptedCount.set(0);
         modifiedCount.set(0);
         timeoutCount.set(0);
-        
+        if (!verbose) return McpUtils.createJsonResponse(Map.of("success", true, "action", "clear_stats"));
         return McpUtils.createSuccessResponse("✅ Statistics cleared");
     }
-    
-    // NEW FEATURE: Master intercept control
-    private Object setMasterIntercept(boolean enable) {
-        if (enable) {
-            api.proxy().enableIntercept();
-            return McpUtils.createSuccessResponse("✅ Master intercept enabled in Burp UI");
-        } else {
-            api.proxy().disableIntercept();
-            return McpUtils.createSuccessResponse("❌ Master intercept disabled in Burp UI");
-        }
+
+    private Object setMasterIntercept(boolean enable, boolean verbose) {
+        if (enable) api.proxy().enableIntercept();
+        else api.proxy().disableIntercept();
+        if (!verbose) return McpUtils.createJsonResponse(Map.of("masterInterceptEnabled", enable));
+        return McpUtils.createSuccessResponse(enable
+            ? "✅ Master intercept enabled in Burp UI"
+            : "❌ Master intercept disabled in Burp UI");
     }
-    
-    private Object getMasterInterceptStatus() {
+
+    private Object getMasterInterceptStatus(boolean verbose) {
         boolean enabled = api.proxy().isInterceptEnabled();
+        if (!verbose) return McpUtils.createJsonResponse(Map.of("masterInterceptEnabled", enabled));
         return McpUtils.createSuccessResponse(
             "Master intercept status: " + (enabled ? "✅ ENABLED" : "❌ DISABLED") + "\n\n" +
-            "Note: This controls Burp's UI intercept button, separate from MCP interception."
-        );
+            "Note: This controls Burp's UI intercept button, separate from MCP interception.");
     }
-    
-    // NEW: Response queue methods
-    private Object getResponseQueue() {
+
+    private Object getResponseQueue(boolean verbose) {
+        List<PendingResponse> queue = new ArrayList<>(pendingResponseQueue);
+        long now = System.currentTimeMillis();
+
+        List<Map<String, Object>> jsonQueue = new ArrayList<>();
+        for (PendingResponse pending : queue) {
+            Map<String, Object> e = new HashMap<>();
+            e.put("id", pending.responseId);
+            e.put("statusCode", pending.response.statusCode());
+            e.put("ageMs", now - pending.timestamp);
+            jsonQueue.add(e);
+        }
+
+        if (!verbose) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("queueSize", queue.size());
+            data.put("queue", jsonQueue);
+            return McpUtils.createJsonResponse(data);
+        }
+
         StringBuilder result = new StringBuilder();
         result.append("## 📋 Pending Responses\n\n");
-        
-        List<PendingResponse> queue = new ArrayList<>(pendingResponseQueue);
         if (queue.isEmpty()) {
             result.append("*No responses currently queued*\n");
         } else {
-            for (PendingResponse pending : queue) {
-                result.append("**ID:** ").append(pending.responseId).append("\n");
-                result.append("**Status:** ").append(pending.response.statusCode()).append("\n");
-                long age = System.currentTimeMillis() - pending.timestamp;
-                result.append("**Age:** ").append(age).append("ms\n");
-                result.append("---\n");
+            for (Map<String, Object> e : jsonQueue) {
+                result.append("**ID:** ").append(e.get("id")).append("\n");
+                result.append("**Status:** ").append(e.get("statusCode")).append("\n");
+                result.append("**Age:** ").append(e.get("ageMs")).append("ms\n---\n");
             }
         }
-        
         return McpUtils.createSuccessResponse(result.toString());
     }
     
     @SuppressWarnings("unchecked")
-    private Object modifyResponse(Map<String, Object> args) {
+    private Object modifyResponse(Map<String, Object> args, boolean verbose) {
         String responseId = (String) args.get("request_id");
-        if (responseId == null) {
-            return McpUtils.createErrorResponse("Missing response_id parameter");
-        }
-        
+        if (responseId == null) return McpUtils.createErrorResponse("Missing response_id parameter");
+
         CompletableFuture<ModificationResponse> future = responseDecisionMap.get(responseId);
-        if (future == null) {
-            return McpUtils.createErrorResponse("Response ID not found: " + responseId);
-        }
-        
+        if (future == null) return McpUtils.createErrorResponse("Response ID not found: " + responseId);
+
         Map<String, Object> modifications = (Map<String, Object>) args.get("modifications");
-        if (modifications == null) {
-            return McpUtils.createErrorResponse("Missing modifications parameter");
-        }
-        
+        if (modifications == null) return McpUtils.createErrorResponse("Missing modifications parameter");
+
         ModificationResponse response = new ModificationResponse();
         response.setModified(true);
         response.setDescription("Modified via MCP");
-        
-        // Parse modifications
-        if (modifications.containsKey("add_headers")) {
-            response.setAddHeaders((Map<String, String>) modifications.get("add_headers"));
-        }
-        if (modifications.containsKey("remove_headers")) {
-            response.setRemoveHeaders((List<String>) modifications.get("remove_headers"));
-        }
-        if (modifications.containsKey("replace_body")) {
-            response.setReplaceBody((String) modifications.get("replace_body"));
-        }
-        if (modifications.containsKey("status_code")) {
-            response.setStatusCode(((Number) modifications.get("status_code")).intValue());
-        }
-        if (modifications.containsKey("reason_phrase")) {
-            response.setReasonPhrase((String) modifications.get("reason_phrase"));
-        }
-        
+        if (modifications.containsKey("add_headers")) response.setAddHeaders((Map<String, String>) modifications.get("add_headers"));
+        if (modifications.containsKey("remove_headers")) response.setRemoveHeaders((List<String>) modifications.get("remove_headers"));
+        if (modifications.containsKey("replace_body")) response.setReplaceBody((String) modifications.get("replace_body"));
+        if (modifications.containsKey("status_code")) response.setStatusCode(((Number) modifications.get("status_code")).intValue());
+        if (modifications.containsKey("reason_phrase")) response.setReasonPhrase((String) modifications.get("reason_phrase"));
+
         future.complete(response);
+        if (!verbose) return McpUtils.createJsonResponse(Map.of("success", true, "action", "modify_response", "responseId", responseId));
         return McpUtils.createSuccessResponse("✅ Response modifications applied");
     }
-    
-    private Object forwardResponse(Map<String, Object> args) {
+
+    private Object forwardResponse(Map<String, Object> args, boolean verbose) {
         String responseId = (String) args.get("request_id");
-        if (responseId == null) {
-            return McpUtils.createErrorResponse("Missing response_id parameter");
-        }
-        
+        if (responseId == null) return McpUtils.createErrorResponse("Missing response_id parameter");
         CompletableFuture<ModificationResponse> future = responseDecisionMap.get(responseId);
-        if (future == null) {
-            return McpUtils.createErrorResponse("Response ID not found: " + responseId);
-        }
-        
+        if (future == null) return McpUtils.createErrorResponse("Response ID not found: " + responseId);
+
         ModificationResponse response = new ModificationResponse();
         response.setModified(false);
         future.complete(response);
-        
+        if (!verbose) return McpUtils.createJsonResponse(Map.of("success", true, "action", "forward_response", "responseId", responseId));
         return McpUtils.createSuccessResponse("✅ Response forwarded unmodified");
     }
-    
-    private Object dropResponse(Map<String, Object> args) {
+
+    private Object dropResponse(Map<String, Object> args, boolean verbose) {
         String responseId = (String) args.get("request_id");
-        if (responseId == null) {
-            return McpUtils.createErrorResponse("Missing response_id parameter");
-        }
-        
+        if (responseId == null) return McpUtils.createErrorResponse("Missing response_id parameter");
         CompletableFuture<ModificationResponse> future = responseDecisionMap.get(responseId);
-        if (future == null) {
-            return McpUtils.createErrorResponse("Response ID not found: " + responseId);
-        }
-        
+        if (future == null) return McpUtils.createErrorResponse("Response ID not found: " + responseId);
+
         ModificationResponse response = new ModificationResponse();
         response.setModified(true);
         response.setDrop(true);
         response.setDescription("Dropped via MCP");
         future.complete(response);
-        
+        if (!verbose) return McpUtils.createJsonResponse(Map.of("success", true, "action", "drop_response", "responseId", responseId));
         return McpUtils.createSuccessResponse("✅ Response dropped");
     }
     
-    // NEW: WebSocket methods
-    private Object getWebSocketQueue() {
+    private Object getWebSocketQueue(boolean verbose) {
+        List<PendingWebSocket> queue = new ArrayList<>(pendingWebSocketQueue);
+        long now = System.currentTimeMillis();
+
+        List<Map<String, Object>> jsonQueue = new ArrayList<>();
+        for (PendingWebSocket pending : queue) {
+            Map<String, Object> e = new HashMap<>();
+            e.put("id", pending.webSocketId);
+            e.put("upgradeUrl", pending.upgradeRequest.url());
+            e.put("ageMs", now - pending.timestamp);
+            jsonQueue.add(e);
+        }
+
+        if (!verbose) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("activeCount", queue.size());
+            data.put("totalIntercepted", webSocketsIntercepted.get());
+            data.put("totalMessages", webSocketMessagesIntercepted.get());
+            data.put("active", jsonQueue);
+            return McpUtils.createJsonResponse(data);
+        }
+
         StringBuilder result = new StringBuilder();
         result.append("## 🔌 Active WebSockets\n\n");
-        
-        List<PendingWebSocket> queue = new ArrayList<>(pendingWebSocketQueue);
         if (queue.isEmpty()) {
             result.append("*No active WebSocket connections*\n");
         } else {
-            for (PendingWebSocket pending : queue) {
-                result.append("**ID:** ").append(pending.webSocketId).append("\n");
-                result.append("**Upgrade URL:** ").append(pending.upgradeRequest.url()).append("\n");
-                long age = System.currentTimeMillis() - pending.timestamp;
-                result.append("**Age:** ").append(age).append("ms\n");
-                result.append("---\n");
+            for (Map<String, Object> e : jsonQueue) {
+                result.append("**ID:** ").append(e.get("id")).append("\n");
+                result.append("**Upgrade URL:** ").append(e.get("upgradeUrl")).append("\n");
+                result.append("**Age:** ").append(e.get("ageMs")).append("ms\n---\n");
             }
         }
         result.append("\n**Total WebSockets:** ").append(webSocketsIntercepted.get()).append("\n");
         result.append("**Total Messages:** ").append(webSocketMessagesIntercepted.get()).append("\n");
-        
         return McpUtils.createSuccessResponse(result.toString());
     }
     
-    private Object getWebSocketHistory() {
+    private Object getWebSocketHistory(boolean verbose) {
+        List<ProxyWebSocketMessage> history = api.proxy().webSocketHistory();
+        int count = Math.min(history.size(), 20);
+
+        List<Map<String, Object>> jsonHistory = new ArrayList<>();
+        for (int i = history.size() - count; i < history.size(); i++) {
+            ProxyWebSocketMessage msg = history.get(i);
+            String payload = msg.payload().toString();
+            Map<String, Object> e = new HashMap<>();
+            e.put("direction", msg.direction().toString());
+            if (payload.length() > 100) {
+                e.put("payload", payload.substring(0, 100));
+                e.put("payloadTruncated", true);
+            } else {
+                e.put("payload", payload);
+            }
+            jsonHistory.add(e);
+        }
+
+        if (!verbose) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("totalMessages", history.size());
+            data.put("showing", count);
+            data.put("messages", jsonHistory);
+            return McpUtils.createJsonResponse(data);
+        }
+
         StringBuilder result = new StringBuilder();
         result.append("## 📜 WebSocket History\n\n");
-        
-        List<ProxyWebSocketMessage> history = api.proxy().webSocketHistory();
-        int count = Math.min(history.size(), 20); // Limit to 20 most recent
-        
         if (history.isEmpty()) {
             result.append("*No WebSocket messages in history*\n");
         } else {
             result.append("**Total messages:** ").append(history.size()).append("\n");
             result.append("**Showing:** ").append(count).append(" most recent\n\n");
-            
-            for (int i = history.size() - count; i < history.size(); i++) {
-                ProxyWebSocketMessage msg = history.get(i);
-                result.append("**Direction:** ").append(msg.direction()).append("\n");
-                result.append("**Payload:** ");
-                String payload = msg.payload().toString();
-                if (payload.length() > 100) {
-                    result.append(payload.substring(0, 100)).append("...");
-                } else {
-                    result.append(payload);
-                }
+            for (Map<String, Object> e : jsonHistory) {
+                result.append("**Direction:** ").append(e.get("direction")).append("\n");
+                result.append("**Payload:** ").append(e.get("payload"));
+                if (Boolean.TRUE.equals(e.get("payloadTruncated"))) result.append("...");
                 result.append("\n---\n");
             }
         }
-        
         return McpUtils.createSuccessResponse(result.toString());
     }
     

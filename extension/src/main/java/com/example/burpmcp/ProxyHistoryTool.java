@@ -221,6 +221,12 @@ public class ProxyHistoryTool implements McpTool {
         recentProperty.put("description", "Sort most recent first");
         recentProperty.put("default", true);
         properties.put("recent", recentProperty);
+
+        Map<String, Object> verboseProperty = new HashMap<>();
+        verboseProperty.put("type", "boolean");
+        verboseProperty.put("description", "Return decorated markdown output (for human debugging). Default returns compact JSON to save tokens.");
+        verboseProperty.put("default", false);
+        properties.put("verbose", verboseProperty);
         
         // Display options for backward compatibility
         Map<String, Object> showHeadersProperty = new HashMap<>();
@@ -376,14 +382,8 @@ public class ProxyHistoryTool implements McpTool {
         int total = filtered.size();
         int showing = Math.min(total, limit);
 
-        StringBuilder result = new StringBuilder();
-        result.append("📋 **PROXY HISTORY LIST**\n\n");
-        result.append(String.format("**Total:** %d entries | **Showing:** %d\n\n", total, showing));
-
-        result.append("```\n");
-        result.append(String.format("%-5s | %-7s | %-6s | %s\n", "ID", "Method", "Status", "URL"));
-        result.append("------|---------|--------|--------------------------------------------\n");
-
+        // Build entry list
+        List<Map<String, Object>> entries = new ArrayList<>();
         int start, end, step;
         if (recent) {
             start = filtered.size() - 1;
@@ -397,28 +397,43 @@ public class ProxyHistoryTool implements McpTool {
 
         for (int i = start; i != end; i += step) {
             ProxyHttpRequestResponse entry = filtered.get(i);
-            int originalId = originalIndices.get(i);
-            int status = entry.hasResponse() ? entry.response().statusCode() : 0;
-            String statusStr = status > 0 ? String.valueOf(status) : "---";
-            String url = entry.finalRequest().url();
-            if (url.length() > 60) {
-                url = url.substring(0, 57) + "...";
-            }
-
-            result.append(String.format("%-5d | %-7s | %-6s | %s\n",
-                                      originalId, entry.finalRequest().method(), statusStr, url));
+            Map<String, Object> e = new HashMap<>();
+            e.put("id", originalIndices.get(i));
+            e.put("method", entry.finalRequest().method());
+            e.put("status", entry.hasResponse() ? entry.response().statusCode() : null);
+            e.put("url", entry.finalRequest().url());
+            entries.add(e);
         }
-        result.append("```\n\n");
-        
-        result.append("💡 **Usage:**\n");
-        result.append("• `action: \"detail\", entryIds: [1, 5, 10]` - Get full details\n");
-        result.append("• `action: \"iterate\", startAt: 1, count: 1` - Browse sequentially\n");
-        
-        Map<String, Object> response = new HashMap<>();
-        response.put("type", "text");
-        response.put("text", result.toString());
-        
-        return List.of(response);
+
+        // Verbose markdown mode (opt-in for human debugging)
+        if (McpUtils.isVerbose(arguments)) {
+            StringBuilder result = new StringBuilder();
+            result.append("📋 **PROXY HISTORY LIST**\n\n");
+            result.append(String.format("**Total:** %d entries | **Showing:** %d\n\n", total, showing));
+            result.append("```\n");
+            result.append(String.format("%-5s | %-7s | %-6s | %s\n", "ID", "Method", "Status", "URL"));
+            result.append("------|---------|--------|--------------------------------------------\n");
+            for (Map<String, Object> e : entries) {
+                String url = (String) e.get("url");
+                if (url.length() > 60) url = url.substring(0, 57) + "...";
+                Object status = e.get("status");
+                String statusStr = status != null ? status.toString() : "---";
+                result.append(String.format("%-5d | %-7s | %-6s | %s\n",
+                                          e.get("id"), e.get("method"), statusStr, url));
+            }
+            result.append("```\n\n");
+            result.append("💡 **Usage:**\n");
+            result.append("• `action: \"detail\", entryIds: [1, 5, 10]` - Get full details\n");
+            result.append("• `action: \"iterate\", startAt: 1, count: 1` - Browse sequentially\n");
+            return McpUtils.createSuccessResponse(result.toString());
+        }
+
+        // Default compact JSON
+        Map<String, Object> data = new HashMap<>();
+        data.put("total", total);
+        data.put("showing", showing);
+        data.put("entries", entries);
+        return McpUtils.createJsonResponse(data);
     }
     
     private Object executeDetailMode(JsonNode arguments) throws Exception {
@@ -428,174 +443,259 @@ public class ProxyHistoryTool implements McpTool {
         }
         
         boolean includeBase64 = arguments.has("includeBase64") ? arguments.get("includeBase64").asBoolean() : false;
-        
+        boolean verbose = McpUtils.isVerbose(arguments);
+
         // For detail mode, we need to get entries by their original IDs from the full proxy history
         List<ProxyHttpRequestResponse> proxyHistory = api.proxy().history();
-        
-        StringBuilder result = new StringBuilder();
-        result.append("📝 **DETAILED PROXY ENTRIES**\n\n");
-        
+
+        // Build structured entries
+        List<Map<String, Object>> jsonEntries = new ArrayList<>();
         for (Integer id : entryIds) {
+            Map<String, Object> e = new HashMap<>();
+            e.put("id", id);
             if (id < 1 || id > proxyHistory.size()) {
-                result.append(String.format("❌ Entry #%d not found (valid: 1-%d)\n\n", id, proxyHistory.size()));
+                e.put("error", "not_found");
+                e.put("validRange", "1-" + proxyHistory.size());
+                jsonEntries.add(e);
                 continue;
             }
-            
+
             ProxyHttpRequestResponse entry = proxyHistory.get(id - 1);
-            result.append(String.format("## 📌 Entry #%d\n\n", id));
-            
-            // Basic info
             HttpRequest req = entry.finalRequest();
-            result.append("**URL:** `").append(req.url()).append("`\n");
-            result.append("**Method:** ").append(req.method()).append("\n");
-            result.append("**Host:** ").append(req.httpService().host()).append(":").append(req.httpService().port()).append("\n");
-            result.append("**Protocol:** ").append(req.httpService().secure() ? "HTTPS 🔒" : "HTTP 🔓").append("\n");
+            e.put("url", req.url());
+            e.put("method", req.method());
+            e.put("host", req.httpService().host());
+            e.put("port", req.httpService().port());
+            e.put("secure", req.httpService().secure());
 
             // Request
-            result.append("\n### 📤 Request\n```http\n");
-            result.append(req.toString());
-            result.append("\n```\n");
-
+            e.put("request", req.toString());
             String reqBody = req.bodyToString();
-            if (reqBody != null && !reqBody.isEmpty()) {
-                result.append("\n**Request Body:**\n```\n");
-                result.append(reqBody);
-                result.append("\n```\n");
-            }
-            
+            if (reqBody != null && !reqBody.isEmpty()) e.put("requestBody", reqBody);
+
             // Response
             if (entry.hasResponse()) {
-                result.append("\n### 📥 Response\n");
-                result.append("**Status:** ").append(entry.response().statusCode());
-                result.append(" ").append(entry.response().reasonPhrase()).append("\n\n");
-                
-                result.append("**Headers:**\n```http\n");
-                entry.response().headers().forEach(h -> 
-                    result.append(h.name()).append(": ").append(h.value()).append("\n")
-                );
-                result.append("```\n");
-                
+                Map<String, Object> resp = new HashMap<>();
+                resp.put("statusCode", entry.response().statusCode());
+                resp.put("reasonPhrase", entry.response().reasonPhrase());
+                List<Map<String, String>> headers = new ArrayList<>();
+                entry.response().headers().forEach(h -> {
+                    Map<String, String> hm = new HashMap<>();
+                    hm.put("name", h.name());
+                    hm.put("value", h.value());
+                    headers.add(hm);
+                });
+                resp.put("headers", headers);
                 String respBody = entry.response().bodyToString();
                 if (!respBody.isEmpty()) {
-                    result.append("\n**Response Body:**\n```\n");
                     if (respBody.length() > 5000) {
-                        result.append(respBody.substring(0, 5000));
-                        result.append("\n... [").append(respBody.length() - 5000).append(" bytes truncated] ...\n");
+                        resp.put("body", respBody.substring(0, 5000));
+                        resp.put("bodyTruncatedBytes", respBody.length() - 5000);
                     } else {
-                        result.append(respBody);
+                        resp.put("body", respBody);
+                    }
+                }
+                e.put("response", resp);
+                try {
+                    e.put("responseTimeMs", entry.timingData().timeBetweenRequestSentAndEndOfResponse().toMillis());
+                } catch (Exception ex) {
+                    // Timing not available
+                }
+            }
+
+            // Metadata
+            e.put("edited", entry.edited());
+            if (entry.annotations().hasNotes()) e.put("notes", entry.annotations().notes());
+            if (entry.annotations().hasHighlightColor()) e.put("highlight", entry.annotations().highlightColor().displayName());
+            e.put("listenerPort", entry.listenerPort());
+
+            if (includeBase64) {
+                Map<String, String> b64 = new HashMap<>();
+                b64.put("request", Base64.getEncoder().encodeToString(entry.request().toByteArray().getBytes()));
+                if (entry.hasResponse()) {
+                    b64.put("response", Base64.getEncoder().encodeToString(entry.response().toByteArray().getBytes()));
+                }
+                e.put("base64", b64);
+            }
+            jsonEntries.add(e);
+        }
+
+        if (!verbose) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("entries", jsonEntries);
+            return McpUtils.createJsonResponse(data);
+        }
+
+        // Verbose markdown output
+        StringBuilder result = new StringBuilder();
+        result.append("📝 **DETAILED PROXY ENTRIES**\n\n");
+
+        for (Map<String, Object> e : jsonEntries) {
+            int id = (Integer) e.get("id");
+            if (e.containsKey("error")) {
+                result.append(String.format("❌ Entry #%d not found (valid: %s)\n\n", id, e.get("validRange")));
+                continue;
+            }
+
+            result.append(String.format("## 📌 Entry #%d\n\n", id));
+            result.append("**URL:** `").append(e.get("url")).append("`\n");
+            result.append("**Method:** ").append(e.get("method")).append("\n");
+            result.append("**Host:** ").append(e.get("host")).append(":").append(e.get("port")).append("\n");
+            result.append("**Protocol:** ").append((Boolean) e.get("secure") ? "HTTPS 🔒" : "HTTP 🔓").append("\n");
+
+            result.append("\n### 📤 Request\n```http\n").append(e.get("request")).append("\n```\n");
+            if (e.containsKey("requestBody")) {
+                result.append("\n**Request Body:**\n```\n").append(e.get("requestBody")).append("\n```\n");
+            }
+
+            if (e.containsKey("response")) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> resp = (Map<String, Object>) e.get("response");
+                result.append("\n### 📥 Response\n**Status:** ").append(resp.get("statusCode"))
+                    .append(" ").append(resp.get("reasonPhrase")).append("\n\n");
+                result.append("**Headers:**\n```http\n");
+                @SuppressWarnings("unchecked")
+                List<Map<String, String>> headers = (List<Map<String, String>>) resp.get("headers");
+                for (Map<String, String> h : headers) {
+                    result.append(h.get("name")).append(": ").append(h.get("value")).append("\n");
+                }
+                result.append("```\n");
+                if (resp.containsKey("body")) {
+                    result.append("\n**Response Body:**\n```\n").append(resp.get("body"));
+                    if (resp.containsKey("bodyTruncatedBytes")) {
+                        result.append("\n... [").append(resp.get("bodyTruncatedBytes")).append(" bytes truncated] ...");
                     }
                     result.append("\n```\n");
                 }
             }
-            
-            // Metadata
+
             result.append("\n### 📊 Metadata\n");
-            if (entry.edited()) {
-                result.append("• **Edited:** ✏️ Yes\n");
-            }
-            if (entry.annotations().hasNotes()) {
-                result.append("• **Notes:** 📝 ").append(entry.annotations().notes()).append("\n");
-            }
-            if (entry.annotations().hasHighlightColor()) {
-                result.append("• **Highlight:** 🎨 ").append(entry.annotations().highlightColor().displayName()).append("\n");
-            }
-            if (entry.hasResponse()) {
-                try {
-                    Duration timing = entry.timingData().timeBetweenRequestSentAndEndOfResponse();
-                    result.append("• **Response Time:** ⏱️ ").append(timing.toMillis()).append("ms\n");
-                } catch (Exception e) {
-                    // Timing not available
-                }
-            }
-            result.append("• **Listener Port:** ").append(entry.listenerPort()).append("\n");
-            
-            // Base64 if requested
-            if (includeBase64) {
-                result.append("\n### 🔐 Base64 Encoded\n");
-                result.append("<details><summary>Click to expand base64 data</summary>\n\n");
-                result.append("**Request:**\n```\n");
-                result.append(Base64.getEncoder().encodeToString(entry.request().toByteArray().getBytes()));
-                result.append("\n```\n");
-                
-                if (entry.hasResponse()) {
-                    result.append("\n**Response:**\n```\n");
-                    result.append(Base64.getEncoder().encodeToString(entry.response().toByteArray().getBytes()));
-                    result.append("\n```\n");
+            if ((Boolean) e.get("edited")) result.append("• **Edited:** ✏️ Yes\n");
+            if (e.containsKey("notes")) result.append("• **Notes:** 📝 ").append(e.get("notes")).append("\n");
+            if (e.containsKey("highlight")) result.append("• **Highlight:** 🎨 ").append(e.get("highlight")).append("\n");
+            if (e.containsKey("responseTimeMs")) result.append("• **Response Time:** ⏱️ ").append(e.get("responseTimeMs")).append("ms\n");
+            result.append("• **Listener Port:** ").append(e.get("listenerPort")).append("\n");
+
+            if (e.containsKey("base64")) {
+                @SuppressWarnings("unchecked")
+                Map<String, String> b64 = (Map<String, String>) e.get("base64");
+                result.append("\n### 🔐 Base64 Encoded\n<details><summary>Click to expand base64 data</summary>\n\n");
+                result.append("**Request:**\n```\n").append(b64.get("request")).append("\n```\n");
+                if (b64.containsKey("response")) {
+                    result.append("\n**Response:**\n```\n").append(b64.get("response")).append("\n```\n");
                 }
                 result.append("</details>\n");
             }
-            
+
             result.append("\n---\n\n");
         }
-        
+
         Map<String, Object> response = new HashMap<>();
         response.put("type", "text");
         response.put("text", result.toString());
-        
         return List.of(response);
     }
     
     private Object executeIterateMode(JsonNode arguments) throws Exception {
         int startAt = arguments.has("startAt") ? arguments.get("startAt").asInt() : 1;
         int count = arguments.has("count") ? arguments.get("count").asInt() : 1;
-        
+        boolean verbose = McpUtils.isVerbose(arguments);
+
         FilteredResults results = applyFilters(arguments);
         List<ProxyHttpRequestResponse> filtered = results.entries;
         boolean recent = arguments.has("recent") ? arguments.get("recent").asBoolean() : true;
-        
+
         if (recent) {
             java.util.Collections.reverse(filtered);
         }
-        
+
         int endAt = Math.min(startAt + count - 1, filtered.size());
-        
+
+        // Build structured entries
+        List<Map<String, Object>> jsonEntries = new ArrayList<>();
+        for (int i = startAt - 1; i < endAt && i < filtered.size(); i++) {
+            ProxyHttpRequestResponse entry = filtered.get(i);
+            Map<String, Object> e = new HashMap<>();
+            e.put("entryNumber", i + 1);
+            e.put("url", entry.finalRequest().url());
+            e.put("method", entry.finalRequest().method());
+            if (entry.hasResponse()) {
+                e.put("statusCode", entry.response().statusCode());
+            }
+            e.put("request", entry.request().toString());
+            if (entry.hasResponse()) {
+                Map<String, Object> resp = new HashMap<>();
+                resp.put("statusCode", entry.response().statusCode());
+                resp.put("reasonPhrase", entry.response().reasonPhrase());
+                List<Map<String, String>> headers = new ArrayList<>();
+                entry.response().headers().forEach(h -> {
+                    Map<String, String> hm = new HashMap<>();
+                    hm.put("name", h.name());
+                    hm.put("value", h.value());
+                    headers.add(hm);
+                });
+                resp.put("headers", headers);
+                resp.put("body", entry.response().bodyToString());
+                e.put("response", resp);
+            }
+            jsonEntries.add(e);
+        }
+
+        if (!verbose) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("totalFiltered", filtered.size());
+            data.put("startAt", startAt);
+            data.put("endAt", endAt);
+            data.put("count", count);
+            data.put("entries", jsonEntries);
+            Map<String, Object> nav = new HashMap<>();
+            if (endAt < filtered.size()) nav.put("nextStartAt", endAt + 1);
+            if (startAt > 1) nav.put("previousStartAt", Math.max(1, startAt - count));
+            data.put("navigation", nav);
+            return McpUtils.createJsonResponse(data);
+        }
+
+        // Verbose markdown output
         StringBuilder result = new StringBuilder();
         result.append("🔄 **ITERATING PROXY HISTORY**\n\n");
         result.append(String.format("**Showing:** Entries %d-%d of %d total\n\n", startAt, endAt, filtered.size()));
-        
-        for (int i = startAt - 1; i < endAt && i < filtered.size(); i++) {
-            ProxyHttpRequestResponse entry = filtered.get(i);
-            int entryNum = i + 1;
-            
-            result.append(String.format("## 📌 Entry #%d of %d\n\n", entryNum, filtered.size()));
-            
-            // Full details similar to detail mode
-            result.append("**URL:** `").append(entry.finalRequest().url()).append("`\n");
-            result.append("**Method:** ").append(entry.finalRequest().method()).append("\n");
-            result.append("**Status:** ").append(entry.hasResponse() ? entry.response().statusCode() : "No Response").append("\n\n");
-            
-            // Add full request/response as in detail mode...
-            result.append("### Request\n```http\n");
-            result.append(entry.request().toString()).append("\n```\n\n");
-            
-            if (entry.hasResponse()) {
+
+        for (Map<String, Object> e : jsonEntries) {
+            result.append(String.format("## 📌 Entry #%d of %d\n\n", e.get("entryNumber"), filtered.size()));
+            result.append("**URL:** `").append(e.get("url")).append("`\n");
+            result.append("**Method:** ").append(e.get("method")).append("\n");
+            result.append("**Status:** ").append(e.containsKey("statusCode") ? e.get("statusCode") : "No Response").append("\n\n");
+
+            result.append("### Request\n```http\n").append(e.get("request")).append("\n```\n\n");
+
+            if (e.containsKey("response")) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> resp = (Map<String, Object>) e.get("response");
                 result.append("### Response\n```http\n");
-                result.append("HTTP/1.1 ").append(entry.response().statusCode()).append(" ");
-                result.append(entry.response().reasonPhrase()).append("\n");
-                entry.response().headers().forEach(h -> 
-                    result.append(h.name()).append(": ").append(h.value()).append("\n")
-                );
-                result.append("\n").append(entry.response().bodyToString()).append("\n```\n");
+                result.append("HTTP/1.1 ").append(resp.get("statusCode")).append(" ").append(resp.get("reasonPhrase")).append("\n");
+                @SuppressWarnings("unchecked")
+                List<Map<String, String>> headers = (List<Map<String, String>>) resp.get("headers");
+                for (Map<String, String> h : headers) {
+                    result.append(h.get("name")).append(": ").append(h.get("value")).append("\n");
+                }
+                result.append("\n").append(resp.get("body")).append("\n```\n");
             }
-            
             result.append("\n---\n\n");
         }
-        
-        // Navigation hints
+
         result.append("### 🧭 Navigation\n");
         if (endAt < filtered.size()) {
             result.append(String.format("• **Next:** `action: \"iterate\", startAt: %d, count: %d`\n", endAt + 1, count));
         }
         if (startAt > 1) {
-            result.append(String.format("• **Previous:** `action: \"iterate\", startAt: %d, count: %d`\n", 
+            result.append(String.format("• **Previous:** `action: \"iterate\", startAt: %d, count: %d`\n",
                                       Math.max(1, startAt - count), count));
         }
         result.append(String.format("• **Jump to:** `action: \"iterate\", startAt: [entry_number], count: %d`\n", count));
-        
+
         Map<String, Object> response = new HashMap<>();
         response.put("type", "text");
         response.put("text", result.toString());
-        
         return List.of(response);
     }
     

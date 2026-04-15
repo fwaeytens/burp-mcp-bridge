@@ -223,33 +223,60 @@ public class LogsTool implements McpTool {
         String category = McpUtils.getStringParam(arguments, "category", "ALL").toUpperCase();
         int limit = McpUtils.getIntParam(arguments, "limit", 100);
         limit = Math.min(limit, MAX_LOG_ENTRIES);
-        
+
+        if (!McpUtils.isVerbose(arguments)) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("interceptorsInstalled", interceptorsInstalled);
+            data.put("outputCount", outputLogs.size());
+            data.put("errorCount", errorLogs.size());
+            data.put("eventCount", eventLogs.size());
+            if (category.equals("ALL") || category.equals("OUTPUT")) {
+                data.put("outputLogs", logsToList(outputLogs, limit));
+            }
+            if (category.equals("ALL") || category.equals("ERROR")) {
+                data.put("errorLogs", logsToList(errorLogs, limit));
+            }
+            if (category.equals("ALL") && eventLogs.size() > 0) {
+                data.put("eventLogs", logsToList(eventLogs, limit));
+            }
+            return McpUtils.createJsonResponse(data);
+        }
+
         StringBuilder result = new StringBuilder();
         result.append("# Burp Suite Logs\n\n");
-        
         if (category.equals("ALL") || category.equals("OUTPUT")) {
             result.append("## Output Logs\n\n");
             appendLogs(result, outputLogs, limit);
         }
-        
         if (category.equals("ALL") || category.equals("ERROR")) {
             result.append("## Error Logs\n\n");
             appendLogs(result, errorLogs, limit);
         }
-        
         if (eventLogs.size() > 0 && category.equals("ALL")) {
             result.append("## Event Logs\n\n");
             appendLogs(result, eventLogs, limit);
         }
-        
-        // Also capture current extension output
         result.append("\n## Current Session Info\n\n");
         result.append("- Log capture started: ").append(interceptorsInstalled ? "Yes" : "No").append("\n");
         result.append("- Output logs captured: ").append(outputLogs.size()).append("\n");
         result.append("- Error logs captured: ").append(errorLogs.size()).append("\n");
         result.append("- Event logs captured: ").append(eventLogs.size()).append("\n");
-        
         return McpUtils.createSuccessResponse(result.toString());
+    }
+
+    private List<Map<String, String>> logsToList(ConcurrentLinkedQueue<LogEntry> logs, int limit) {
+        List<LogEntry> entries = new ArrayList<>(logs);
+        int start = Math.max(0, entries.size() - limit);
+        List<Map<String, String>> result = new ArrayList<>();
+        for (int i = start; i < entries.size(); i++) {
+            LogEntry entry = entries.get(i);
+            Map<String, String> e = new HashMap<>();
+            e.put("timestamp", entry.timestamp.toString());
+            e.put("level", entry.level);
+            e.put("message", entry.message);
+            result.add(e);
+        }
+        return result;
     }
     
     private void appendLogs(StringBuilder result, ConcurrentLinkedQueue<LogEntry> logs, int limit) {
@@ -328,11 +355,20 @@ public class LogsTool implements McpTool {
                 }
         }
         
+        if (!McpUtils.isVerbose(arguments)) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("success", true);
+            data.put("level", level);
+            data.put("withObject", hasObject);
+            data.put("withException", hasException);
+            if (!message.isEmpty()) data.put("message", message);
+            return McpUtils.createJsonResponse(data);
+        }
+
         String successMsg = "Log written successfully: " + level;
         if (hasObject) successMsg += " (object)";
         if (hasException) successMsg += " (with exception)";
         if (!message.isEmpty()) successMsg += " - " + message;
-        
         return McpUtils.createSuccessResponse(successMsg);
     }
     
@@ -369,29 +405,40 @@ public class LogsTool implements McpTool {
                 addLogEntry(eventLogs, "INFO", message);
         }
         
+        if (!McpUtils.isVerbose(arguments)) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("success", true);
+            data.put("level", level);
+            data.put("message", message);
+            return McpUtils.createJsonResponse(data);
+        }
         return McpUtils.createSuccessResponse("Event raised: " + level + " - " + message);
     }
-    
+
     private Object clearLogs(JsonNode arguments) {
         String category = McpUtils.getStringParam(arguments, "category", "ALL").toUpperCase();
-        
         int clearedCount = 0;
-        
+
         if (category.equals("ALL") || category.equals("OUTPUT")) {
             clearedCount += outputLogs.size();
             outputLogs.clear();
         }
-        
         if (category.equals("ALL") || category.equals("ERROR")) {
             clearedCount += errorLogs.size();
             errorLogs.clear();
         }
-        
         if (category.equals("ALL")) {
             clearedCount += eventLogs.size();
             eventLogs.clear();
         }
-        
+
+        if (!McpUtils.isVerbose(arguments)) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("success", true);
+            data.put("category", category);
+            data.put("clearedCount", clearedCount);
+            return McpUtils.createJsonResponse(data);
+        }
         return McpUtils.createSuccessResponse("Cleared " + clearedCount + " log entries from " + category + " category");
     }
     

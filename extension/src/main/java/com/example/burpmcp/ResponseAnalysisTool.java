@@ -161,43 +161,34 @@ public class ResponseAnalysisTool implements McpTool {
                 analyzed++;
             }
             
-            // Get variant and invariant keywords
             Set<String> variantKeywords = analyzer.variantKeywords();
             Set<String> invariantKeywords = analyzer.invariantKeywords();
-            
+
+            if (!McpUtils.isVerbose(arguments)) {
+                Map<String, Object> data = new HashMap<>();
+                data.put("operation", "keywords");
+                data.put("keywordsSearched", keywords);
+                data.put("responsesAnalyzed", analyzed);
+                data.put("variantKeywords", new ArrayList<>(variantKeywords));
+                data.put("invariantKeywords", new ArrayList<>(invariantKeywords));
+                return McpUtils.createJsonResponse(data);
+            }
+
             result.append("### Analysis Summary\n");
             result.append("**Responses analyzed:** ").append(analyzed).append("\n\n");
-            
             if (!variantKeywords.isEmpty()) {
-                result.append("### Dynamic Keywords (Found in some responses)\n");
-                result.append("These keywords appear inconsistently, suggesting dynamic content:\n\n");
-                for (String keyword : variantKeywords) {
-                    result.append("- ").append(keyword).append("\n");
-                }
+                result.append("### Dynamic Keywords\n");
+                for (String keyword : variantKeywords) result.append("- ").append(keyword).append("\n");
                 result.append("\n");
             }
-            
             if (!invariantKeywords.isEmpty()) {
-                result.append("### Static Keywords (Found consistently)\n");
-                result.append("These keywords appear consistently across responses:\n\n");
+                result.append("### Static Keywords\n");
                 int count = 0;
                 for (String keyword : invariantKeywords) {
-                    if (count++ >= 20) {
-                        result.append("... and ").append(invariantKeywords.size() - 20).append(" more\n");
-                        break;
-                    }
+                    if (count++ >= 20) { result.append("... and ").append(invariantKeywords.size() - 20).append(" more\n"); break; }
                     result.append("- ").append(keyword).append("\n");
                 }
-                result.append("\n");
             }
-            
-            if (variantKeywords.isEmpty() && invariantKeywords.isEmpty()) {
-                result.append("No keywords from the search list were found in the analyzed responses.\n");
-            } else {
-                result.append("💡 **Tip:** Dynamic keywords often indicate areas where user input is processed.\n");
-                result.append("Focus security testing on endpoints showing keyword variations.\n");
-            }
-            
             return McpUtils.createSuccessResponse(result.toString());
             
         } catch (Exception e) {
@@ -260,14 +251,26 @@ public class ResponseAnalysisTool implements McpTool {
                 }
             }
             
-            StringBuilder result = new StringBuilder();
-            result.append("## Response Variation Analysis\n\n");
-            result.append("**Responses analyzed:** ").append(responses.size()).append("\n\n");
-            
             // Get variant and invariant attributes
             Set<AttributeType> variantAttributes = analyzer.variantAttributes();
             Set<AttributeType> invariantAttributes = analyzer.invariantAttributes();
-            
+
+            if (!McpUtils.isVerbose(arguments)) {
+                Map<String, Object> data = new HashMap<>();
+                data.put("operation", "variations");
+                data.put("responsesAnalyzed", responses.size());
+                List<String> variantList = new ArrayList<>();
+                for (AttributeType a : variantAttributes) variantList.add(a.name());
+                data.put("variantAttributes", variantList);
+                List<String> invariantList = new ArrayList<>();
+                for (AttributeType a : invariantAttributes) invariantList.add(a.name());
+                data.put("invariantAttributes", invariantList);
+                return McpUtils.createJsonResponse(data);
+            }
+
+            StringBuilder result = new StringBuilder();
+            result.append("## Response Variation Analysis\n\n");
+            result.append("**Responses analyzed:** ").append(responses.size()).append("\n\n");
             if (!variantAttributes.isEmpty()) {
                 result.append("### Dynamic/Variant Attributes\n");
                 result.append("These attributes vary between responses:\n\n");
@@ -396,12 +399,7 @@ public class ResponseAnalysisTool implements McpTool {
             }
             
             ByteUtils byteUtils = api.utilities().byteUtils();
-            
-            StringBuilder result = new StringBuilder();
-            result.append("## Pattern Analysis Results\n\n");
-            result.append("**Pattern:** `").append(patternStr).append("`\n");
-            result.append("**Case Sensitive:** ").append(caseSensitive).append("\n\n");
-            
+
             List<Map<String, Object>> matches = new ArrayList<>();
             List<ProxyHttpRequestResponse> history = api.proxy().history();
             
@@ -447,10 +445,25 @@ public class ResponseAnalysisTool implements McpTool {
                 
                 analyzed++;
             }
-            
+
+            if (!McpUtils.isVerbose(arguments)) {
+                Map<String, Object> data = new HashMap<>();
+                data.put("operation", "pattern");
+                data.put("pattern", patternStr);
+                data.put("caseSensitive", caseSensitive);
+                data.put("responsesAnalyzed", analyzed);
+                data.put("matchesFound", matches.size());
+                data.put("matches", matches);
+                return McpUtils.createJsonResponse(data);
+            }
+
+            StringBuilder result = new StringBuilder();
+            result.append("## Pattern Analysis Results\n\n");
+            result.append("**Pattern:** `").append(patternStr).append("`\n");
+            result.append("**Case Sensitive:** ").append(caseSensitive).append("\n\n");
             result.append("**Responses analyzed:** ").append(analyzed).append("\n");
             result.append("**Matches found:** ").append(matches.size()).append("\n\n");
-            
+
             if (!matches.isEmpty()) {
                 result.append("### Pattern Matches\n\n");
                 
@@ -511,11 +524,7 @@ public class ResponseAnalysisTool implements McpTool {
         try {
             String testString = McpUtils.getStringParam(arguments, "testString", "REFLECTED_TEST_12345");
             int limit = McpUtils.getIntParam(arguments, "limit", 50);
-            
-            StringBuilder result = new StringBuilder();
-            result.append("## Reflection Point Analysis\n\n");
-            result.append("**Test String:** ").append(testString).append("\n\n");
-            
+
             List<Map<String, Object>> reflectionPoints = new ArrayList<>();
             
             // Analyze proxy history for reflection
@@ -590,7 +599,20 @@ public class ResponseAnalysisTool implements McpTool {
                 
                 analyzed++;
             }
-            
+
+            if (!McpUtils.isVerbose(arguments)) {
+                Map<String, Object> data = new HashMap<>();
+                data.put("operation", "reflection");
+                data.put("testString", testString);
+                data.put("entriesAnalyzed", analyzed);
+                data.put("reflectionPointsFound", reflectionPoints.size());
+                data.put("reflectionPoints", reflectionPoints);
+                return McpUtils.createJsonResponse(data);
+            }
+
+            StringBuilder result = new StringBuilder();
+            result.append("## Reflection Point Analysis\n\n");
+            result.append("**Test String:** ").append(testString).append("\n\n");
             result.append("**Entries analyzed:** ").append(analyzed).append("\n");
             result.append("**Reflection points found:** ").append(reflectionPoints.size()).append("\n\n");
             
@@ -671,6 +693,36 @@ public class ResponseAnalysisTool implements McpTool {
 
             // Sort by rank (higher rank = more anomalous)
             ranked.sort(Comparator.comparingInt(RankedHttpRequestResponse::rank).reversed());
+
+            if (!McpUtils.isVerbose(arguments)) {
+                Map<String, Object> data = new HashMap<>();
+                data.put("operation", "rank_anomalies");
+                data.put("algorithm", algorithm.name());
+                data.put("responsesAnalyzed", responses.size());
+                List<Map<String, Object>> top = new ArrayList<>();
+                int idx = 0;
+                for (RankedHttpRequestResponse rr : ranked) {
+                    if (idx++ >= topN) break;
+                    Map<String, Object> entry = new HashMap<>();
+                    entry.put("rank", rr.rank());
+                    entry.put("url", rr.requestResponse().request().url());
+                    entry.put("method", rr.requestResponse().request().method());
+                    entry.put("statusCode", (int) rr.requestResponse().response().statusCode());
+                    entry.put("size", rr.requestResponse().response().toByteArray().length());
+                    String ct = rr.requestResponse().response().headerValue("Content-Type");
+                    if (ct != null) entry.put("contentType", ct);
+                    top.add(entry);
+                }
+                data.put("topAnomalies", top);
+                Map<String, Long> distribution = new HashMap<>();
+                distribution.put("veryHigh", ranked.stream().filter(r -> r.rank() >= 80).count());
+                distribution.put("high", ranked.stream().filter(r -> r.rank() >= 60 && r.rank() < 80).count());
+                distribution.put("medium", ranked.stream().filter(r -> r.rank() >= 40 && r.rank() < 60).count());
+                distribution.put("low", ranked.stream().filter(r -> r.rank() >= 20 && r.rank() < 40).count());
+                distribution.put("veryLow", ranked.stream().filter(r -> r.rank() < 20).count());
+                data.put("distribution", distribution);
+                return McpUtils.createJsonResponse(data);
+            }
 
             // Build result
             StringBuilder result = new StringBuilder();
@@ -767,10 +819,18 @@ public class ResponseAnalysisTool implements McpTool {
     }
 
     private Object performCompleteAnalysis(JsonNode arguments) {
+        if (!McpUtils.isVerbose(arguments)) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("operation", "all");
+            data.put("keywords", analyzeKeywords(arguments));
+            data.put("variations", analyzeVariations(arguments));
+            data.put("reflection", analyzeReflection(arguments));
+            return McpUtils.createJsonResponse(data);
+        }
+
         StringBuilder result = new StringBuilder();
         result.append("# Complete Response Analysis\n\n");
 
-        // Run all three analyses
         result.append("---\n");
         Object keywordResult = analyzeKeywords(arguments);
         result.append(extractTextFromResult(keywordResult)).append("\n\n");

@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Collections;
 
 public class BambdaTool implements McpTool {
@@ -156,15 +157,16 @@ public class BambdaTool implements McpTool {
         try {
             StringBuilder result = new StringBuilder();
             
+            boolean verbose = McpUtils.isVerbose(arguments);
             switch (action) {
                 case "APPLY_FILTER":
-                    return applyFilter(arguments, result);
+                    return applyFilter(arguments, result, verbose);
                 case "LIST_PRESETS":
-                    return listPresets(result);
+                    return listPresets(result, verbose);
                 case "CREATE_CUSTOM":
-                    return createCustom(arguments, result);
+                    return createCustom(arguments, result, verbose);
                 case "GET_ACTIVE_FILTER":
-                    return getActiveFilter(result);
+                    return getActiveFilter(result, verbose);
                 default:
                     throw new IllegalArgumentException("Unknown action: " + action);
             }
@@ -175,7 +177,7 @@ public class BambdaTool implements McpTool {
         }
     }
     
-    private Object applyFilter(JsonNode arguments, StringBuilder result) {
+    private Object applyFilter(JsonNode arguments, StringBuilder result, boolean verbose) {
         result.append("🎭 **BAMBDA FILTER APPLICATION**\n\n");
         
         String preset = McpUtils.getStringParam(arguments, "preset", "");
@@ -285,13 +287,43 @@ public class BambdaTool implements McpTool {
             
         } else {
             result.append("❌ **No filter specified**\n");
-            result.append("Use 'preset' for pre-defined filters or 'customScript' for custom Java code\n");
+            return McpUtils.createErrorResponse("Use 'preset' for pre-defined filters or 'customScript' for custom Java code");
         }
-        
+
+        if (!verbose) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("success", true);
+            if (!preset.isEmpty()) data.put("preset", preset);
+            if (!customScript.isEmpty()) data.put("custom", true);
+            data.put("location", location);
+            return McpUtils.createJsonResponse(data);
+        }
         return McpUtils.createSuccessResponse(result.toString());
     }
-    
-    private Object listPresets(StringBuilder result) {
+
+    private Object listPresets(StringBuilder result, boolean verbose) {
+        if (!verbose) {
+            List<Map<String, String>> presets = new ArrayList<>();
+            String[][] presetData = {
+                {"authenticated_requests", "Find all authenticated traffic"},
+                {"api_endpoints", "Discover API endpoints"},
+                {"sql_injection_candidates", "Potential SQLi targets"},
+                {"error_responses", "Server errors and exceptions"},
+                {"file_uploads", "File upload functionality"},
+                {"json_endpoints", "JSON API responses"},
+                {"admin_interfaces", "Administrative panels"},
+                {"xss_candidates", "Potential XSS injection points"},
+                {"auth_endpoints", "Login/logout pages"},
+                {"interesting_status", "Notable HTTP status codes"}
+            };
+            for (String[] p : presetData) {
+                Map<String, String> m = new HashMap<>();
+                m.put("name", p[0]);
+                m.put("description", p[1]);
+                presets.add(m);
+            }
+            return McpUtils.createJsonResponse(Map.of("presets", presets));
+        }
         result.append("🎭 **AVAILABLE BAMBDA PRESETS**\n\n");
         
         result.append("**1. authenticated_requests** - Find all authenticated traffic\n");
@@ -329,7 +361,7 @@ public class BambdaTool implements McpTool {
         return McpUtils.createSuccessResponse(result.toString());
     }
     
-    private Object createCustom(JsonNode arguments, StringBuilder result) {
+    private Object createCustom(JsonNode arguments, StringBuilder result, boolean verbose) {
         result.append("🎭 **CUSTOM BAMBDA CREATION**\n\n");
         
         String customScript = McpUtils.getStringParam(arguments, "customScript", "");
@@ -413,11 +445,18 @@ public class BambdaTool implements McpTool {
                 result.append("❌ **Error creating custom Bambda:** ").append(e.getMessage()).append("\n");
             }
         }
-        
+
+        if (!verbose) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("success", !customScript.isEmpty());
+            data.put("description", description);
+            data.put("location", location);
+            return McpUtils.createJsonResponse(data);
+        }
         return McpUtils.createSuccessResponse(result.toString());
     }
-    
-    private Object getActiveFilter(StringBuilder result) {
+
+    private Object getActiveFilter(StringBuilder result, boolean verbose) {
         result.append("🎭 **ACTIVE BAMBDA FILTER**\n\n");
         
         // Document the Montoya API limitation
@@ -437,11 +476,13 @@ public class BambdaTool implements McpTool {
         result.append("3. Switch to 'Bambda mode' to see the active script\n");
         result.append("4. Or go to Extensions → Bambda library to manage your Bambdas\n\n");
         
-        result.append("💡 **Available Actions:**\n");
-        result.append("  • Use `LIST_PRESETS` to see pre-defined filters\n");
-        result.append("  • Use `APPLY_FILTER` to apply a new filter\n");
-        result.append("  • Use `CREATE_CUSTOM` to create custom filters\n");
-        
+        if (!verbose) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("error", "api_limitation");
+            data.put("message", "Montoya API only provides importBambda(); cannot retrieve active filter via API");
+            data.put("workaround", "Use Burp UI: Proxy > HTTP history > filter bar > Bambda mode");
+            return McpUtils.createJsonResponse(data);
+        }
         return McpUtils.createSuccessResponse(result.toString());
     }
     

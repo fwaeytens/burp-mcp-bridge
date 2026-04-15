@@ -192,6 +192,12 @@ public class ScannerTool implements McpTool {
         outputPathProperty.put("type", "string");
         outputPathProperty.put("description", "Path to save report");
         properties.put("outputPath", outputPathProperty);
+
+        Map<String, Object> verboseProperty = new HashMap<>();
+        verboseProperty.put("type", "boolean");
+        verboseProperty.put("default", false);
+        verboseProperty.put("description", "Return decorated markdown (for human debugging). Default returns compact JSON.");
+        properties.put("verbose", verboseProperty);
         
         // BCheck definition
         Map<String, Object> bcheckProperty = new HashMap<>();
@@ -322,7 +328,7 @@ public class ScannerTool implements McpTool {
                     return cancelScan(arguments);
                 
                 case "LIST_SCANS":
-                    return listActiveScans();
+                    return listActiveScans(arguments);
                 
                 case "ADD_TO_SCAN":
                     return addToScan(arguments);
@@ -386,79 +392,87 @@ public class ScannerTool implements McpTool {
         }
         
         AuditConfiguration auditConfig = AuditConfiguration.auditConfiguration(builtInConfig);
-        
-        StringBuilder result = new StringBuilder();
-        result.append("🔍 **Scan Initiated**\n");
-        result.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
-        
-        // Start audit
+        boolean verbose = McpUtils.isVerbose(arguments);
+
         try {
             Audit audit = scanner.startAudit(auditConfig);
             activeAudits.put(scanId, audit);
-            
+
             // Add URLs to audit
             int successCount = 0;
+            List<Map<String, String>> failedUrls = new ArrayList<>();
             for (String url : urls) {
                 try {
                     HttpRequest request = buildRequestWithHeaders(url, arguments);
                     audit.addRequest(request);
                     successCount++;
                 } catch (Exception e) {
-                    result.append("⚠️ Failed to add URL: ").append(url).append("\n");
-                    result.append("   Error: ").append(e.getMessage()).append("\n");
+                    Map<String, String> f = new HashMap<>();
+                    f.put("url", url);
+                    f.put("error", e.getMessage());
+                    failedUrls.add(f);
                 }
             }
-            
-            result.append("**Scan Details:**\n");
-            result.append("• **Scan ID:** `").append(scanId).append("`\n");
-            result.append("• **Type:** ").append(mode).append(" Audit\n");
-            result.append("• **Configuration:** ").append(config).append("\n");
-            result.append("• **URLs Added:** ").append(successCount).append("/").append(urls.size()).append("\n");
-            
-            // Store metadata
+
             scanMetadata.put(scanId, new ScanMetadata(scanId, "AUDIT", mode, config, urls));
-            
+
             // Start crawl if requested
             String crawlId = null;
+            String crawlError = null;
             if (doCrawl && successCount > 0) {
                 try {
                     String[] seedUrls = urls.toArray(new String[0]);
                     CrawlConfiguration crawlConfig = CrawlConfiguration.crawlConfiguration(seedUrls);
                     Crawl crawl = scanner.startCrawl(crawlConfig);
-                    
+
                     crawlId = UUID.randomUUID().toString();
                     activeCrawls.put(crawlId, crawl);
                     scanMetadata.put(crawlId, new ScanMetadata(crawlId, "CRAWL", "N/A", "N/A", urls));
-                    
-                    result.append("• **Crawl ID:** `").append(crawlId).append("`\n");
-                    result.append("• **Crawl Status:** Started\n");
                 } catch (Exception e) {
-                    result.append("• **Crawl:** Failed - ").append(e.getMessage()).append("\n");
+                    crawlError = e.getMessage();
                 }
             }
-            
+
+            if (!verbose) {
+                Map<String, Object> data = new HashMap<>();
+                data.put("scanId", scanId);
+                if (crawlId != null) data.put("crawlId", crawlId);
+                if (crawlError != null) data.put("crawlError", crawlError);
+                data.put("type", mode + " Audit");
+                data.put("configuration", config);
+                data.put("urlsAdded", successCount);
+                data.put("urlsTotal", urls.size());
+                data.put("targetUrls", urls);
+                if (!failedUrls.isEmpty()) data.put("failedUrls", failedUrls);
+                data.put("status", "STARTED");
+                return McpUtils.createJsonResponse(data);
+            }
+
+            StringBuilder result = new StringBuilder();
+            result.append("🔍 **Scan Initiated**\n");
+            result.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
+            for (Map<String, String> f : failedUrls) {
+                result.append("⚠️ Failed to add URL: ").append(f.get("url")).append("\n");
+                result.append("   Error: ").append(f.get("error")).append("\n");
+            }
+            result.append("**Scan Details:**\n");
+            result.append("• **Scan ID:** `").append(scanId).append("`\n");
+            result.append("• **Type:** ").append(mode).append(" Audit\n");
+            result.append("• **Configuration:** ").append(config).append("\n");
+            result.append("• **URLs Added:** ").append(successCount).append("/").append(urls.size()).append("\n");
+            if (crawlId != null) {
+                result.append("• **Crawl ID:** `").append(crawlId).append("`\n");
+                result.append("• **Crawl Status:** Started\n");
+            } else if (crawlError != null) {
+                result.append("• **Crawl:** Failed - ").append(crawlError).append("\n");
+            }
             result.append("\n**Target URLs:**\n");
             for (String url : urls) {
                 result.append("• ").append(url).append("\n");
             }
-            
-            result.append("\n**Next Steps:**\n");
-            result.append("• Use `GET_STATUS` with scan ID to check progress\n");
-            result.append("• Use `GET_ISSUES` with scan ID to retrieve findings\n");
-            result.append("• Use `ADD_TO_SCAN` to add more targets\n");
-            result.append("• Use `CANCEL_SCAN` to stop the scan\n");
-            
-            // Return scan metadata
-            Map<String, Object> response = new HashMap<>();
-            response.put("scanId", scanId);
-            if (crawlId != null) {
-                response.put("crawlId", crawlId);
-            }
-            response.put("status", "STARTED");
-            response.put("message", result.toString());
-            
+            result.append("\n**Next Steps:** Use GET_STATUS, GET_ISSUES, ADD_TO_SCAN, or CANCEL_SCAN with the scan ID.\n");
             return createTextResponse(result.toString());
-            
+
         } catch (Exception e) {
             return createErrorResponse("Failed to start scan: " + e.getMessage());
         }
@@ -469,16 +483,47 @@ public class ScannerTool implements McpTool {
         if (scanId == null || scanId.isEmpty()) {
             return createErrorResponse("scanId is required for GET_STATUS");
         }
-        
-        StringBuilder result = new StringBuilder();
-        result.append("📊 **Scan Status Report**\n");
-        result.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
-        
+
+        boolean verbose = McpUtils.isVerbose(arguments);
+
         // Check if it's an audit
         Audit audit = activeAudits.get(scanId);
         if (audit != null) {
             ScanMetadata metadata = scanMetadata.get(scanId);
-            
+
+            // Compact JSON by default
+            if (!verbose) {
+                Map<String, Object> data = new HashMap<>();
+                data.put("scanId", scanId);
+                data.put("type", metadata != null ? metadata.mode + " Audit" : "Audit");
+                if (metadata != null) {
+                    data.put("started", metadata.startTime.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+                    data.put("configuration", metadata.config);
+                }
+                data.put("requestCount", audit.requestCount());
+                data.put("insertionPointCount", audit.insertionPointCount());
+                data.put("errorCount", audit.errorCount());
+                String statusMsg = audit.statusMessage();
+                data.put("status", statusMsg != null ? statusMsg : "Running");
+                try {
+                    List<AuditIssue> issues = audit.issues();
+                    data.put("issuesFound", issues.size());
+                    Map<String, Long> severityCount = issues.stream()
+                        .collect(Collectors.groupingBy(
+                            issue -> issue.severity().name(),
+                            Collectors.counting()
+                        ));
+                    data.put("severityBreakdown", severityCount);
+                } catch (Exception e) {
+                    data.put("issuesError", e.getMessage());
+                }
+                return McpUtils.createJsonResponse(data);
+            }
+
+            StringBuilder result = new StringBuilder();
+            result.append("📊 **Scan Status Report**\n");
+            result.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
+
             result.append("**Scan Information:**\n");
             result.append("• **ID:** `").append(scanId).append("`\n");
             result.append("• **Type:** ").append(metadata != null ? metadata.mode + " Audit" : "Audit").append("\n");
@@ -486,20 +531,20 @@ public class ScannerTool implements McpTool {
                 result.append("• **Started:** ").append(metadata.startTime.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)).append("\n");
                 result.append("• **Configuration:** ").append(metadata.config).append("\n");
             }
-            
+
             result.append("\n**Progress Metrics:**\n");
             result.append("• **Requests Made:** ").append(audit.requestCount()).append("\n");
             result.append("• **Insertion Points:** ").append(audit.insertionPointCount()).append("\n");
             result.append("• **Errors Encountered:** ").append(audit.errorCount()).append("\n");
-            
+
             String status = audit.statusMessage();
             result.append("• **Current Status:** ").append(status != null ? status : "Running").append("\n");
-            
+
             // Get issues count
             try {
                 List<AuditIssue> issues = audit.issues();
                 result.append("• **Issues Found:** ").append(issues.size()).append("\n");
-                
+
                 if (!issues.isEmpty()) {
                     // Group by severity
                     Map<String, Long> severityCount = issues.stream()
@@ -507,7 +552,7 @@ public class ScannerTool implements McpTool {
                             issue -> issue.severity().name(),
                             Collectors.counting()
                         ));
-                    
+
                     result.append("\n**Issue Breakdown:**\n");
                     for (Map.Entry<String, Long> entry : severityCount.entrySet()) {
                         String severity = entry.getKey();
@@ -518,7 +563,7 @@ public class ScannerTool implements McpTool {
             } catch (Exception e) {
                 result.append("• **Issues:** Unable to retrieve (").append(e.getMessage()).append(")\n");
             }
-            
+
             return createTextResponse(result.toString());
         }
         
@@ -526,19 +571,8 @@ public class ScannerTool implements McpTool {
         Crawl crawl = activeCrawls.get(scanId);
         if (crawl != null) {
             ScanMetadata metadata = scanMetadata.get(scanId);
-            
-            result.append("**Crawl Information:**\n");
-            result.append("• **ID:** `").append(scanId).append("`\n");
-            result.append("• **Type:** Crawl\n");
-            if (metadata != null) {
-                result.append("• **Started:** ").append(metadata.startTime.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)).append("\n");
-            }
-            
-            result.append("\n**Progress Metrics:**\n");
-            result.append("• **Requests Made:** ").append(crawl.requestCount()).append("\n");
-            result.append("• **Errors Encountered:** ").append(crawl.errorCount()).append("\n");
 
-            // Try to get status - statusMessage() throws UnsupportedOperationException in some Burp versions
+            // Compute status (statusMessage() throws UnsupportedOperationException in some Burp versions)
             String status = "Running";
             try {
                 String statusMsg = crawl.statusMessage();
@@ -546,7 +580,6 @@ public class ScannerTool implements McpTool {
                     status = statusMsg;
                 }
             } catch (UnsupportedOperationException e) {
-                // Burp hasn't implemented statusMessage() for crawls yet
                 int requests = crawl.requestCount();
                 int errors = crawl.errorCount();
                 if (requests == 0) {
@@ -557,6 +590,33 @@ public class ScannerTool implements McpTool {
                     status = "Running (" + requests + " requests completed)";
                 }
             }
+
+            // Compact JSON by default
+            if (!verbose) {
+                Map<String, Object> data = new HashMap<>();
+                data.put("scanId", scanId);
+                data.put("type", "Crawl");
+                if (metadata != null) {
+                    data.put("started", metadata.startTime.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+                }
+                data.put("requestCount", crawl.requestCount());
+                data.put("errorCount", crawl.errorCount());
+                data.put("status", status);
+                return McpUtils.createJsonResponse(data);
+            }
+
+            StringBuilder result = new StringBuilder();
+            result.append("📊 **Scan Status Report**\n");
+            result.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
+            result.append("**Crawl Information:**\n");
+            result.append("• **ID:** `").append(scanId).append("`\n");
+            result.append("• **Type:** Crawl\n");
+            if (metadata != null) {
+                result.append("• **Started:** ").append(metadata.startTime.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)).append("\n");
+            }
+            result.append("\n**Progress Metrics:**\n");
+            result.append("• **Requests Made:** ").append(crawl.requestCount()).append("\n");
+            result.append("• **Errors Encountered:** ").append(crawl.errorCount()).append("\n");
             result.append("• **Current Status:** ").append(status).append("\n");
 
             return createTextResponse(result.toString());
@@ -589,18 +649,19 @@ public class ScannerTool implements McpTool {
             sortIssuesBySeverity(issues);
 
             String title = "Scan Issues (ID: " + scanId + ")";
+            boolean verbose = McpUtils.isVerbose(arguments);
 
             // Detail mode if issueIndex is provided
             if (arguments.has("issueIndex") && arguments.get("issueIndex").isArray()) {
                 List<Integer> indices = new ArrayList<>();
                 arguments.get("issueIndex").forEach(node -> indices.add(node.asInt()));
-                return formatIssueDetail(issues, indices, title);
+                return formatIssueDetail(issues, indices, title, verbose);
             }
 
             // Summary mode with pagination
             int limit = arguments.has("limit") ? arguments.get("limit").asInt() : 50;
             int offset = arguments.has("offset") ? arguments.get("offset").asInt() : 0;
-            return formatIssueSummary(issues, limit, offset, title);
+            return formatIssueSummary(issues, limit, offset, title, verbose);
 
         } catch (Exception e) {
             return createErrorResponse("Failed to retrieve issues: " + e.getMessage());
@@ -612,93 +673,134 @@ public class ScannerTool implements McpTool {
         if (scanId == null || scanId.isEmpty()) {
             return createErrorResponse("scanId is required for CANCEL_SCAN");
         }
-        
-        StringBuilder result = new StringBuilder();
-        boolean found = false;
-        
-        // Try to cancel audit
+
+        boolean verbose = McpUtils.isVerbose(arguments);
+        boolean cancelledAudit = false;
+        boolean cancelledCrawl = false;
+        String auditError = null;
+        String crawlError = null;
+
         Audit audit = activeAudits.get(scanId);
         if (audit != null) {
             try {
                 audit.delete();
                 activeAudits.remove(scanId);
                 scanMetadata.remove(scanId);
-                result.append("✅ Successfully cancelled audit scan: ").append(scanId).append("\n");
-                found = true;
+                cancelledAudit = true;
             } catch (Exception e) {
-                result.append("❌ Failed to cancel audit: ").append(e.getMessage()).append("\n");
+                auditError = e.getMessage();
             }
         }
-        
-        // Try to cancel crawl
+
         Crawl crawl = activeCrawls.get(scanId);
         if (crawl != null) {
             try {
                 crawl.delete();
                 activeCrawls.remove(scanId);
                 scanMetadata.remove(scanId);
-                result.append("✅ Successfully cancelled crawl: ").append(scanId).append("\n");
-                found = true;
+                cancelledCrawl = true;
             } catch (Exception e) {
-                result.append("❌ Failed to cancel crawl: ").append(e.getMessage()).append("\n");
+                crawlError = e.getMessage();
             }
         }
-        
-        if (!found) {
+
+        if (!cancelledAudit && !cancelledCrawl && audit == null && crawl == null) {
             return createErrorResponse("No active scan found with ID: " + scanId);
         }
-        
+
+        if (!verbose) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("scanId", scanId);
+            data.put("cancelledAudit", cancelledAudit);
+            data.put("cancelledCrawl", cancelledCrawl);
+            if (auditError != null) data.put("auditError", auditError);
+            if (crawlError != null) data.put("crawlError", crawlError);
+            return McpUtils.createJsonResponse(data);
+        }
+
+        StringBuilder result = new StringBuilder();
+        if (cancelledAudit) result.append("✅ Successfully cancelled audit scan: ").append(scanId).append("\n");
+        if (auditError != null) result.append("❌ Failed to cancel audit: ").append(auditError).append("\n");
+        if (cancelledCrawl) result.append("✅ Successfully cancelled crawl: ").append(scanId).append("\n");
+        if (crawlError != null) result.append("❌ Failed to cancel crawl: ").append(crawlError).append("\n");
         return createTextResponse(result.toString());
     }
     
-    private Object listActiveScans() {
+    private Object listActiveScans(JsonNode arguments) {
+        // Build audit/crawl lists
+        List<Map<String, Object>> audits = new ArrayList<>();
+        for (Map.Entry<String, Audit> entry : activeAudits.entrySet()) {
+            String id = entry.getKey();
+            Audit audit = entry.getValue();
+            ScanMetadata metadata = scanMetadata.get(id);
+            Map<String, Object> a = new HashMap<>();
+            a.put("id", id);
+            if (metadata != null) {
+                a.put("mode", metadata.mode);
+                a.put("started", metadata.startTime.format(DateTimeFormatter.ISO_LOCAL_TIME));
+            }
+            a.put("requestCount", audit.requestCount());
+            try {
+                a.put("issuesCount", audit.issues().size());
+            } catch (Exception e) {
+                a.put("issuesError", e.getMessage());
+            }
+            audits.add(a);
+        }
+
+        List<Map<String, Object>> crawls = new ArrayList<>();
+        for (Map.Entry<String, Crawl> entry : activeCrawls.entrySet()) {
+            String id = entry.getKey();
+            Crawl crawl = entry.getValue();
+            ScanMetadata metadata = scanMetadata.get(id);
+            Map<String, Object> c = new HashMap<>();
+            c.put("id", id);
+            if (metadata != null) {
+                c.put("started", metadata.startTime.format(DateTimeFormatter.ISO_LOCAL_TIME));
+            }
+            c.put("requestCount", crawl.requestCount());
+            c.put("errorCount", crawl.errorCount());
+            crawls.add(c);
+        }
+
+        if (!McpUtils.isVerbose(arguments)) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("auditsCount", audits.size());
+            data.put("crawlsCount", crawls.size());
+            data.put("audits", audits);
+            data.put("crawls", crawls);
+            return McpUtils.createJsonResponse(data);
+        }
+
         StringBuilder result = new StringBuilder();
         result.append("📋 **Active Scans**\n");
         result.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
-        
-        if (activeAudits.isEmpty() && activeCrawls.isEmpty()) {
+        if (audits.isEmpty() && crawls.isEmpty()) {
             result.append("No active scans.\n");
         } else {
-            if (!activeAudits.isEmpty()) {
+            if (!audits.isEmpty()) {
                 result.append("## Active Audits\n");
-                for (Map.Entry<String, Audit> entry : activeAudits.entrySet()) {
-                    String id = entry.getKey();
-                    Audit audit = entry.getValue();
-                    ScanMetadata metadata = scanMetadata.get(id);
-                    
-                    result.append("• **ID:** `").append(id).append("`\n");
-                    if (metadata != null) {
-                        result.append("  **Type:** ").append(metadata.mode).append("\n");
-                        result.append("  **Started:** ").append(metadata.startTime.format(DateTimeFormatter.ISO_LOCAL_TIME)).append("\n");
-                    }
-                    result.append("  **Requests:** ").append(audit.requestCount()).append("\n");
-                    try {
-                        result.append("  **Issues:** ").append(audit.issues().size()).append("\n");
-                    } catch (Exception e) {
-                        result.append("  **Issues:** N/A (").append(e.getMessage()).append(")\n");
-                    }
+                for (Map<String, Object> a : audits) {
+                    result.append("• **ID:** `").append(a.get("id")).append("`\n");
+                    if (a.containsKey("mode")) result.append("  **Type:** ").append(a.get("mode")).append("\n");
+                    if (a.containsKey("started")) result.append("  **Started:** ").append(a.get("started")).append("\n");
+                    result.append("  **Requests:** ").append(a.get("requestCount")).append("\n");
+                    if (a.containsKey("issuesCount")) result.append("  **Issues:** ").append(a.get("issuesCount")).append("\n");
+                    else if (a.containsKey("issuesError")) result.append("  **Issues:** N/A (").append(a.get("issuesError")).append(")\n");
                     result.append("\n");
                 }
             }
-            
-            if (!activeCrawls.isEmpty()) {
+            if (!crawls.isEmpty()) {
                 result.append("## Active Crawls\n");
-                for (Map.Entry<String, Crawl> entry : activeCrawls.entrySet()) {
-                    String id = entry.getKey();
-                    Crawl crawl = entry.getValue();
-                    ScanMetadata metadata = scanMetadata.get(id);
-                    
-                    result.append("• **ID:** `").append(id).append("`\n");
-                    if (metadata != null) {
-                        result.append("  **Started:** ").append(metadata.startTime.format(DateTimeFormatter.ISO_LOCAL_TIME)).append("\n");
-                    }
-                    result.append("  **Requests:** ").append(crawl.requestCount()).append("\n");
-                    result.append("  **Errors:** ").append(crawl.errorCount()).append("\n");
+                for (Map<String, Object> c : crawls) {
+                    result.append("• **ID:** `").append(c.get("id")).append("`\n");
+                    if (c.containsKey("started")) result.append("  **Started:** ").append(c.get("started")).append("\n");
+                    result.append("  **Requests:** ").append(c.get("requestCount")).append("\n");
+                    result.append("  **Errors:** ").append(c.get("errorCount")).append("\n");
                     result.append("\n");
                 }
             }
         }
-        
         return createTextResponse(result.toString());
     }
     
@@ -707,57 +809,82 @@ public class ScannerTool implements McpTool {
         if (scanId == null || scanId.isEmpty()) {
             return createErrorResponse("scanId is required for ADD_TO_SCAN");
         }
-        
+
         Audit audit = activeAudits.get(scanId);
         if (audit == null) {
             return createErrorResponse("No active audit found with ID: " + scanId);
         }
-        
-        StringBuilder result = new StringBuilder();
-        
-        // Check if we're adding a URL or raw request
+
+        boolean verbose = McpUtils.isVerbose(arguments);
+        StringBuilder ipLog = new StringBuilder();
+        int urlsAdded = 0;
+        List<String> urlsFailed = new ArrayList<>();
+        Integer requestInsertionPoints = null;
+        boolean requestAdded = false;
+
+        // URLs
         if (arguments.has("urls")) {
             JsonNode urlsNode = arguments.get("urls");
-            int added = 0;
-            
             for (JsonNode urlNode : urlsNode) {
                 try {
                     String url = urlNode.asText();
                     HttpRequest request = HttpRequest.httpRequestFromUrl(url);
                     audit.addRequest(request);
-                    added++;
+                    urlsAdded++;
                 } catch (Exception e) {
-                    result.append("⚠️ Failed to add URL: ").append(urlNode.asText()).append("\n");
+                    urlsFailed.add(urlNode.asText());
                 }
             }
-            
-            result.append("✅ Added ").append(added).append(" URL(s) to scan ").append(scanId).append("\n");
         }
-        
-        // Check for raw request with optional insertion points
+
+        // Raw request with optional insertion points
         if (arguments.has("request")) {
             String requestStr = arguments.get("request").asText();
-
             try {
                 HttpRequest request = buildScanRequest(requestStr, arguments);
-                
-                // Resolve insertion points from all sources
-                List<Range> ranges = resolveInsertionPoints(requestStr, arguments, result);
-
+                List<Range> ranges = resolveInsertionPoints(requestStr, arguments, ipLog);
                 if (!ranges.isEmpty()) {
                     audit.addRequest(request, ranges);
-                    result.append("✅ Added request with ").append(ranges.size()).append(" insertion point(s)\n");
+                    requestInsertionPoints = ranges.size();
                 } else {
                     audit.addRequest(request);
-                    result.append("✅ Added request to scan (all parameters)\n");
+                    requestInsertionPoints = 0;
                 }
+                requestAdded = true;
             } catch (Exception e) {
                 return createErrorResponse("Failed to add request: " + e.getMessage());
             }
         }
-        
+
+        if (!verbose) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("scanId", scanId);
+            if (arguments.has("urls")) {
+                data.put("urlsAdded", urlsAdded);
+                if (!urlsFailed.isEmpty()) data.put("urlsFailed", urlsFailed);
+            }
+            if (requestAdded) {
+                data.put("requestAdded", true);
+                data.put("insertionPoints", requestInsertionPoints);
+            }
+            data.put("totalRequests", audit.requestCount());
+            return McpUtils.createJsonResponse(data);
+        }
+
+        StringBuilder result = new StringBuilder();
+        for (String f : urlsFailed) result.append("⚠️ Failed to add URL: ").append(f).append("\n");
+        if (arguments.has("urls")) {
+            result.append("✅ Added ").append(urlsAdded).append(" URL(s) to scan ").append(scanId).append("\n");
+        }
+        if (ipLog.length() > 0) result.append(ipLog);
+        if (requestAdded) {
+            if (requestInsertionPoints > 0) {
+                result.append("✅ Added request with ").append(requestInsertionPoints).append(" insertion point(s)\n");
+            } else {
+                result.append("✅ Added request to scan (all parameters)\n");
+            }
+        }
         result.append("Current scan has ").append(audit.requestCount()).append(" total requests\n");
-        
         return createTextResponse(result.toString());
     }
     
@@ -783,38 +910,43 @@ public class ScannerTool implements McpTool {
         
         try {
             List<AuditIssue> issues = audit.issues();
-            
+
             if (issues.isEmpty()) {
                 return createErrorResponse("No issues to report. Scan may still be in progress.");
             }
-            
+
             ReportFormat reportFormat = "XML".equals(format) ? ReportFormat.XML : ReportFormat.HTML;
             Path path = Paths.get(outputPath);
-            
+
             scanner.generateReport(issues, reportFormat, path);
-            
-            StringBuilder result = new StringBuilder();
-            result.append("📄 **Report Generated Successfully**\n");
-            result.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
-            result.append("**Format:** ").append(format).append("\n");
-            result.append("**Issues Included:** ").append(issues.size()).append("\n");
-            result.append("**File Location:** `").append(outputPath).append("`\n");
-            result.append("\n");
-            
-            // Add summary
+
             Map<String, Long> severityCount = issues.stream()
                 .collect(Collectors.groupingBy(
                     issue -> issue.severity().name(),
                     Collectors.counting()
                 ));
-            
+
+            if (!McpUtils.isVerbose(arguments)) {
+                Map<String, Object> data = new HashMap<>();
+                data.put("format", format);
+                data.put("issuesIncluded", issues.size());
+                data.put("outputPath", outputPath);
+                data.put("severityCount", severityCount);
+                return McpUtils.createJsonResponse(data);
+            }
+
+            StringBuilder result = new StringBuilder();
+            result.append("📄 **Report Generated Successfully**\n");
+            result.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
+            result.append("**Format:** ").append(format).append("\n");
+            result.append("**Issues Included:** ").append(issues.size()).append("\n");
+            result.append("**File Location:** `").append(outputPath).append("`\n\n");
             result.append("**Issue Summary:**\n");
             for (Map.Entry<String, Long> entry : severityCount.entrySet()) {
                 result.append("• ").append(entry.getKey()).append(": ").append(entry.getValue()).append("\n");
             }
-            
             return createTextResponse(result.toString());
-            
+
         } catch (Exception e) {
             return createErrorResponse("Failed to generate report: " + e.getMessage());
         }
@@ -830,42 +962,41 @@ public class ScannerTool implements McpTool {
         
         try {
             BCheckImportResult result = scanner.bChecks().importBCheck(definition, autoEnable);
-            
+
+            BCheckImportResult.Status status = result.status();
+            List<String> errors = result.importErrors();
+
+            if (!McpUtils.isVerbose(arguments)) {
+                Map<String, Object> data = new HashMap<>();
+                data.put("status", status.name());
+                data.put("autoEnabled", autoEnable);
+                if (errors != null && !errors.isEmpty()) data.put("errors", errors);
+                return McpUtils.createJsonResponse(data);
+            }
+
             StringBuilder response = new StringBuilder();
             response.append("🔧 **BCheck Import Result**\n");
             response.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
-            
-            BCheckImportResult.Status status = result.status();
             if (status == BCheckImportResult.Status.LOADED_WITHOUT_ERRORS) {
                 response.append("✅ **Status:** Successfully imported without errors\n");
                 response.append("**Auto-enabled:** ").append(autoEnable ? "Yes" : "No").append("\n");
             } else if (status == BCheckImportResult.Status.LOADED_WITH_ERRORS) {
                 response.append("⚠️ **Status:** Imported with errors\n");
                 response.append("**Auto-enabled:** ").append(autoEnable ? "Yes" : "No").append("\n");
-                
-                List<String> errors = result.importErrors();
                 if (errors != null && !errors.isEmpty()) {
                     response.append("\n**Errors/Warnings:**\n");
-                    for (String error : errors) {
-                        response.append("• ").append(error).append("\n");
-                    }
+                    for (String error : errors) response.append("• ").append(error).append("\n");
                 }
             } else {
                 response.append("❌ **Status:** Import failed\n");
-                
-                List<String> errors = result.importErrors();
                 if (errors != null && !errors.isEmpty()) {
                     response.append("\n**Errors:**\n");
-                    for (String error : errors) {
-                        response.append("• ").append(error).append("\n");
-                    }
+                    for (String error : errors) response.append("• ").append(error).append("\n");
                 }
             }
-            
             response.append("\n**Note:** Imported BChecks will be used in new scans automatically.");
-            
             return createTextResponse(response.toString());
-            
+
         } catch (Exception e) {
             return createErrorResponse("Failed to import BCheck: " + e.getMessage());
         }
@@ -873,45 +1004,51 @@ public class ScannerTool implements McpTool {
     
     private Object clearScanIssues(JsonNode arguments) {
         String scanId = arguments.has("scanId") ? arguments.get("scanId").asText() : null;
-        
+        boolean verbose = McpUtils.isVerbose(arguments);
+
         if (scanId != null && !scanId.isEmpty()) {
-            // Clear specific scan
             Audit audit = activeAudits.remove(scanId);
             Crawl crawl = activeCrawls.remove(scanId);
             scanMetadata.remove(scanId);
-            
-            if (audit != null || crawl != null) {
-                return createTextResponse("✅ Cleared scan data for ID: " + scanId);
-            } else {
-                return createErrorResponse("No scan found with ID: " + scanId);
+            boolean cleared = (audit != null || crawl != null);
+
+            if (!verbose) {
+                Map<String, Object> data = new HashMap<>();
+                data.put("scanId", scanId);
+                data.put("cleared", cleared);
+                if (!cleared) data.put("error", "scan_not_found");
+                return McpUtils.createJsonResponse(data);
             }
-        } else {
-            // Clear all completed scans (keep running ones)
-            int cleared = 0;
-            
-            // Check and clear completed audits
-            List<String> toRemove = new ArrayList<>();
-            for (Map.Entry<String, Audit> entry : activeAudits.entrySet()) {
-                try {
-                    String status = entry.getValue().statusMessage();
-                    // If status indicates completion, mark for removal
-                    if (status != null && (status.toLowerCase().contains("complete") || 
-                                          status.toLowerCase().contains("finished"))) {
-                        toRemove.add(entry.getKey());
-                    }
-                } catch (Exception e) {
-                    // Skip if we can't check status
-                }
-            }
-            
-            for (String id : toRemove) {
-                activeAudits.remove(id);
-                scanMetadata.remove(id);
-                cleared++;
-            }
-            
-            return createTextResponse("✅ Cleared " + cleared + " completed scan(s). Active scans preserved.");
+            return cleared
+                ? createTextResponse("✅ Cleared scan data for ID: " + scanId)
+                : createErrorResponse("No scan found with ID: " + scanId);
         }
+
+        // Clear all completed scans
+        int cleared = 0;
+        List<String> toRemove = new ArrayList<>();
+        for (Map.Entry<String, Audit> entry : activeAudits.entrySet()) {
+            try {
+                String status = entry.getValue().statusMessage();
+                if (status != null && (status.toLowerCase().contains("complete") ||
+                                      status.toLowerCase().contains("finished"))) {
+                    toRemove.add(entry.getKey());
+                }
+            } catch (Exception e) { }
+        }
+        for (String id : toRemove) {
+            activeAudits.remove(id);
+            scanMetadata.remove(id);
+            cleared++;
+        }
+
+        if (!verbose) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("clearedCount", cleared);
+            data.put("activeScansPreserved", true);
+            return McpUtils.createJsonResponse(data);
+        }
+        return createTextResponse("✅ Cleared " + cleared + " completed scan(s). Active scans preserved.");
     }
     
     /**
@@ -970,7 +1107,7 @@ public class ScannerTool implements McpTool {
     /**
      * Format issues as a compact summary table with pagination.
      */
-    private Object formatIssueSummary(List<AuditIssue> issues, int limit, int offset, String title) {
+    private Object formatIssueSummary(List<AuditIssue> issues, int limit, int offset, String title, boolean verbose) {
         if (offset < 0) {
             return createErrorResponse("offset must be >= 0, got: " + offset);
         }
@@ -979,83 +1116,120 @@ public class ScannerTool implements McpTool {
         }
 
         int total = issues.size();
-
-        StringBuilder result = new StringBuilder();
-        result.append("**").append(title).append("**\n");
-
-        if (total == 0) {
-            result.append("**Total:** 0\n\nNo issues found.\n");
-            return createTextResponse(result.toString());
-        }
-
-        if (offset >= total) {
+        if (total > 0 && offset >= total) {
             return createErrorResponse("offset " + offset + " is beyond total issue count " + total);
         }
 
         int end = Math.min(offset + limit, total);
-        List<AuditIssue> page = issues.subList(offset, end);
+        List<AuditIssue> page = total > 0 ? issues.subList(offset, end) : new ArrayList<>();
 
+        // Build issue list
+        List<Map<String, Object>> jsonIssues = new ArrayList<>();
+        for (int i = 0; i < page.size(); i++) {
+            AuditIssue issue = page.get(i);
+            Map<String, Object> e = new HashMap<>();
+            e.put("index", offset + i + 1);
+            e.put("severity", issue.severity().name());
+            e.put("confidence", issue.confidence().name());
+            e.put("name", issue.name());
+            e.put("url", issue.baseUrl());
+            jsonIssues.add(e);
+        }
+
+        if (!verbose) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("title", title);
+            data.put("total", total);
+            data.put("offset", offset);
+            data.put("showing", end - offset);
+            if (end < total) data.put("nextOffset", end);
+            data.put("issues", jsonIssues);
+            return McpUtils.createJsonResponse(data);
+        }
+
+        StringBuilder result = new StringBuilder();
+        result.append("**").append(title).append("**\n");
+        if (total == 0) {
+            result.append("**Total:** 0\n\nNo issues found.\n");
+            return createTextResponse(result.toString());
+        }
         result.append(String.format("**Total:** %d | **Showing:** %d-%d\n\n", total, offset + 1, end));
-
         result.append("```\n");
         result.append(String.format("%-5s | %-15s | %-10s | %-30s | %s\n", "#", "Severity", "Confidence", "Name", "URL"));
         result.append("------|-----------------|------------|--------------------------------|---------------------------\n");
-
-        for (int i = 0; i < page.size(); i++) {
-            AuditIssue issue = page.get(i);
-            int idx = offset + i + 1; // 1-based
-            String name = issue.name();
+        for (Map<String, Object> e : jsonIssues) {
+            String name = (String) e.get("name");
             if (name.length() > 30) name = name.substring(0, 27) + "...";
-            String url = issue.baseUrl();
+            String url = (String) e.get("url");
             if (url.length() > 50) url = url.substring(0, 47) + "...";
             result.append(String.format("%-5d | %-15s | %-10s | %-30s | %s\n",
-                idx, issue.severity().name(), issue.confidence().name(), name, url));
+                e.get("index"), e.get("severity"), e.get("confidence"), name, url));
         }
         result.append("```\n");
-
         if (end < total) {
             result.append(String.format("\nUse `offset: %d` to see next page.\n", end));
         }
         result.append("Use `issueIndex: [1, 2, ...]` to get full details for specific issues.\n");
-        result.append("Note: indices may shift if the scan is still in progress.\n");
-
         return createTextResponse(result.toString());
     }
 
     /**
      * Format full details for issues at specific 1-based indices.
      */
-    private Object formatIssueDetail(List<AuditIssue> issues, List<Integer> indices, String title) {
-        StringBuilder result = new StringBuilder();
-        result.append("**").append(title).append("** (Detail)\n\n");
-
+    private Object formatIssueDetail(List<AuditIssue> issues, List<Integer> indices, String title, boolean verbose) {
+        // Build detail list
+        List<Map<String, Object>> jsonDetails = new ArrayList<>();
         for (int idx : indices) {
+            Map<String, Object> e = new HashMap<>();
+            e.put("index", idx);
             if (idx < 1 || idx > issues.size()) {
-                result.append(String.format("Issue #%d not found (valid: 1-%d)\n\n", idx, issues.size()));
+                e.put("error", "not_found");
+                e.put("validRange", "1-" + issues.size());
+                jsonDetails.add(e);
                 continue;
             }
             AuditIssue issue = issues.get(idx - 1);
-            String icon = getSeverityIcon(issue.severity().name());
-            result.append(String.format("### %s #%d: %s\n", icon, idx, issue.name()));
-            result.append(String.format("**URL:** %s\n", issue.baseUrl()));
-            result.append(String.format("**Severity:** %s\n", issue.severity().name()));
-            result.append(String.format("**Confidence:** %s\n", issue.confidence().name()));
-
+            e.put("name", issue.name());
+            e.put("severity", issue.severity().name());
+            e.put("confidence", issue.confidence().name());
+            e.put("url", issue.baseUrl());
             String detail = issue.detail();
             if (detail != null && !detail.isEmpty()) {
                 if (detail.length() > 500) detail = detail.substring(0, 497) + "...";
-                result.append(String.format("**Details:** %s\n", detail));
+                e.put("detail", detail);
             }
-
             String remediation = issue.remediation();
             if (remediation != null && !remediation.isEmpty()) {
                 if (remediation.length() > 500) remediation = remediation.substring(0, 497) + "...";
-                result.append(String.format("**Remediation:** %s\n", remediation));
+                e.put("remediation", remediation);
             }
-
-            result.append("\n");
+            jsonDetails.add(e);
         }
 
+        if (!verbose) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("title", title);
+            data.put("issues", jsonDetails);
+            return McpUtils.createJsonResponse(data);
+        }
+
+        StringBuilder result = new StringBuilder();
+        result.append("**").append(title).append("** (Detail)\n\n");
+        for (Map<String, Object> e : jsonDetails) {
+            int idx = (Integer) e.get("index");
+            if (e.containsKey("error")) {
+                result.append(String.format("Issue #%d not found (valid: %s)\n\n", idx, e.get("validRange")));
+                continue;
+            }
+            String icon = getSeverityIcon((String) e.get("severity"));
+            result.append(String.format("### %s #%d: %s\n", icon, idx, e.get("name")));
+            result.append(String.format("**URL:** %s\n", e.get("url")));
+            result.append(String.format("**Severity:** %s\n", e.get("severity")));
+            result.append(String.format("**Confidence:** %s\n", e.get("confidence")));
+            if (e.containsKey("detail")) result.append(String.format("**Details:** %s\n", e.get("detail")));
+            if (e.containsKey("remediation")) result.append(String.format("**Remediation:** %s\n", e.get("remediation")));
+            result.append("\n");
+        }
         return createTextResponse(result.toString());
     }
 
@@ -1124,7 +1298,19 @@ public class ScannerTool implements McpTool {
                 request.path()));
             scanMetadata.put(scanId, new ScanMetadata(scanId, "AUDIT", mode, config, urls));
 
-            // Build response
+            if (!McpUtils.isVerbose(arguments)) {
+                Map<String, Object> data = new HashMap<>();
+                data.put("scanId", scanId);
+                data.put("type", mode + " Audit (Single Request)");
+                data.put("configuration", config);
+                data.put("target", svc.host() + ":" + svc.port());
+                data.put("protocol", svc.secure() ? "HTTPS" : "HTTP");
+                data.put("method", request.method());
+                data.put("path", request.path());
+                data.put("insertionPointsResolved", ranges.size());
+                return McpUtils.createJsonResponse(data);
+            }
+
             StringBuilder result = new StringBuilder();
             result.append("🎯 **Single Request Scan Initiated**\n");
             result.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
@@ -1141,12 +1327,6 @@ public class ScannerTool implements McpTool {
                 result.append("\n**Insertion Points:**\n").append(ipLog);
             }
             result.append("\n**Important:** This scan will ONLY test the specific request provided.\n");
-            result.append("It will NOT follow links or spider to other pages.\n");
-            result.append("\n**Next Steps:**\n");
-            result.append("• Use `GET_STATUS` with scan ID to check progress\n");
-            result.append("• Use `GET_ISSUES` with scan ID to retrieve findings\n");
-            result.append("• Use `CANCEL_SCAN` to stop the scan\n");
-            
             return createTextResponse(result.toString());
             
         } catch (Exception e) {
@@ -1398,6 +1578,16 @@ public class ScannerTool implements McpTool {
             activeCrawls.put(crawlId, crawl);
             scanMetadata.put(crawlId, new ScanMetadata(crawlId, "CRAWL", "PASSIVE", "DEFAULT", urls));
 
+            String started = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+            if (!McpUtils.isVerbose(arguments)) {
+                Map<String, Object> data = new HashMap<>();
+                data.put("crawlId", crawlId);
+                data.put("targetUrls", urls);
+                data.put("status", "crawling");
+                data.put("started", started);
+                return McpUtils.createJsonResponse(data);
+            }
+
             StringBuilder result = new StringBuilder();
             result.append("🕷️ **CRAWL STARTED**\n");
             result.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
@@ -1407,10 +1597,8 @@ public class ScannerTool implements McpTool {
                 result.append(String.format("  - %s\n", url));
             }
             result.append("\n**Status**: Crawling in progress\n");
-            result.append(String.format("**Started**: %s\n\n",
-                LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))));
-            result.append("💡 **Tip**: Use GET_STATUS with this crawlId to monitor progress\n");
-
+            result.append(String.format("**Started**: %s\n\n", started));
+            result.append("💡 Use GET_STATUS with this crawlId to monitor progress\n");
             return createTextResponse(result.toString());
 
         } catch (Exception e) {
@@ -1420,10 +1608,6 @@ public class ScannerTool implements McpTool {
     }
 
     private Object getScanMetrics(JsonNode arguments) {
-        StringBuilder result = new StringBuilder();
-        result.append("📈 **SCAN METRICS & ANALYTICS**\n");
-        result.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
-
         // Overall statistics
         int totalAudits = activeAudits.size();
         int totalCrawls = activeCrawls.size();
@@ -1434,47 +1618,63 @@ public class ScannerTool implements McpTool {
         for (Audit audit : activeAudits.values()) {
             totalRequests += audit.requestCount();
             totalErrors += audit.errorCount();
-            // Note: audit.issues() is not supported in all Burp versions
-            // Use api.siteMap().issues() instead for issue counts
         }
 
-        // Get total issues from siteMap instead of individual audits
         try {
             totalIssues = api.siteMap().issues().size();
         } catch (Exception e) {
             api.logging().logToError("Cannot get issues from siteMap: " + e.getMessage());
         }
 
+        // Per-scan details
+        List<Map<String, Object>> perScan = new ArrayList<>();
+        for (Map.Entry<String, Audit> entry : activeAudits.entrySet()) {
+            Audit audit = entry.getValue();
+            ScanMetadata metadata = scanMetadata.get(entry.getKey());
+            Map<String, Object> s = new HashMap<>();
+            s.put("scanId", entry.getKey());
+            s.put("requestCount", audit.requestCount());
+            s.put("errorCount", audit.errorCount());
+            s.put("insertionPointCount", audit.insertionPointCount());
+            if (metadata != null) {
+                s.put("mode", metadata.mode);
+                s.put("started", metadata.startTime.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+            }
+            perScan.add(s);
+        }
+
+        if (!McpUtils.isVerbose(arguments)) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("activeAudits", totalAudits);
+            data.put("activeCrawls", totalCrawls);
+            data.put("totalRequests", totalRequests);
+            data.put("totalErrors", totalErrors);
+            data.put("totalIssues", totalIssues);
+            data.put("scans", perScan);
+            return McpUtils.createJsonResponse(data);
+        }
+
+        StringBuilder result = new StringBuilder();
+        result.append("📈 **SCAN METRICS & ANALYTICS**\n");
+        result.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
         result.append("## 📊 Overall Statistics\n");
         result.append(String.format("- **Active Audits**: %d\n", totalAudits));
         result.append(String.format("- **Active Crawls**: %d\n", totalCrawls));
         result.append(String.format("- **Total Requests**: %d\n", totalRequests));
         result.append(String.format("- **Total Errors**: %d\n", totalErrors));
         result.append(String.format("- **Total Issues Found**: %d\n\n", totalIssues));
-
-        // Per-scan metrics
-        if (!activeAudits.isEmpty()) {
+        if (!perScan.isEmpty()) {
             result.append("## 🔍 Active Scan Details\n\n");
-            for (Map.Entry<String, Audit> entry : activeAudits.entrySet()) {
-                Audit audit = entry.getValue();
-                ScanMetadata metadata = scanMetadata.get(entry.getKey());
-
-                result.append(String.format("### Scan: %s\n", entry.getKey()));
-                result.append(String.format("- Requests: %d\n", audit.requestCount()));
-                result.append(String.format("- Errors: %d\n", audit.errorCount()));
-                result.append(String.format("- Insertion Points: %d\n", audit.insertionPointCount()));
-
-                if (metadata != null) {
-                    result.append(String.format("- Mode: %s\n", metadata.mode));
-                    result.append(String.format("- Started: %s\n", metadata.startTime.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))));
-                }
-
-                // Note: Per-scan issue counts not available in all Burp versions
-                // Use GET_ISSUES or siteMap for full issue details
+            for (Map<String, Object> s : perScan) {
+                result.append(String.format("### Scan: %s\n", s.get("scanId")));
+                result.append(String.format("- Requests: %s\n", s.get("requestCount")));
+                result.append(String.format("- Errors: %s\n", s.get("errorCount")));
+                result.append(String.format("- Insertion Points: %s\n", s.get("insertionPointCount")));
+                if (s.containsKey("mode")) result.append(String.format("- Mode: %s\n", s.get("mode")));
+                if (s.containsKey("started")) result.append(String.format("- Started: %s\n", s.get("started")));
                 result.append("\n");
             }
         }
-
         return createTextResponse(result.toString());
     }
 
@@ -1484,18 +1684,19 @@ public class ScannerTool implements McpTool {
             sortIssuesBySeverity(issues);
 
             String title = "Site Map Issues";
+            boolean verbose = McpUtils.isVerbose(arguments);
 
             // Detail mode if issueIndex is provided
             if (arguments.has("issueIndex") && arguments.get("issueIndex").isArray()) {
                 List<Integer> indices = new ArrayList<>();
                 arguments.get("issueIndex").forEach(node -> indices.add(node.asInt()));
-                return formatIssueDetail(issues, indices, title);
+                return formatIssueDetail(issues, indices, title, verbose);
             }
 
             // Summary mode with pagination
             int limit = arguments.has("limit") ? arguments.get("limit").asInt() : 50;
             int offset = arguments.has("offset") ? arguments.get("offset").asInt() : 0;
-            return formatIssueSummary(issues, limit, offset, title);
+            return formatIssueSummary(issues, limit, offset, title, verbose);
 
         } catch (Exception e) {
             return createErrorResponse("Failed to retrieve filtered issues: " + e.getMessage());

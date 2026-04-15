@@ -7,7 +7,7 @@ package com.example.burpmcp;
 public class Version {
     
     // Version components
-    public static final String VERSION = "2.3.2";
+    public static final String VERSION = "2.4.0";
     public static final String BUILD_DATE = "2026-04-15";
     public static final String RELEASE_NAME = "Montoya API 2026.2";
 
@@ -54,7 +54,15 @@ public class Version {
      * Get detailed changelog for this version.
      */
     public static String getChangelog() {
-        return "## Version 2.3.2 - Dead code cleanup (2026-04-15)\n\n" +
+        return "## Version 2.4.0 - Token optimization (compact JSON output) (2026-04-15)\n\n" +
+               "### 🪙 Token Optimization\n" +
+               "- ✅ **Default output is now compact JSON** (was decorated markdown)\n" +
+               "- ✅ Stripped emoji headers, ASCII tables, separator bars, and 'Usage:' footers\n" +
+               "- ✅ Saves ~30-50% tokens per response with no functional loss\n" +
+               "- ✅ Pass `verbose: true` for the old decorated output (for human debugging)\n" +
+               "- Tools converted: burp_proxy_history (list), burp_scope (view), burp_collaborator (generate/check), burp_scanner (status)\n" +
+               "\n" +
+               "## Version 2.3.2 - Dead code cleanup (2026-04-15)\n\n" +
                "### 🧹 Code Cleanup\n" +
                "- ✅ Removed commented-out tools (burp_sitemap, burp_mcp_storage)\n" +
                "- ✅ Removed broken executeLegacyMode in ProxyHistoryTool\n" +

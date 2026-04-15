@@ -96,7 +96,7 @@ public class WebSocketTool implements McpTool {
             case "close":
                 return closeConnection(arguments);
             case "list_connections":
-                return listActiveConnections();
+                return listActiveConnections(arguments);
             default:
                 return McpUtils.createErrorResponse("Unknown action: " + action);
         }
@@ -208,13 +208,19 @@ public class WebSocketTool implements McpTool {
                     }
                 });
                 
+                if (!McpUtils.isVerbose(arguments)) {
+                    Map<String, Object> data = new HashMap<>();
+                    data.put("success", true);
+                    data.put("connectionId", connectionId);
+                    data.put("url", url);
+                    data.put("status", creation.status().name());
+                    return McpUtils.createJsonResponse(data);
+                }
                 StringBuilder result = new StringBuilder();
                 result.append("✅ WebSocket connection created\n\n");
                 result.append("**Connection ID:** ").append(connectionId).append("\n");
                 result.append("**URL:** ").append(url).append("\n");
-                result.append("**Status:** ").append(creation.status().name()).append("\n\n");
-                result.append("Use this connection ID to send messages or close the connection.");
-                
+                result.append("**Status:** ").append(creation.status().name()).append("\n");
                 return McpUtils.createSuccessResponse(result.toString());
             } else {
                 return McpUtils.createErrorResponse("Failed to create WebSocket connection. Status: " + creation.status().name());
@@ -249,8 +255,11 @@ public class WebSocketTool implements McpTool {
                 recordMessage(connectionId, "text", message, "CLIENT_TO_SERVER");
             }
             
+            if (!McpUtils.isVerbose(arguments)) {
+                return McpUtils.createJsonResponse(Map.of("success", true, "connectionId", connectionId, "messageType", messageType));
+            }
             return McpUtils.createSuccessResponse("Message sent successfully to " + connectionId);
-            
+
         } catch (Exception e) {
             return McpUtils.createErrorResponse("Failed to send message: " + e.getMessage());
         }
@@ -259,40 +268,47 @@ public class WebSocketTool implements McpTool {
     private Object getProxyWebSocketHistory(JsonNode arguments) {
         int limit = McpUtils.getIntParam(arguments, "limit", 100);
         String filter = McpUtils.getStringParam(arguments, "filter", "");
-        
+
         try {
             List<ProxyWebSocketMessage> history = api.proxy().webSocketHistory();
-            
-            StringBuilder result = new StringBuilder();
-            result.append("## Proxy WebSocket History\n\n");
-            result.append("**Total Messages:** ").append(history.size()).append("\n\n");
-            
+            List<Map<String, Object>> messages = new ArrayList<>();
+
             int count = 0;
             for (int i = history.size() - 1; i >= 0 && count < limit; i--) {
                 ProxyWebSocketMessage msg = history.get(i);
                 String payload = msg.payload().toString();
-                
-                if (!filter.isEmpty() && !payload.toLowerCase().contains(filter.toLowerCase())) {
-                    continue;
-                }
-                
-                result.append("### Message ").append(count + 1).append("\n");
-                result.append("**URL:** ").append(msg.upgradeRequest().url()).append("\n");
-                result.append("**Direction:** ").append(msg.direction().name()).append("\n");
-                result.append("**Payload:** ").append(McpUtils.truncateText(payload, 500)).append("\n");
-                result.append("**Annotations:** ").append(msg.annotations().notes()).append("\n\n");
+                if (!filter.isEmpty() && !payload.toLowerCase().contains(filter.toLowerCase())) continue;
+
+                Map<String, Object> m = new HashMap<>();
+                m.put("url", msg.upgradeRequest().url());
+                m.put("direction", msg.direction().name());
+                m.put("payload", McpUtils.truncateText(payload, 500));
+                m.put("notes", msg.annotations().notes());
+                messages.add(m);
                 count++;
             }
-            
-            if (count == 0) {
-                result.append("No WebSocket messages found");
-                if (!filter.isEmpty()) {
-                    result.append(" matching filter: ").append(filter);
-                }
+
+            if (!McpUtils.isVerbose(arguments)) {
+                Map<String, Object> data = new HashMap<>();
+                data.put("totalMessages", history.size());
+                data.put("showing", messages.size());
+                if (!filter.isEmpty()) data.put("filter", filter);
+                data.put("messages", messages);
+                return McpUtils.createJsonResponse(data);
             }
-            
+
+            StringBuilder result = new StringBuilder();
+            result.append("## Proxy WebSocket History\n\n");
+            result.append("**Total Messages:** ").append(history.size()).append("\n\n");
+            for (int i = 0; i < messages.size(); i++) {
+                Map<String, Object> m = messages.get(i);
+                result.append("### Message ").append(i + 1).append("\n");
+                result.append("**URL:** ").append(m.get("url")).append("\n");
+                result.append("**Direction:** ").append(m.get("direction")).append("\n");
+                result.append("**Payload:** ").append(m.get("payload")).append("\n\n");
+            }
             return McpUtils.createSuccessResponse(result.toString());
-            
+
         } catch (Exception e) {
             return McpUtils.createErrorResponse("Failed to retrieve WebSocket history: " + e.getMessage());
         }
@@ -312,28 +328,38 @@ public class WebSocketTool implements McpTool {
         
         try {
             webSocket.close();
+            if (!McpUtils.isVerbose(arguments)) return McpUtils.createJsonResponse(Map.of("success", true, "connectionId", connectionId));
             return McpUtils.createSuccessResponse("Connection " + connectionId + " closed successfully");
         } catch (Exception e) {
             return McpUtils.createErrorResponse("Failed to close connection: " + e.getMessage());
         }
     }
-    
-    private Object listActiveConnections() {
+
+    private Object listActiveConnections(JsonNode arguments) {
+        List<Map<String, Object>> connections = new ArrayList<>();
+        for (Map.Entry<String, ExtensionWebSocket> entry : activeConnections.entrySet()) {
+            String id = entry.getKey();
+            List<Map<String, Object>> history = messageHistory.get(id);
+            Map<String, Object> c = new HashMap<>();
+            c.put("id", id);
+            c.put("messageCount", history != null ? history.size() : 0);
+            connections.add(c);
+        }
+
+        if (!McpUtils.isVerbose(arguments)) {
+            return McpUtils.createJsonResponse(Map.of("activeCount", connections.size(), "connections", connections));
+        }
+
         StringBuilder result = new StringBuilder();
         result.append("## Active WebSocket Connections\n\n");
-        
-        if (activeConnections.isEmpty()) {
+        if (connections.isEmpty()) {
             result.append("No active connections");
         } else {
-            for (Map.Entry<String, ExtensionWebSocket> entry : activeConnections.entrySet()) {
-                String id = entry.getKey();
-                List<Map<String, Object>> history = messageHistory.get(id);
-                
-                result.append("**ID:** ").append(id).append("\n");
-                result.append("**Messages:** ").append(history != null ? history.size() : 0).append("\n\n");
+            for (Map<String, Object> c : connections) {
+                result.append("**ID:** ").append(c.get("id")).append("\n");
+                result.append("**Messages:** ").append(c.get("messageCount")).append("\n\n");
             }
         }
-        
         return McpUtils.createSuccessResponse(result.toString());
     }
     

@@ -146,35 +146,35 @@ public class UtilitiesTool implements McpTool {
         try {
             switch (action) {
                 case "base64_encode":
-                    return performBase64Encode(input);
+                    return performBase64Encode(input, arguments);
                 case "base64_decode":
-                    return performBase64Decode(input);
+                    return performBase64Decode(input, arguments);
                 case "url_encode":
-                    return performUrlEncode(input);
+                    return performUrlEncode(input, arguments);
                 case "url_decode":
-                    return performUrlDecode(input);
+                    return performUrlDecode(input, arguments);
                 case "html_encode":
-                    return performHtmlEncode(input);
+                    return performHtmlEncode(input, arguments);
                 case "html_decode":
-                    return performHtmlDecode(input);
+                    return performHtmlDecode(input, arguments);
                 case "hash":
                     return performHash(input, arguments);
                 case "random":
                     return generateRandom(arguments);
                 case "compress":
-                    return performCompress(input);
+                    return performCompress(input, arguments);
                 case "decompress":
-                    return performDecompress(input);
+                    return performDecompress(input, arguments);
                 case "json_beautify":
-                    return performJsonBeautify(input);
+                    return performJsonBeautify(input, arguments);
                 case "json_path":
                     return performJsonPath(input, arguments);
                 case "json_validate":
-                    return performJsonValidate(input);
+                    return performJsonValidate(input, arguments);
                 case "hex_to_ascii":
-                    return performHexToAscii(input);
+                    return performHexToAscii(input, arguments);
                 case "ascii_to_hex":
-                    return performAsciiToHex(input);
+                    return performAsciiToHex(input, arguments);
                 case "number_convert":
                     return performNumberConvert(input, arguments);
                 case "byte_search":
@@ -191,147 +191,81 @@ public class UtilitiesTool implements McpTool {
         }
     }
     
-    private Object performBase64Encode(String input) {
-        if (input.isEmpty()) {
-            return McpUtils.createErrorResponse("Input is required for base64 encoding");
+    /**
+     * Wraps a simple utility result with both JSON and markdown output support.
+     */
+    private Object utilityResult(JsonNode arguments, String operation, String input, String output, Map<String, Object> extra) {
+        if (!McpUtils.isVerbose(arguments)) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("operation", operation);
+            data.put("input", input);
+            data.put("output", output);
+            if (extra != null) data.putAll(extra);
+            return McpUtils.createJsonResponse(data);
         }
-        
-        Base64Utils base64 = api.utilities().base64Utils();
-        ByteArray encoded = base64.encode(input);
-        
         StringBuilder result = new StringBuilder();
-        result.append("## Base64 Encode Result\n\n");
+        result.append("## ").append(operation).append("\n\n");
         result.append("**Input:** ").append(McpUtils.truncateText(input, 100)).append("\n");
-        result.append("**Input Length:** ").append(input.length()).append(" characters\n\n");
-        result.append("**Encoded:**\n```\n").append(encoded.toString()).append("\n```\n");
-        result.append("**Encoded Length:** ").append(encoded.length()).append(" characters\n");
-        
+        result.append("**Output:**\n```\n").append(output).append("\n```\n");
+        if (extra != null) {
+            for (Map.Entry<String, Object> e : extra.entrySet()) {
+                result.append("**").append(e.getKey()).append(":** ").append(e.getValue()).append("\n");
+            }
+        }
         return McpUtils.createSuccessResponse(result.toString());
     }
-    
-    private Object performBase64Decode(String input) {
-        if (input.isEmpty()) {
-            return McpUtils.createErrorResponse("Input is required for base64 decoding");
-        }
-        
+
+    private Object performBase64Encode(String input, JsonNode arguments) {
+        if (input.isEmpty()) return McpUtils.createErrorResponse("Input is required for base64 encoding");
+        ByteArray encoded = api.utilities().base64Utils().encode(input);
+        Map<String, Object> extra = new HashMap<>();
+        extra.put("inputLength", input.length());
+        extra.put("outputLength", encoded.length());
+        return utilityResult(arguments, "base64_encode", input, encoded.toString(), extra);
+    }
+
+    private Object performBase64Decode(String input, JsonNode arguments) {
+        if (input.isEmpty()) return McpUtils.createErrorResponse("Input is required for base64 decoding");
         try {
-            Base64Utils base64 = api.utilities().base64Utils();
-            ByteArray decoded = base64.decode(input);
+            ByteArray decoded = api.utilities().base64Utils().decode(input);
             String decodedString = decoded.toString();
-            
-            StringBuilder result = new StringBuilder();
-            result.append("## Base64 Decode Result\n\n");
-            result.append("**Input:** ").append(McpUtils.truncateText(input, 100)).append("\n");
-            result.append("**Input Length:** ").append(input.length()).append(" characters\n\n");
-            result.append("**Decoded:**\n```\n").append(decodedString).append("\n```\n");
-            result.append("**Decoded Length:** ").append(decodedString.length()).append(" characters\n");
-            
-            // Check if decoded content looks like binary
             boolean isBinary = false;
             for (char c : decodedString.toCharArray()) {
-                if (Character.isISOControl(c) && c != '\n' && c != '\r' && c != '\t') {
-                    isBinary = true;
-                    break;
-                }
+                if (Character.isISOControl(c) && c != '\n' && c != '\r' && c != '\t') { isBinary = true; break; }
             }
-            
-            if (isBinary) {
-                result.append("\n⚠️ **Note:** Decoded content appears to be binary data. ");
-                result.append("Hex representation:\n```\n");
-                result.append(bytesToHex(decoded.getBytes())).append("\n```");
-            }
-            
-            return McpUtils.createSuccessResponse(result.toString());
+            Map<String, Object> extra = new HashMap<>();
+            extra.put("inputLength", input.length());
+            extra.put("outputLength", decodedString.length());
+            extra.put("isBinary", isBinary);
+            if (isBinary) extra.put("hex", bytesToHex(decoded.getBytes()));
+            return utilityResult(arguments, "base64_decode", input, decodedString, extra);
         } catch (Exception e) {
-            return McpUtils.createErrorResponse("Failed to decode base64: " + e.getMessage() + 
-                " (input might not be valid base64)");
+            return McpUtils.createErrorResponse("Failed to decode base64: " + e.getMessage());
         }
     }
-    
-    private Object performUrlEncode(String input) {
-        if (input.isEmpty()) {
-            return McpUtils.createErrorResponse("Input is required for URL encoding");
-        }
-        
-        URLUtils urlUtils = api.utilities().urlUtils();
-        String encoded = urlUtils.encode(input);
-        
-        StringBuilder result = new StringBuilder();
-        result.append("## URL Encode Result\n\n");
-        result.append("**Input:** ").append(input).append("\n");
-        result.append("**Encoded:** ").append(encoded).append("\n\n");
-        
-        // Show character-by-character encoding for special chars
-        if (!input.equals(encoded)) {
-            result.append("**Encoding Details:**\n");
-            for (int i = 0; i < input.length(); i++) {
-                char c = input.charAt(i);
-                String charEncoded = urlUtils.encode(String.valueOf(c));
-                if (!String.valueOf(c).equals(charEncoded)) {
-                    result.append("- '").append(c).append("' → ").append(charEncoded).append("\n");
-                }
-            }
-        }
-        
-        return McpUtils.createSuccessResponse(result.toString());
+
+    private Object performUrlEncode(String input, JsonNode arguments) {
+        if (input.isEmpty()) return McpUtils.createErrorResponse("Input is required for URL encoding");
+        String encoded = api.utilities().urlUtils().encode(input);
+        return utilityResult(arguments, "url_encode", input, encoded, null);
     }
-    
-    private Object performUrlDecode(String input) {
-        if (input.isEmpty()) {
-            return McpUtils.createErrorResponse("Input is required for URL decoding");
-        }
-        
-        URLUtils urlUtils = api.utilities().urlUtils();
-        String decoded = urlUtils.decode(input);
-        
-        StringBuilder result = new StringBuilder();
-        result.append("## URL Decode Result\n\n");
-        result.append("**Input:** ").append(input).append("\n");
-        result.append("**Decoded:** ").append(decoded).append("\n");
-        
-        return McpUtils.createSuccessResponse(result.toString());
+
+    private Object performUrlDecode(String input, JsonNode arguments) {
+        if (input.isEmpty()) return McpUtils.createErrorResponse("Input is required for URL decoding");
+        String decoded = api.utilities().urlUtils().decode(input);
+        return utilityResult(arguments, "url_decode", input, decoded, null);
     }
-    
-    private Object performHtmlEncode(String input) {
-        if (input.isEmpty()) {
-            return McpUtils.createErrorResponse("Input is required for HTML encoding");
-        }
-        
-        HtmlUtils htmlUtils = api.utilities().htmlUtils();
-        String encoded = htmlUtils.encode(input);
-        
-        StringBuilder result = new StringBuilder();
-        result.append("## HTML Encode Result\n\n");
-        result.append("**Input:** ").append(input).append("\n");
-        result.append("**Encoded:** ").append(encoded).append("\n\n");
-        
-        // Show encoding of special characters
-        String[] testChars = {"<", ">", "&", "\"", "'", "/"};
-        result.append("**Common HTML Entity Encodings:**\n");
-        for (String ch : testChars) {
-            if (input.contains(ch)) {
-                result.append("- '").append(ch).append("' → ")
-                    .append(htmlUtils.encode(ch)).append("\n");
-            }
-        }
-        
-        return McpUtils.createSuccessResponse(result.toString());
+
+    private Object performHtmlEncode(String input, JsonNode arguments) {
+        if (input.isEmpty()) return McpUtils.createErrorResponse("Input is required for HTML encoding");
+        String encoded = api.utilities().htmlUtils().encode(input);
+        return utilityResult(arguments, "html_encode", input, encoded, null);
     }
-    
-    private Object performHtmlDecode(String input) {
-        if (input.isEmpty()) {
-            return McpUtils.createErrorResponse("Input is required for HTML decoding");
-        }
-        
-        HtmlUtils htmlUtils = api.utilities().htmlUtils();
-        String decoded = htmlUtils.decode(input);
-        
-        StringBuilder result = new StringBuilder();
-        result.append("## HTML Decode Result\n\n");
-        result.append("**Input:** ").append(input).append("\n");
-        result.append("**Decoded:** ").append(decoded).append("\n");
-        
-        return McpUtils.createSuccessResponse(result.toString());
+
+    private Object performHtmlDecode(String input, JsonNode arguments) {
+        if (input.isEmpty()) return McpUtils.createErrorResponse("Input is required for HTML decoding");
+        String decoded = api.utilities().htmlUtils().decode(input);
+        return utilityResult(arguments, "html_decode", input, decoded, null);
     }
     
     private Object performHash(String input, JsonNode arguments) {
@@ -366,15 +300,11 @@ public class UtilitiesTool implements McpTool {
         ByteArray inputBytes = ByteArray.byteArray(input);
         ByteArray hash = crypto.generateDigest(inputBytes, digestAlgo);
         String hashHex = bytesToHex(hash.getBytes());
-        
-        StringBuilder result = new StringBuilder();
-        result.append("## Hash Result\n\n");
-        result.append("**Algorithm:** ").append(algorithm).append("\n");
-        result.append("**Input:** ").append(McpUtils.truncateText(input, 100)).append("\n");
-        result.append("**Hash (hex):** `").append(hashHex).append("`\n");
-        result.append("**Hash Length:** ").append(hashHex.length() / 2).append(" bytes\n");
-        
-        return McpUtils.createSuccessResponse(result.toString());
+
+        Map<String, Object> extra = new HashMap<>();
+        extra.put("algorithm", algorithm);
+        extra.put("hashLengthBytes", hashHex.length() / 2);
+        return utilityResult(arguments, "hash", input, hashHex, extra);
     }
     
     private Object generateRandom(JsonNode arguments) {
@@ -405,128 +335,86 @@ public class UtilitiesTool implements McpTool {
                 return McpUtils.createErrorResponse("Unknown random type: " + type);
         }
         
-        StringBuilder result = new StringBuilder();
-        result.append("## Random Data Generation\n\n");
-        result.append("**Type:** ").append(type).append("\n");
-        result.append("**Length:** ").append(length).append("\n");
-        result.append("**Generated:**\n```\n").append(generated).append("\n```\n");
-        
-        return McpUtils.createSuccessResponse(result.toString());
+        Map<String, Object> extra = new HashMap<>();
+        extra.put("type", type);
+        extra.put("length", length);
+        return utilityResult(arguments, "random", "", generated, extra);
     }
-    
-    private Object performCompress(String input) {
+
+    private Object performCompress(String input, JsonNode arguments) {
         if (input.isEmpty()) {
             return McpUtils.createErrorResponse("Input is required for compression");
         }
         
         try {
             CompressionUtils compression = api.utilities().compressionUtils();
-            ByteArray inputBytes = ByteArray.byteArray(input);
-            ByteArray compressed = compression.compress(inputBytes, CompressionType.GZIP);
-            
+            ByteArray compressed = compression.compress(ByteArray.byteArray(input), CompressionType.GZIP);
             String compressedBase64 = Base64.getEncoder().encodeToString(compressed.getBytes());
             double ratio = (1.0 - (double) compressed.length() / input.length()) * 100;
-            
-            StringBuilder result = new StringBuilder();
-            result.append("## Compression Result (GZIP)\n\n");
-            result.append("**Original Size:** ").append(input.length()).append(" bytes\n");
-            result.append("**Compressed Size:** ").append(compressed.length()).append(" bytes\n");
-            result.append("**Compression Ratio:** ").append(String.format("%.1f%%", ratio)).append("\n\n");
-            result.append("**Compressed (Base64):**\n```\n").append(compressedBase64).append("\n```\n");
-            
-            return McpUtils.createSuccessResponse(result.toString());
+            Map<String, Object> extra = new HashMap<>();
+            extra.put("algorithm", "GZIP");
+            extra.put("originalSize", input.length());
+            extra.put("compressedSize", compressed.length());
+            extra.put("compressionRatioPercent", Math.round(ratio * 10.0) / 10.0);
+            return utilityResult(arguments, "compress", input, compressedBase64, extra);
         } catch (Exception e) {
             return McpUtils.createErrorResponse("Compression failed: " + e.getMessage());
         }
     }
-    
-    private Object performDecompress(String input) {
+
+    private Object performDecompress(String input, JsonNode arguments) {
         if (input.isEmpty()) {
             return McpUtils.createErrorResponse("Input is required for decompression");
         }
         
         try {
-            CompressionUtils compression = api.utilities().compressionUtils();
-            
-            // Try to decode from base64 first
             byte[] compressedBytes;
             try {
                 compressedBytes = Base64.getDecoder().decode(input);
             } catch (Exception e) {
                 return McpUtils.createErrorResponse("Input should be base64-encoded compressed data");
             }
-            
             ByteArray compressed = ByteArray.byteArray(compressedBytes);
-            ByteArray decompressed = compression.decompress(compressed, CompressionType.GZIP);
+            ByteArray decompressed = api.utilities().compressionUtils().decompress(compressed, CompressionType.GZIP);
             String decompressedString = decompressed.toString();
-            
-            StringBuilder result = new StringBuilder();
-            result.append("## Decompression Result (GZIP)\n\n");
-            result.append("**Compressed Size:** ").append(compressed.length()).append(" bytes\n");
-            result.append("**Decompressed Size:** ").append(decompressed.length()).append(" bytes\n\n");
-            result.append("**Decompressed Content:**\n```\n").append(decompressedString).append("\n```\n");
-            
-            return McpUtils.createSuccessResponse(result.toString());
+            Map<String, Object> extra = new HashMap<>();
+            extra.put("algorithm", "GZIP");
+            extra.put("compressedSize", compressed.length());
+            extra.put("decompressedSize", decompressed.length());
+            return utilityResult(arguments, "decompress", input, decompressedString, extra);
         } catch (Exception e) {
-            return McpUtils.createErrorResponse("Decompression failed: " + e.getMessage() + 
-                " (input might not be valid GZIP data)");
+            return McpUtils.createErrorResponse("Decompression failed: " + e.getMessage());
         }
     }
-    
-    private Object performJsonBeautify(String input) {
+
+    private Object performJsonBeautify(String input, JsonNode arguments) {
         if (input.isEmpty()) {
             return McpUtils.createErrorResponse("Input is required for JSON beautification");
         }
         
         try {
-            // Use Jackson for JSON beautification
             com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
             Object json = mapper.readValue(input, Object.class);
             String beautified = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(json);
-            
-            StringBuilder result = new StringBuilder();
-            result.append("## JSON Beautify Result\n\n");
-            result.append("**Original Length:** ").append(input.length()).append(" characters\n");
-            result.append("**Beautified Length:** ").append(beautified.length()).append(" characters\n\n");
-            result.append("**Beautified JSON:**\n```json\n").append(beautified).append("\n```\n");
-            
-            return McpUtils.createSuccessResponse(result.toString());
+            Map<String, Object> extra = new HashMap<>();
+            extra.put("originalLength", input.length());
+            extra.put("beautifiedLength", beautified.length());
+            return utilityResult(arguments, "json_beautify", input, beautified, extra);
         } catch (Exception e) {
-            return McpUtils.createErrorResponse("JSON parsing failed: " + e.getMessage() + 
-                " (input might not be valid JSON)");
+            return McpUtils.createErrorResponse("JSON parsing failed: " + e.getMessage());
         }
     }
-    
-    private Object performHexToAscii(String input) {
-        if (input.isEmpty()) {
-            return McpUtils.createErrorResponse("Input is required for hex to ASCII conversion");
-        }
-        
-        StringUtils stringUtils = api.utilities().stringUtils();
-        String ascii = stringUtils.convertHexStringToAscii(input);
-        
-        StringBuilder result = new StringBuilder();
-        result.append("## Hex to ASCII Result\n\n");
-        result.append("**Hex Input:** ").append(McpUtils.truncateText(input, 100)).append("\n");
-        result.append("**ASCII Output:** ").append(ascii).append("\n");
-        
-        return McpUtils.createSuccessResponse(result.toString());
+
+    private Object performHexToAscii(String input, JsonNode arguments) {
+        if (input.isEmpty()) return McpUtils.createErrorResponse("Input is required");
+        String ascii = api.utilities().stringUtils().convertHexStringToAscii(input);
+        return utilityResult(arguments, "hex_to_ascii", input, ascii, null);
     }
-    
-    private Object performAsciiToHex(String input) {
-        if (input.isEmpty()) {
-            return McpUtils.createErrorResponse("Input is required for ASCII to hex conversion");
-        }
-        
-        StringUtils stringUtils = api.utilities().stringUtils();
-        String hex = stringUtils.convertAsciiToHexString(input);
-        
-        StringBuilder result = new StringBuilder();
-        result.append("## ASCII to Hex Result\n\n");
-        result.append("**ASCII Input:** ").append(McpUtils.truncateText(input, 100)).append("\n");
-        result.append("**Hex Output:** ").append(hex).append("\n");
-        
-        return McpUtils.createSuccessResponse(result.toString());
+
+    private Object performAsciiToHex(String input, JsonNode arguments) {
+        if (input.isEmpty()) return McpUtils.createErrorResponse("Input is required");
+        String hex = api.utilities().stringUtils().convertAsciiToHexString(input);
+        return utilityResult(arguments, "ascii_to_hex", input, hex, null);
     }
     
     private String bytesToHex(byte[] bytes) {
@@ -543,113 +431,116 @@ public class UtilitiesTool implements McpTool {
         if (input.isEmpty()) {
             return McpUtils.createErrorResponse("Input JSON is required");
         }
-        
+
         String jsonPath = McpUtils.getStringParam(arguments, "jsonPath", "");
         if (jsonPath.isEmpty()) {
             return McpUtils.createErrorResponse("JSON path is required");
         }
-        
+
         String operation = McpUtils.getStringParam(arguments, "jsonOperation", "read");
         String jsonValue = McpUtils.getStringParam(arguments, "jsonValue", "");
-        
         JsonUtils jsonUtils = api.utilities().jsonUtils();
-        
-        StringBuilder result = new StringBuilder();
-        result.append("## JSON Path Operation\n\n");
-        result.append("**Operation:** ").append(operation).append("\n");
-        result.append("**Path:** `").append(jsonPath).append("`\n\n");
-        
+        boolean verbose = McpUtils.isVerbose(arguments);
+
         try {
-            String output;
+            Map<String, Object> data = new HashMap<>();
+            data.put("operation", operation);
+            data.put("path", jsonPath);
+
             switch (operation) {
                 case "read":
                     String value = jsonUtils.read(input, jsonPath);
                     if (value != null) {
-                        result.append("**Value at path:**\n```json\n").append(value).append("\n```\n");
-                        
-                        // Try to read as different types
+                        data.put("value", value);
                         Boolean boolValue = jsonUtils.readBoolean(input, jsonPath);
                         Double doubleValue = jsonUtils.readDouble(input, jsonPath);
                         Long longValue = jsonUtils.readLong(input, jsonPath);
-                        
-                        result.append("\n**Type Information:**\n");
-                        if (boolValue != null) result.append("- Boolean: ").append(boolValue).append("\n");
-                        if (doubleValue != null) result.append("- Double: ").append(doubleValue).append("\n");
-                        if (longValue != null) result.append("- Long: ").append(longValue).append("\n");
+                        if (boolValue != null) data.put("asBoolean", boolValue);
+                        if (doubleValue != null) data.put("asDouble", doubleValue);
+                        if (longValue != null) data.put("asLong", longValue);
                     } else {
-                        result.append("No value found at the specified path.\n");
+                        data.put("value", null);
                     }
                     break;
-                    
                 case "add":
-                    if (jsonValue.isEmpty()) {
-                        return McpUtils.createErrorResponse("jsonValue is required for add operation");
-                    }
-                    output = jsonUtils.add(input, jsonPath, jsonValue);
-                    result.append("**Added value:** ").append(jsonValue).append("\n\n");
-                    result.append("**Result:**\n```json\n").append(output).append("\n```\n");
+                    if (jsonValue.isEmpty()) return McpUtils.createErrorResponse("jsonValue is required for add operation");
+                    data.put("result", jsonUtils.add(input, jsonPath, jsonValue));
+                    data.put("addedValue", jsonValue);
                     break;
-                    
                 case "update":
-                    if (jsonValue.isEmpty()) {
-                        return McpUtils.createErrorResponse("jsonValue is required for update operation");
-                    }
-                    output = jsonUtils.update(input, jsonPath, jsonValue);
-                    result.append("**Updated value:** ").append(jsonValue).append("\n\n");
-                    result.append("**Result:**\n```json\n").append(output).append("\n```\n");
+                    if (jsonValue.isEmpty()) return McpUtils.createErrorResponse("jsonValue is required for update operation");
+                    data.put("result", jsonUtils.update(input, jsonPath, jsonValue));
+                    data.put("updatedValue", jsonValue);
                     break;
-                    
                 case "remove":
-                    output = jsonUtils.remove(input, jsonPath);
-                    result.append("**Path removed**\n\n");
-                    result.append("**Result:**\n```json\n").append(output).append("\n```\n");
+                    data.put("result", jsonUtils.remove(input, jsonPath));
                     break;
-                    
                 default:
                     return McpUtils.createErrorResponse("Unknown JSON operation: " + operation);
             }
-            
+
+            if (!verbose) {
+                return McpUtils.createJsonResponse(data);
+            }
+
+            StringBuilder result = new StringBuilder();
+            result.append("## JSON Path Operation\n\n");
+            result.append("**Operation:** ").append(operation).append("\n");
+            result.append("**Path:** `").append(jsonPath).append("`\n\n");
+            for (Map.Entry<String, Object> e : data.entrySet()) {
+                if (e.getKey().equals("operation") || e.getKey().equals("path")) continue;
+                result.append("**").append(e.getKey()).append(":** ").append(e.getValue()).append("\n");
+            }
+            return McpUtils.createSuccessResponse(result.toString());
+
         } catch (Exception e) {
             return McpUtils.createErrorResponse("JSON path operation failed: " + e.getMessage());
         }
-        
-        return McpUtils.createSuccessResponse(result.toString());
     }
     
-    private Object performJsonValidate(String input) {
+    private Object performJsonValidate(String input, JsonNode arguments) {
         if (input.isEmpty()) {
             return McpUtils.createErrorResponse("Input is required for JSON validation");
         }
-        
+
         JsonUtils jsonUtils = api.utilities().jsonUtils();
         boolean isValid = jsonUtils.isValidJson(input);
-        
+
+        if (!McpUtils.isVerbose(arguments)) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("operation", "json_validate");
+            data.put("valid", isValid);
+            if (isValid) {
+                try {
+                    com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                    Object json = mapper.readValue(input, Object.class);
+                    data.put("rootType", json.getClass().getSimpleName());
+                    if (json instanceof Map) {
+                        data.put("keys", new ArrayList<>(((Map<?, ?>) json).keySet()));
+                    } else if (json instanceof List) {
+                        data.put("arrayLength", ((List<?>) json).size());
+                    }
+                } catch (Exception e) { }
+            }
+            return McpUtils.createJsonResponse(data);
+        }
+
         StringBuilder result = new StringBuilder();
         result.append("## JSON Validation Result\n\n");
         result.append("**Valid JSON:** ").append(isValid ? "✅ Yes" : "❌ No").append("\n\n");
-        
         if (isValid) {
-            result.append("The input is valid JSON.\n");
-            
-            // Try to parse and show structure
             try {
                 com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
                 Object json = mapper.readValue(input, Object.class);
-                String type = json.getClass().getSimpleName();
-                result.append("**Root Type:** ").append(type).append("\n");
-                
+                result.append("**Root Type:** ").append(json.getClass().getSimpleName()).append("\n");
                 if (json instanceof Map) {
-                    Map<?, ?> map = (Map<?, ?>) json;
-                    result.append("**Keys:** ").append(map.keySet()).append("\n");
+                    result.append("**Keys:** ").append(((Map<?, ?>) json).keySet()).append("\n");
                 } else if (json instanceof List) {
-                    List<?> list = (List<?>) json;
-                    result.append("**Array Length:** ").append(list.size()).append("\n");
+                    result.append("**Array Length:** ").append(((List<?>) json).size()).append("\n");
                 }
-            } catch (Exception e) {
-                // Ignore parsing errors
-            }
+            } catch (Exception e) { }
         } else {
-            result.append("The input is not valid JSON. Common issues:\n");
+            result.append("Common issues:\n");
             result.append("- Missing quotes around strings\n");
             result.append("- Trailing commas\n");
             result.append("- Single quotes instead of double quotes\n");
@@ -709,128 +600,136 @@ public class UtilitiesTool implements McpTool {
                 return McpUtils.createErrorResponse("Invalid source base: " + fromBase);
             }
             
+            String decimal;
+            if (fromBase.equals("decimal")) decimal = input;
+            else if (fromBase.equals("binary")) decimal = numberUtils.convertBinaryToDecimal(input);
+            else if (fromBase.equals("octal")) decimal = numberUtils.convertOctalToDecimal(input);
+            else decimal = numberUtils.convertHexToDecimal(input);
+
+            Map<String, Object> allBases = new HashMap<>();
+            allBases.put("binary", numberUtils.convertDecimalToBinary(decimal));
+            allBases.put("octal", numberUtils.convertDecimalToOctal(decimal));
+            allBases.put("decimal", decimal);
+            allBases.put("hex", numberUtils.convertDecimalToHex(decimal));
+
+            if (!McpUtils.isVerbose(arguments)) {
+                Map<String, Object> data = new HashMap<>();
+                data.put("operation", "number_convert");
+                data.put("input", input);
+                data.put("fromBase", fromBase);
+                data.put("toBase", toBase);
+                data.put("output", converted);
+                data.put("allBases", allBases);
+                return McpUtils.createJsonResponse(data);
+            }
+
             StringBuilder result = new StringBuilder();
             result.append("## Number Base Conversion\n\n");
             result.append("**Input:** ").append(input).append(" (").append(fromBase).append(")\n");
             result.append("**Output:** ").append(converted).append(" (").append(toBase).append(")\n\n");
-            
-            // Show all conversions
             result.append("### All Base Representations:\n");
-            String decimal;
-            if (fromBase.equals("decimal")) {
-                decimal = input;
-            } else if (fromBase.equals("binary")) {
-                decimal = numberUtils.convertBinaryToDecimal(input);
-            } else if (fromBase.equals("octal")) {
-                decimal = numberUtils.convertOctalToDecimal(input);
-            } else {
-                decimal = numberUtils.convertHexToDecimal(input);
-            }
-            
-            result.append("- **Binary:** ").append(numberUtils.convertDecimalToBinary(decimal)).append("\n");
-            result.append("- **Octal:** ").append(numberUtils.convertDecimalToOctal(decimal)).append("\n");
-            result.append("- **Decimal:** ").append(decimal).append("\n");
-            result.append("- **Hexadecimal:** ").append(numberUtils.convertDecimalToHex(decimal)).append("\n");
-            
+            result.append("- **Binary:** ").append(allBases.get("binary")).append("\n");
+            result.append("- **Octal:** ").append(allBases.get("octal")).append("\n");
+            result.append("- **Decimal:** ").append(allBases.get("decimal")).append("\n");
+            result.append("- **Hexadecimal:** ").append(allBases.get("hex")).append("\n");
             return McpUtils.createSuccessResponse(result.toString());
-            
+
         } catch (Exception e) {
-            return McpUtils.createErrorResponse("Number conversion failed: " + e.getMessage() + 
-                " (check that input is valid for the source base)");
+            return McpUtils.createErrorResponse("Number conversion failed: " + e.getMessage());
         }
     }
     
     private Object performByteSearch(String input, JsonNode arguments) {
-        if (input.isEmpty()) {
-            return McpUtils.createErrorResponse("Input is required for byte search");
-        }
-        
+        if (input.isEmpty()) return McpUtils.createErrorResponse("Input is required for byte search");
         String searchPattern = McpUtils.getStringParam(arguments, "searchPattern", "");
-        if (searchPattern.isEmpty()) {
-            return McpUtils.createErrorResponse("Search pattern is required");
-        }
-        
+        if (searchPattern.isEmpty()) return McpUtils.createErrorResponse("Search pattern is required");
+
         boolean useRegex = McpUtils.getBooleanParam(arguments, "useRegex", false);
-        
+        boolean verbose = McpUtils.isVerbose(arguments);
         ByteUtils byteUtils = api.utilities().byteUtils();
         byte[] inputBytes = input.getBytes(StandardCharsets.UTF_8);
-        
-        StringBuilder result = new StringBuilder();
-        result.append("## Byte Search Results\n\n");
-        result.append("**Input Length:** ").append(inputBytes.length).append(" bytes\n");
-        result.append("**Search Pattern:** `").append(searchPattern).append("`\n");
-        result.append("**Use Regex:** ").append(useRegex).append("\n\n");
-        
+
         try {
+            int count;
+            int firstIndex;
+            List<Map<String, Object>> matches = new ArrayList<>();
+            String contextPreview = null;
+
             if (useRegex) {
                 Pattern pattern = Pattern.compile(searchPattern);
-                int count = byteUtils.countMatches(inputBytes, pattern);
-                int firstIndex = byteUtils.indexOf(inputBytes, pattern);
-                
-                result.append("**Matches Found:** ").append(count).append("\n");
+                count = byteUtils.countMatches(inputBytes, pattern);
+                firstIndex = byteUtils.indexOf(inputBytes, pattern);
                 if (firstIndex >= 0) {
-                    result.append("**First Match Index:** ").append(firstIndex).append("\n\n");
-                    
-                    // Find all matches
-                    result.append("### Match Locations:\n");
                     String inputStr = new String(inputBytes, StandardCharsets.UTF_8);
                     Matcher matcher = pattern.matcher(inputStr);
                     int matchNum = 0;
                     while (matcher.find() && matchNum < 10) {
-                        result.append("- **Index ").append(matcher.start()).append(":** `")
-                            .append(matcher.group()).append("`\n");
+                        Map<String, Object> m = new HashMap<>();
+                        m.put("index", matcher.start());
+                        m.put("match", matcher.group());
+                        matches.add(m);
                         matchNum++;
                     }
-                    if (count > 10) {
-                        result.append("... and ").append(count - 10).append(" more matches\n");
-                    }
-                } else {
-                    result.append("No matches found.\n");
                 }
             } else {
                 byte[] searchBytes = searchPattern.getBytes(StandardCharsets.UTF_8);
-                int count = byteUtils.countMatches(inputBytes, searchBytes);
-                int firstIndex = byteUtils.indexOf(inputBytes, searchBytes);
-                
-                result.append("**Matches Found:** ").append(count).append("\n");
+                count = byteUtils.countMatches(inputBytes, searchBytes);
+                firstIndex = byteUtils.indexOf(inputBytes, searchBytes);
                 if (firstIndex >= 0) {
-                    result.append("**First Match Index:** ").append(firstIndex).append("\n\n");
-                    
-                    // Find all match positions
-                    result.append("### Match Positions:\n");
                     int index = firstIndex;
                     int matchCount = 0;
                     while (index >= 0 && matchCount < 10) {
-                        result.append("- Index ").append(index).append("\n");
+                        Map<String, Object> m = new HashMap<>();
+                        m.put("index", index);
+                        matches.add(m);
                         index = byteUtils.indexOf(inputBytes, searchBytes, false, index + 1, inputBytes.length);
                         matchCount++;
                     }
-                    if (count > 10) {
-                        result.append("... and ").append(count - 10).append(" more matches\n");
-                    }
-                    
-                    // Show context around first match
-                    result.append("\n### Context (first match):\n```\n");
                     int contextStart = Math.max(0, firstIndex - 20);
                     int contextEnd = Math.min(inputBytes.length, firstIndex + searchBytes.length + 20);
-                    String context = new String(inputBytes, contextStart, contextEnd - contextStart, StandardCharsets.UTF_8);
-                    result.append(context).append("\n```\n");
-                } else {
-                    result.append("No matches found.\n");
+                    contextPreview = new String(inputBytes, contextStart, contextEnd - contextStart, StandardCharsets.UTF_8);
                 }
             }
-            
-            result.append("\n💡 **Use Cases:**\n");
-            result.append("- Finding binary patterns in responses\n");
-            result.append("- Locating specific byte sequences\n");
-            result.append("- Pattern matching in encoded data\n");
-            result.append("- Searching for signatures or magic bytes\n");
-            
+
+            if (!verbose) {
+                Map<String, Object> data = new HashMap<>();
+                data.put("operation", "byte_search");
+                data.put("inputLength", inputBytes.length);
+                data.put("pattern", searchPattern);
+                data.put("useRegex", useRegex);
+                data.put("matchCount", count);
+                data.put("firstMatchIndex", firstIndex);
+                data.put("matches", matches);
+                if (contextPreview != null) data.put("contextPreview", contextPreview);
+                return McpUtils.createJsonResponse(data);
+            }
+
+            StringBuilder result = new StringBuilder();
+            result.append("## Byte Search Results\n\n");
+            result.append("**Input Length:** ").append(inputBytes.length).append(" bytes\n");
+            result.append("**Search Pattern:** `").append(searchPattern).append("`\n");
+            result.append("**Use Regex:** ").append(useRegex).append("\n");
+            result.append("**Matches Found:** ").append(count).append("\n");
+            if (firstIndex >= 0) {
+                result.append("**First Match Index:** ").append(firstIndex).append("\n\n");
+                result.append("### Match Locations:\n");
+                for (Map<String, Object> m : matches) {
+                    result.append("- Index ").append(m.get("index"));
+                    if (m.containsKey("match")) result.append(": `").append(m.get("match")).append("`");
+                    result.append("\n");
+                }
+                if (count > 10) result.append("... and ").append(count - 10).append(" more matches\n");
+                if (contextPreview != null) {
+                    result.append("\n### Context (first match):\n```\n").append(contextPreview).append("\n```\n");
+                }
+            } else {
+                result.append("No matches found.\n");
+            }
+            return McpUtils.createSuccessResponse(result.toString());
+
         } catch (Exception e) {
             return McpUtils.createErrorResponse("Byte search failed: " + e.getMessage());
         }
-        
-        return McpUtils.createSuccessResponse(result.toString());
     }
 
     /**
@@ -925,39 +824,30 @@ public class UtilitiesTool implements McpTool {
 
             long executionTime = System.currentTimeMillis() - startTime;
 
-            // Build result
+            if (!McpUtils.isVerbose(arguments)) {
+                Map<String, Object> data = new HashMap<>();
+                data.put("operation", "shell_execute");
+                data.put("mode", (dangerous || commandArgs.isEmpty()) ? "dangerous" : "safe");
+                data.put("command", executedCommand);
+                data.put("executionTimeMs", executionTime);
+                data.put("timeoutSeconds", timeout);
+                data.put("mergeStderr", mergeStderr);
+                data.put("allowNonZeroExit", allowNonZeroExit);
+                data.put("output", output != null ? output : "");
+                return McpUtils.createJsonResponse(data);
+            }
+
             StringBuilder result = new StringBuilder();
             result.append("## Shell Execution Result\n\n");
             result.append("**Execution Mode:** ").append(executionMode).append("\n");
             result.append("**Command:** `").append(executedCommand).append("`\n");
-            result.append("**Timeout:** ").append(timeout == 0 ? "Disabled" : timeout + " seconds").append("\n");
-            result.append("**Execution Time:** ").append(executionTime).append(" ms\n");
-            result.append("**Merge Stderr:** ").append(mergeStderr).append("\n");
-            result.append("**Allow Non-Zero Exit:** ").append(allowNonZeroExit).append("\n\n");
-
+            result.append("**Execution Time:** ").append(executionTime).append(" ms\n\n");
             result.append("### Output\n");
             if (output == null || output.isEmpty()) {
                 result.append("*(No output)*\n");
             } else {
                 result.append("```\n").append(output).append("\n```\n");
             }
-
-            result.append("\n### ⚠️ Security Notes\n\n");
-            if (dangerous || commandArgs.isEmpty()) {
-                result.append("**WARNING:** `dangerouslyExecute` was used. This method splits the command string on whitespace, ");
-                result.append("which can lead to command injection vulnerabilities if user input is included.\n\n");
-                result.append("**Recommended:** Use `shell_execute` with `commandArgs` array for safer execution:\n");
-                result.append("```json\n");
-                result.append("{\n");
-                result.append("  \"action\": \"shell_execute\",\n");
-                result.append("  \"commandArgs\": [\"ls\", \"-la\", \"/path/with spaces\"]\n");
-                result.append("}\n");
-                result.append("```\n");
-            } else {
-                result.append("**Good:** Safe execution mode was used with argument array. ");
-                result.append("Arguments are passed directly to the process without shell interpretation.\n");
-            }
-
             return McpUtils.createSuccessResponse(result.toString());
 
         } catch (Exception e) {

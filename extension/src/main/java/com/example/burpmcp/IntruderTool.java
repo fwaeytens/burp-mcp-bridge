@@ -174,35 +174,34 @@ public class IntruderTool implements McpTool {
         HttpRequest cleanedRequest = HttpRequest.httpRequest(request.httpService(), cleanedRequestStr);
         request = cleanedRequest;
 
-        if (positions.isEmpty()) {
-            result.append("⚠️ No § markers found. Mark positions with §value§ format.\n");
-            result.append("Example: username=admin&password=§test§\n");
-            // Still send to Intruder for manual position marking
-            api.intruder().sendToIntruder(request);
-            result.append("\n✅ Request sent to Intruder for manual position marking\n");
-        } else {
-            // Create HttpRequestTemplate with positions
+        boolean hasPositions = !positions.isEmpty();
+        if (hasPositions) {
             HttpRequestTemplate template = HttpRequestTemplate.httpRequestTemplate(request, positions);
-            // Send to Intruder with marked positions
             api.intruder().sendToIntruder(request.httpService(), template);
-            result.append("\n✅ Request sent to Intruder with ")
-                  .append(positions.size()).append(" marked position(s)\n");
+        } else {
+            api.intruder().sendToIntruder(request);
         }
-            
-            result.append("\n📋 **Next Steps in Burp UI:**\n");
-            result.append("1. Go to **Intruder** tab → **Positions** tab\n");
-            result.append("2. Verify positions are correctly marked\n");
-            result.append("3. Go to **Payloads** tab\n");
-            result.append("4. Select payload type (Simple list, Numbers, etc.)\n");
-            result.append("5. Add your payloads manually\n");
-            result.append("6. Choose attack type (Sniper, Battering Ram, etc.)\n");
-            result.append("7. Click **Start attack**\n");
-            
+
+        if (!McpUtils.isVerbose(arguments)) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("success", true);
+            data.put("url", url);
+            data.put("method", method);
+            data.put("positionsFound", positions.size());
+            return McpUtils.createJsonResponse(data);
+        }
+
+        if (!hasPositions) {
+            result.append("⚠️ No § markers found. Mark positions with §value§ format.\n");
+            result.append("✅ Request sent to Intruder for manual position marking\n");
+        } else {
+            result.append("\n✅ Request sent to Intruder with ").append(positions.size()).append(" marked position(s)\n");
+        }
+        return McpUtils.createSuccessResponse(result.toString());
+
         } catch (Exception e) {
             return McpUtils.createErrorResponse("Error: " + e.getMessage());
         }
-        
-        return McpUtils.createSuccessResponse(result.toString());
     }
     
     private Object sendToIntruder(JsonNode arguments, StringBuilder result) {
@@ -241,35 +240,26 @@ public class IntruderTool implements McpTool {
                 }
             }
             
-            // Send to Intruder for manual configuration
             api.intruder().sendToIntruder(request);
-            
+
+            if (!McpUtils.isVerbose(arguments)) {
+                Map<String, Object> data = new HashMap<>();
+                data.put("success", true);
+                data.put("url", url);
+                data.put("method", method);
+                if (!body.isEmpty()) data.put("bodyLength", body.length());
+                return McpUtils.createJsonResponse(data);
+            }
+
             result.append("✅ **Request sent to Intruder**\n\n");
             result.append("**Target:** ").append(url).append("\n");
             result.append("**Method:** ").append(method).append("\n");
-            if (!body.isEmpty()) {
-                result.append("**Body Length:** ").append(body.length()).append(" characters\n");
-            }
-            if (!customHeaders.isEmpty()) {
-                result.append("**Custom Headers:** Added\n");
-            }
-            
-            result.append("\n📋 **Manual Configuration Required:**\n");
-            result.append("1. Go to **Intruder** tab\n");
-            result.append("2. Click **Positions** tab → mark parameters with §\n");
-            result.append("3. Click **Payloads** tab → add your payload list\n");
-            result.append("4. Select attack type (top of Positions tab)\n");
-            result.append("5. Click **Start attack**\n");
-            
-            result.append("\n💡 **Position Marking Tips:**\n");
-            result.append("• Click \"Clear §\" then \"Add §\" to mark positions\n");
-            result.append("• Or manually add § around values to replace\n");
-            result.append("• Example: `username=admin&password=§test§`\n");
-            
+            if (!body.isEmpty()) result.append("**Body Length:** ").append(body.length()).append(" characters\n");
+
         } catch (Exception e) {
             result.append("❌ Error sending to Intruder: ").append(e.getMessage()).append("\n");
         }
-        
+
         return McpUtils.createSuccessResponse(result.toString());
     }
 }
