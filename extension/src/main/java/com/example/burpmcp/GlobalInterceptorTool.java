@@ -108,8 +108,9 @@ public class GlobalInterceptorTool implements McpTool {
     public Map<String, Object> getToolInfo() {
         Map<String, Object> tool = new HashMap<>();
         tool.put("name", "burp_global_interceptor");
-        tool.put("title", "Global Interceptor");
-        tool.put("description", "Global HTTP and WebSocket interceptor for ALL Burp tools (Scanner, Intruder, Repeater, etc.). " +
+        tool.put("title", "Global Interceptor (All Burp Tools)");
+        tool.put("description", "ALL Burp tools (Scanner, Intruder, Repeater, Proxy) — global rules apply everywhere. For browser-proxy ONLY, use burp_proxy_interceptor. For WebSocket frames, use burp_websocket_interceptor. " +
+                "Global HTTP and WebSocket interceptor for ALL Burp tools (Scanner, Intruder, Repeater, etc.). " +
                 "Use this for global authentication injection, header modification across all tools, response manipulation, and WebSocket message interception. " +
                 "Supports rule-based automatic mode or event-driven manual control. " +
                 "Common use cases: add auth to Scanner, inject headers in WebSocket handshakes, WAF bypass testing.");
@@ -120,7 +121,7 @@ public class GlobalInterceptorTool implements McpTool {
         annotations.put("destructiveHint", false);
         annotations.put("idempotentHint", false);
         annotations.put("openWorldHint", true);
-        annotations.put("title", "Global Interceptor");
+        annotations.put("title", "Global Interceptor (All Burp Tools)");
         tool.put("annotations", annotations);
 
         Map<String, Object> meta = new HashMap<>();
@@ -177,7 +178,7 @@ public class GlobalInterceptorTool implements McpTool {
         
         Map<String, Object> ruleProp = new HashMap<>();
         ruleProp.put("type", "object");
-        ruleProp.put("description", "Rule definition (pattern, action, priority, etc.)");
+        ruleProp.put("description", "Rule object. Required keys: pattern (regex matching URL or content), action ('add_header'|'remove_header'|'replace_body'|'modify_body'|'drop'), priority (int, lower=earlier). Optional: value (for add_header/replace_body), match_target ('url'|'header'|'body'). Example: {pattern: '.*api.*', action: 'add_header', value: 'X-Test: 1', priority: 10}.");
         properties.put("rule", ruleProp);
         
         Map<String, Object> priorityProp = new HashMap<>();
@@ -208,7 +209,10 @@ public class GlobalInterceptorTool implements McpTool {
         ruleDataProp.put("type", "object");
         ruleDataProp.put("description", "Exported rules data");
         properties.put("rules_data", ruleDataProp);
-        
+
+        properties.put("verbose", McpUtils.createProperty("boolean",
+            "If true, returns formatted markdown with sections and emoji. Default: compact JSON for token efficiency.", false));
+
         inputSchema.put("type", "object");
         inputSchema.put("properties", properties);
         inputSchema.put("required", Arrays.asList("action"));

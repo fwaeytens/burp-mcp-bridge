@@ -31,10 +31,12 @@ public class ResponseAnalysisTool implements McpTool {
     public Map<String, Object> getToolInfo() {
         Map<String, Object> tool = new HashMap<>();
         tool.put("name", "burp_response_analyzer");
-        tool.put("title", "Response Analyzer");
-        tool.put("description", "Analyze HTTP responses for keywords, variations, reflection points, and anomalies. " +
+        tool.put("title", "Response Analyzer (Per-Response)");
+        tool.put("description", "PER-RESPONSE content analysis (XSS reflection, response keywords, anomaly ranking on individual HTTP responses). For SITE-WIDE structure/technology fingerprinting, use burp_sitemap_analysis. " +
+            "Analyze HTTP responses for keywords, variations, reflection points, and anomalies. " +
             "Use this to find dynamic content, identify reflection points for XSS testing, detect security-related keywords, and rank anomalous responses. " +
-            "Actions: keywords (find security terms), variations (detect dynamic content), reflection (XSS testing), " +
+            "Actions are LOWERCASE: keywords, variations, reflection, pattern, rank_anomalies, all. " +
+            "keywords (find security terms), variations (detect dynamic content), reflection (XSS testing), " +
             "pattern (regex search), rank_anomalies (AI-powered anomaly detection), all (complete analysis).");
 
         // MCP 2025-06-18 annotations
@@ -43,11 +45,11 @@ public class ResponseAnalysisTool implements McpTool {
         annotations.put("destructiveHint", false);
         annotations.put("idempotentHint", true);
         annotations.put("openWorldHint", false);
-        annotations.put("title", "Response Analyzer");
+        annotations.put("title", "Response Analyzer (Per-Response)");
         tool.put("annotations", annotations);
 
         Map<String, Object> meta = new HashMap<>();
-        meta.put("anthropic/searchHint", "analyze response patterns timing attributes");
+        meta.put("anthropic/searchHint", "reflection xss keywords anomaly per-response body content");
         tool.put("_meta", meta);
 
         Map<String, Object> inputSchema = new HashMap<>();
@@ -93,6 +95,9 @@ public class ResponseAnalysisTool implements McpTool {
             "Ranking algorithm to use",
             List.of("ANOMALY"),
             "ANOMALY"));
+
+        properties.put("verbose", McpUtils.createProperty("boolean",
+            "If true, returns formatted markdown with sections and emoji. Default: compact JSON for token efficiency.", false));
 
         inputSchema.put("properties", properties);
         inputSchema.put("required", List.of("action"));

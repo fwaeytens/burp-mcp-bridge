@@ -53,7 +53,7 @@ public class UtilitiesTool implements McpTool {
         Map<String, Object> properties = new HashMap<>();
         
         properties.put("action", McpUtils.createEnumProperty("string",
-            "Utility action to perform",
+            "Utility action to perform. shell_execute: SAFE arg-list execution (use commandArgs[] not single command string). shell_execute_dangerous: shell-interpreted single string (allows pipes/redirects but enables injection — only use when shell features are required).",
             List.of("base64_encode", "base64_decode", "url_encode", "url_decode",
                     "html_encode", "html_decode", "hash", "random", "compress",
                     "decompress", "json_beautify", "json_path", "json_validate",
@@ -109,7 +109,7 @@ public class UtilitiesTool implements McpTool {
 
         // Shell execution parameters
         properties.put("command", McpUtils.createProperty("string",
-            "Shell command to execute (for shell_execute/shell_execute_dangerous)"));
+            "Single shell-interpreted string. Use only with shell_execute_dangerous when pipes/redirects are needed. For safe execution prefer commandArgs[] with shell_execute."));
 
         properties.put("commandArgs", McpUtils.createProperty("array",
             "Command arguments as separate strings (for shell_execute - safer than single string)"));
@@ -128,6 +128,9 @@ public class UtilitiesTool implements McpTool {
 
         properties.put("envVars", McpUtils.createProperty("object",
             "Environment variables as key-value pairs"));
+
+        properties.put("verbose", McpUtils.createProperty("boolean",
+            "If true, returns formatted markdown with sections and emoji. Default: compact JSON for token efficiency.", false));
 
         inputSchema.put("properties", properties);
         inputSchema.put("required", List.of("action"));

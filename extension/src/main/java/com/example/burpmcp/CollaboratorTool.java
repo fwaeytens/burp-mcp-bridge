@@ -54,7 +54,8 @@ public class CollaboratorTool implements McpTool {
         tool.put("title", "Collaborator (OOB)");
         tool.put("description", "Generate payloads and monitor out-of-band interactions for blind vulnerability testing. " +
                 "Use this for SSRF, blind XXE, blind SQL injection, and other vulnerabilities that require external callback verification. " +
-                "Actions: GENERATE_PAYLOAD (create unique callback URLs), CHECK_INTERACTIONS (poll for callbacks), LIST_PAYLOADS, SERVER_INFO. " +
+                "Actions: GENERATE_PAYLOAD, CHECK_INTERACTIONS, LIST_PAYLOADS, CLEAR_INTERACTIONS, STATUS, GET_SECRET_KEY, SERVER_INFO, GENERATE_WITH_CUSTOM_DATA, FILTER_INTERACTIONS. " +
+                "GENERATE_PAYLOAD/GENERATE_WITH_CUSTOM_DATA: create callback URLs. CHECK_INTERACTIONS/FILTER_INTERACTIONS: poll for callbacks. LIST_PAYLOADS/CLEAR_INTERACTIONS: manage. STATUS/SERVER_INFO: diagnostics. GET_SECRET_KEY: restore client session. " +
                 "Professional license required. Supports DNS, HTTP, HTTPS, and SMTP interactions.");
 
         // MCP 2025-06-18 annotations

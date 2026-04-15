@@ -37,8 +37,9 @@ public class WebSocketInterceptorTool implements McpTool {
     public Map<String, Object> getToolInfo() {
         Map<String, Object> tool = new HashMap<>();
         tool.put("name", "burp_websocket_interceptor");
-        tool.put("title", "WebSocket Interceptor");
-        tool.put("description", "Intercept and modify WebSocket messages in real-time. " +
+        tool.put("title", "WebSocket Interceptor (WS Only)");
+        tool.put("description", "WebSocket frames ONLY (text/binary messages). For HTTP traffic in browser proxy, use burp_proxy_interceptor. For HTTP traffic across all Burp tools, use burp_global_interceptor. " +
+            "Intercept and modify WebSocket messages in real-time. " +
             "Use this for testing WebSocket-based applications by intercepting, modifying, and filtering messages. " +
             "Supports text and binary messages with match/replace rules. " +
             "Actions: enable/disable, status, get_queue, forward/drop/modify (message control), add/remove_filter, add/remove_auto_modify.");
@@ -49,7 +50,7 @@ public class WebSocketInterceptorTool implements McpTool {
         annotations.put("destructiveHint", false);
         annotations.put("idempotentHint", false);
         annotations.put("openWorldHint", true);
-        annotations.put("title", "WebSocket Interceptor");
+        annotations.put("title", "WebSocket Interceptor (WS Only)");
         tool.put("annotations", annotations);
 
         Map<String, Object> meta = new HashMap<>();
@@ -81,7 +82,10 @@ public class WebSocketInterceptorTool implements McpTool {
         properties.put("rule_name", McpUtils.createProperty("string", "Name for the auto-modify rule (text messages only)"));
         properties.put("search_pattern", McpUtils.createProperty("string", "Pattern to search for in text messages"));
         properties.put("replace_with", McpUtils.createProperty("string", "Replacement text"));
-        
+
+        properties.put("verbose", McpUtils.createProperty("boolean",
+            "If true, returns formatted markdown with sections and emoji. Default: compact JSON for token efficiency.", false));
+
         inputSchema.put("properties", properties);
         inputSchema.put("required", List.of("action"));
         tool.put("inputSchema", inputSchema);

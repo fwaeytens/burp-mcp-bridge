@@ -95,11 +95,13 @@ public class SiteMapAnalysisTool implements McpTool {
     public Map<String, Object> getToolInfo() {
         Map<String, Object> tool = new HashMap<>();
         tool.put("name", "burp_sitemap_analysis");
-        tool.put("title", "Site Map Analysis");
-        tool.put("description", "Analyze site structure, detect technologies, map attack surface, and identify potential vulnerabilities from captured traffic. " +
+        tool.put("title", "Site Map Analysis (Site-Wide)");
+        tool.put("description", "SITE-WIDE structure analysis from Burp's Site Map (directory tree, tech detection, attack surface). For per-response content analysis (reflection, keyword search in bodies), use burp_response_analyzer. " +
+            "Analyze site structure, detect technologies, map attack surface, and identify potential vulnerabilities from captured traffic. " +
             "Actions: ANALYZE_STRUCTURE (directory tree), DETECT_TECHNOLOGY (stack fingerprinting), " +
             "MAP_ATTACK_SURFACE (input points), CONTENT_ANALYSIS (sensitive data), RESPONSE_STATS (metrics), " +
-            "CORRELATE_ISSUES, RESPONSE_VARIATIONS, KEYWORD_ANALYSIS, FULL_ANALYSIS, CREATE_ISSUES_FROM_ANALYSIS.");
+            "CORRELATE_ISSUES, RESPONSE_VARIATIONS, KEYWORD_ANALYSIS, FULL_ANALYSIS, CREATE_ISSUES_FROM_ANALYSIS." +
+            " Data source is Burp's deduplicated URL tree (Site Map), not chronological proxy history — for chronological traffic, use burp_proxy_history.");
 
         // MCP 2025-06-18 annotations
         Map<String, Object> annotations = new HashMap<>();
@@ -107,11 +109,11 @@ public class SiteMapAnalysisTool implements McpTool {
         annotations.put("destructiveHint", false);
         annotations.put("idempotentHint", true);
         annotations.put("openWorldHint", false);
-        annotations.put("title", "Site Map Analysis");
+        annotations.put("title", "Site Map Analysis (Site-Wide)");
         tool.put("annotations", annotations);
 
         Map<String, Object> meta = new HashMap<>();
-        meta.put("anthropic/searchHint", "site map tree structure content discovery");
+        meta.put("anthropic/searchHint", "directory tree technology fingerprint attack surface site-wide");
         tool.put("_meta", meta);
 
         Map<String, Object> inputSchema = new HashMap<>();
@@ -122,7 +124,7 @@ public class SiteMapAnalysisTool implements McpTool {
         Map<String, Object> action = new HashMap<>();
         action.put("type", "string");
         action.put("enum", SUPPORTED_ACTIONS.toArray(new String[0]));
-        action.put("description", "Type of analysis to perform");
+        action.put("description", "Type of analysis to perform. Defaults to FULL_ANALYSIS if omitted.");
         properties.put("action", action);
         
         Map<String, Object> target = new HashMap<>();
@@ -149,7 +151,6 @@ public class SiteMapAnalysisTool implements McpTool {
         properties.put("maxSamples", maxSamples);
         
         inputSchema.put("properties", properties);
-        inputSchema.put("required", new String[]{"action"});
 
 
         tool.put("inputSchema", inputSchema);

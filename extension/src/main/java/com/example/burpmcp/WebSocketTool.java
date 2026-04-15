@@ -35,7 +35,8 @@ public class WebSocketTool implements McpTool {
         tool.put("title", "WebSocket Client");
         tool.put("description", "View WebSocket proxy history and create WebSocket connections. " +
             "Use this to analyze captured WebSocket traffic, create new WebSocket connections, send messages, and manage connection lifecycle. " +
-            "Actions: proxy_history (view captured messages), create (new connection), send (send message), close (disconnect), list_connections.");
+            "Actions: proxy_history (view captured messages), create (new connection), send (send message), close (disconnect), list_connections." +
+            " Workflow: create→returns connectionId→send messages with that ID→close. proxy_history is read-only on captured WebSocket traffic and the default action.");
 
         // MCP 2025-06-18 annotations
         Map<String, Object> annotations = new HashMap<>();
@@ -62,7 +63,7 @@ public class WebSocketTool implements McpTool {
         
         // For creating connections
         properties.put("url", McpUtils.createProperty("string", "WebSocket URL (ws:// or wss://) for create action"));
-        properties.put("upgradeRequest", McpUtils.createProperty("string", "Optional HTTP upgrade request for create action"));
+        properties.put("upgradeRequest", McpUtils.createProperty("string", "Optional HTTP upgrade request for create action. IMPORTANT: include port in Host header (example.com:443 for WSS, example.com:80 for WS)."));
         
         // For sending messages
         properties.put("connectionId", McpUtils.createProperty("string", "Connection ID for send/close actions"));
@@ -72,7 +73,10 @@ public class WebSocketTool implements McpTool {
         // For history
         properties.put("limit", McpUtils.createProperty("integer", "Maximum number of entries to return", 100));
         properties.put("filter", McpUtils.createProperty("string", "Filter messages by content"));
-        
+
+        properties.put("verbose", McpUtils.createProperty("boolean",
+            "If true, returns formatted markdown with sections and emoji. Default: compact JSON for token efficiency.", false));
+
         inputSchema.put("properties", properties);
         inputSchema.put("required", List.of("action"));
 

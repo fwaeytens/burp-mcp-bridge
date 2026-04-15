@@ -60,8 +60,11 @@ public class SessionManagementTool implements McpTool {
         tool.put("title", "Session Manager");
         tool.put("description", "Advanced session management with Burp's native cookie jar and automatic session handling. " +
             "Use this to manage cookies, extract tokens, test session validity, and configure automatic session refresh. " +
-            "Actions: COOKIE_JAR_LIST/SET/DELETE (manage cookies), EXTRACT_TOKENS (find session tokens), " +
-            "TEST_SESSION (verify session validity), ENABLE/DISABLE_AUTO_SESSION (automatic refresh on 401/403). " +
+            "Actions: EXTRACT_TOKENS (find session tokens in proxy history), SET_TOKEN/CLEAR_TOKENS/LIST_TOKENS (in-memory token store), " +
+            "TEST_SESSION/FIND_LOGOUT/SESSION_STATUS (verify session validity), " +
+            "COOKIE_JAR_LIST/COOKIE_JAR_SET/COOKIE_JAR_DELETE/COOKIE_JAR_CLEAR (manage Burp's native cookie jar), " +
+            "ENABLE_AUTO_SESSION/DISABLE_AUTO_SESSION/AUTO_SESSION_STATUS (automatic refresh on 401/403), " +
+            "ANALYZE_SESSION_VALIDITY (heuristic analysis of captured traffic). " +
             "Integrates with Burp's session handling rules.");
 
         // MCP 2025-06-18 annotations
@@ -95,12 +98,12 @@ public class SessionManagementTool implements McpTool {
         
         Map<String, Object> tokenNameProperty = new HashMap<>();
         tokenNameProperty.put("type", "string");
-        tokenNameProperty.put("description", "Token/cookie name (for SET_TOKEN action)");
+        tokenNameProperty.put("description", "Token/cookie name — used for both SET_TOKEN (in-memory token store) and COOKIE_JAR_SET/COOKIE_JAR_DELETE (Burp's native cookie jar).");
         properties.put("tokenName", tokenNameProperty);
         
         Map<String, Object> tokenValueProperty = new HashMap<>();
         tokenValueProperty.put("type", "string");
-        tokenValueProperty.put("description", "Token/cookie value (for SET_TOKEN action)");
+        tokenValueProperty.put("description", "Token/cookie value — used for both SET_TOKEN (in-memory token store) and COOKIE_JAR_SET (Burp's native cookie jar).");
         properties.put("tokenValue", tokenValueProperty);
         
         Map<String, Object> extractPatternProperty = new HashMap<>();
@@ -136,7 +139,10 @@ public class SessionManagementTool implements McpTool {
         validityKeywordsProperty.put("description", "Keywords to check for session validity");
         validityKeywordsProperty.put("items", Map.of("type", "string"));
         properties.put("validityKeywords", validityKeywordsProperty);
-        
+
+        properties.put("verbose", McpUtils.createProperty("boolean",
+            "If true, returns formatted markdown with sections and emoji. Default: compact JSON for token efficiency.", false));
+
         inputSchema.put("properties", properties);
         inputSchema.put("required", List.of("action"));
 
@@ -457,7 +463,7 @@ public class SessionManagementTool implements McpTool {
             HttpRequestResponse response = api.http().sendRequest(request);
 
             if (response.response() != null) {
-                statusCode = response.response().statusCode();
+                statusCode = (int) response.response().statusCode();
                 String responseBody = response.response().bodyToString();
                 String responseHeaders = response.response().toString();
                 responseLength = responseBody.length();

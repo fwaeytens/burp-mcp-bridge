@@ -26,7 +26,8 @@ public class RepeaterTool implements McpTool {
         tool.put("description", "Opens Burp Repeater UI tab for manual testing. " +
             "WARNING: This tool CANNOT send HTTP requests programmatically - it only creates UI tabs for human interaction. " +
             "To actually send and receive HTTP responses, use burp_custom_http instead. " +
-            "Use this only when preparing requests for manual testing in the Burp UI.");
+            "Use this only when preparing requests for manual testing in the Burp UI." +
+            " Actions: SEND_TO_REPEATER (build new request from URL/method/body), SEND_FROM_PROXY (clone an existing proxy history entry by URL).");
 
         // MCP 2025-06-18 annotations
         Map<String, Object> annotations = new HashMap<>();
@@ -57,7 +58,10 @@ public class RepeaterTool implements McpTool {
         properties.put("body", McpUtils.createProperty("string", "Request body"));
         properties.put("tabName", McpUtils.createProperty("string", "Custom tab name in Repeater"));
         properties.put("proxyUrl", McpUtils.createProperty("string", "URL from proxy history to send (for SEND_FROM_PROXY)"));
-        
+
+        properties.put("verbose", McpUtils.createProperty("boolean",
+            "If true, returns formatted markdown with sections and emoji. Default: compact JSON for token efficiency.", false));
+
         inputSchema.put("properties", properties);
         inputSchema.put("required", List.of("action"));
         tool.put("inputSchema", inputSchema);

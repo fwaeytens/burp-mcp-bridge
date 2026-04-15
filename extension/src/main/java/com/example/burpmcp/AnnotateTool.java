@@ -100,7 +100,7 @@ public class AnnotateTool implements McpTool {
         // Source property (which component to work with)
         Map<String, Object> sourceProperty = new HashMap<>();
         sourceProperty.put("type", "string");
-        sourceProperty.put("description", "Source component for operations");
+        sourceProperty.put("description", "Source component. Values: PROXY|TARGET|ORGANIZER|REPEATER|INTRUDER|SCANNER|WEBSOCKET|COLLABORATOR|ALL. Note: ANNOTATE_* actions infer source from the action name; only GET_ANNOTATIONS, SEARCH_BY_ANNOTATION, CLEAR_ANNOTATIONS need 'source' explicitly.");
         sourceProperty.put("enum", SOURCE_TYPES);
         properties.put("source", sourceProperty);
         
@@ -170,7 +170,10 @@ public class AnnotateTool implements McpTool {
         interactionIdProperty.put("type", "string");
         interactionIdProperty.put("description", "Collaborator interaction ID");
         properties.put("interactionId", interactionIdProperty);
-        
+
+        properties.put("verbose", McpUtils.createProperty("boolean",
+            "If true, returns formatted markdown with sections and emoji. Default: compact JSON for token efficiency.", false));
+
         inputSchema.put("properties", properties);
         inputSchema.put("required", List.of("action"));
         tool.put("inputSchema", inputSchema);

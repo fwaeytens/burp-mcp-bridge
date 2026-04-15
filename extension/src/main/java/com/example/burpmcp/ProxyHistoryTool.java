@@ -60,7 +60,8 @@ public class ProxyHistoryTool implements McpTool {
         Map<String, Object> tool = new HashMap<>();
         tool.put("name", "burp_proxy_history");
         tool.put("title", "Proxy History");
-        tool.put("description", "Retrieve and filter HTTP proxy history captured by Burp Suite. Use this to analyze traffic patterns, " +
+        tool.put("description", "Chronological proxy capture (every HTTP request as it happened, with timestamps and duplicates). For deduplicated URL tree of the target, use burp_sitemap_analysis. " +
+            "Retrieve and filter HTTP proxy history captured by Burp Suite. Use this to analyze traffic patterns, " +
             "find specific requests, or extract data from past sessions. Supports 25+ filters including hostname, method, status code, " +
             "path, parameters, and regex patterns. Returns request/response pairs with timing data. " +
             "Use 'list' mode for URLs only, 'detail' for full content, or 'iterate' for sequential browsing.");

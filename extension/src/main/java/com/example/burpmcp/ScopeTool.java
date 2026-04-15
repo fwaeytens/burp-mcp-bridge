@@ -99,7 +99,7 @@ public class ScopeTool implements McpTool {
         
         Map<String, Object> urlsProperty = new HashMap<>();
         urlsProperty.put("type", "array");
-        urlsProperty.put("description", "Array of URLs for bulk operations");
+        urlsProperty.put("description", "URL array for bulk_add and bulk_check actions only.");
         urlsProperty.put("items", Map.of("type", "string"));
         properties.put("urls", urlsProperty);
         

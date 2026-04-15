@@ -30,7 +30,8 @@ public class IntruderTool implements McpTool {
             "WARNING: This tool CANNOT execute attacks programmatically - it only configures the UI. " +
             "You must manually add payloads and click 'Start attack' in Burp UI. " +
             "For automated parameter fuzzing/testing, use burp_custom_http with a loop instead. " +
-            "Use this only when setting up complex attacks for manual execution.");
+            "Use this only when setting up complex attacks for manual execution." +
+            " Actions: SEND_TO_INTRUDER (send raw request for manual position marking), SEND_WITH_POSITIONS (use §value§ markers in body to pre-mark fuzz positions, then strips markers when sending).");
 
         // MCP 2025-06-18 annotations
         Map<String, Object> annotations = new HashMap<>();
@@ -68,7 +69,10 @@ public class IntruderTool implements McpTool {
         bodyProperty.put("type", "string");
         bodyProperty.put("description", "Request body with attack positions marked using §value§");
         properties.put("body", bodyProperty);
-        
+
+        properties.put("verbose", McpUtils.createProperty("boolean",
+            "If true, returns formatted markdown with sections and emoji. Default: compact JSON for token efficiency.", false));
+
         inputSchema.put("properties", properties);
         inputSchema.put("required", List.of("action", "url"));
         

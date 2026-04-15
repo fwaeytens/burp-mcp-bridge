@@ -398,11 +398,14 @@ public class ProxyInterceptorTool implements McpTool {
     public Map<String, Object> getToolInfo() {
         Map<String, Object> tool = new HashMap<>();
         tool.put("name", "burp_proxy_interceptor");
-        tool.put("title", "Proxy Interceptor");
-        tool.put("description", "Real-time proxy request interception and modification with event-driven control. " +
+        tool.put("title", "Proxy Interceptor (Browser Only)");
+        tool.put("description", "BROWSER-PROXY traffic only (intercepts requests passing through Burp's proxy listener). For ALL Burp tools (Scanner, Intruder, Repeater, etc.), use burp_global_interceptor. For WebSocket frames, use burp_websocket_interceptor. " +
+                "Real-time proxy request interception and modification with event-driven control. " +
                 "Use this to intercept requests as they pass through Burp Proxy, inspect them, and decide to forward, drop, or modify. " +
                 "Actions: enable/disable (MCP interception), master_intercept_on/off (Burp UI button), " +
-                "get_queue (pending requests), modify/forward/drop_request. Note: Response modification not yet implemented.");
+                "get_queue/modify_request/forward_request/drop_request (request flow), " +
+                "get_response_queue/modify_response/forward_response/drop_response (response flow), " +
+                "get_websocket_queue/get_websocket_history (WebSocket), get_stats/clear_stats.");
 
         // MCP 2025-06-18 annotations
         Map<String, Object> annotations = new HashMap<>();
@@ -410,7 +413,7 @@ public class ProxyInterceptorTool implements McpTool {
         annotations.put("destructiveHint", false);
         annotations.put("idempotentHint", false);
         annotations.put("openWorldHint", true);
-        annotations.put("title", "Proxy Interceptor");
+        annotations.put("title", "Proxy Interceptor (Browser Only)");
         tool.put("annotations", annotations);
 
         Map<String, Object> meta = new HashMap<>();
@@ -422,9 +425,11 @@ public class ProxyInterceptorTool implements McpTool {
 
         Map<String, Object> actionProp = new HashMap<>();
         actionProp.put("type", "string");
-        actionProp.put("enum", Arrays.asList("enable", "disable", "get_queue", 
+        actionProp.put("enum", Arrays.asList("enable", "disable", "get_queue",
                 "modify_request", "forward_request", "drop_request", "get_stats", "clear_stats",
-                "master_intercept_on", "master_intercept_off", "master_intercept_status"));
+                "master_intercept_on", "master_intercept_off", "master_intercept_status",
+                "get_response_queue", "modify_response", "forward_response", "drop_response",
+                "get_websocket_queue", "get_websocket_history"));
         actionProp.put("description", "The action to perform");
         properties.put("action", actionProp);
         
@@ -435,13 +440,16 @@ public class ProxyInterceptorTool implements McpTool {
         
         Map<String, Object> modificationsProp = new HashMap<>();
         modificationsProp.put("type", "object");
-        modificationsProp.put("description", "Modifications to apply (add_headers, remove_headers, replace_body, method, path)");
+        modificationsProp.put("description", "Modifications object. Keys: add_headers (object {name:value}), remove_headers (array of names), replace_body (string), method (string), path (string). Only specified keys are modified.");
         properties.put("modifications", modificationsProp);
         
         Map<String, Object> optionsProp = new HashMap<>();
         optionsProp.put("type", "object");
-        optionsProp.put("description", "Options (drop, intercept_ui, highlight_color, description)");
+        optionsProp.put("description", "Options object. Keys: drop (boolean — drop instead of forward), intercept_ui (boolean — also show in Burp UI), highlight_color (color name), description (string).");
         properties.put("options", optionsProp);
+
+        properties.put("verbose", McpUtils.createProperty("boolean",
+            "If true, returns formatted markdown with sections and emoji. Default: compact JSON for token efficiency.", false));
         
         inputSchema.put("type", "object");
         inputSchema.put("properties", properties);

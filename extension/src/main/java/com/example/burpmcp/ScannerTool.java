@@ -84,7 +84,8 @@ public class ScannerTool implements McpTool {
             "IMPORT_BCHECK (custom checks), CLEAR_ISSUES, SCAN_SPECIFIC_REQUEST, SCAN_METRICS, FILTER_ISSUES. " +
             "Supports authenticated scanning via headers/cookies parameters. " +
             "For targeted scanning use insertionPointParams (by parameter name) or insertionPointValues (by value string) " +
-            "to scan only specific insertion points, like Burp UI's 'Scan selected insertion point'.");
+            "to scan only specific insertion points, like Burp UI's 'Scan selected insertion point'." +
+            " START_SCAN with crawl:false only scans the provided URLs without traversal — set crawl:true to spider+scan. By default uses authenticated session from proxy history (useProxySession:true).");
 
         // MCP 2025-06-18 annotations
         Map<String, Object> annotations = new HashMap<>();
@@ -107,7 +108,7 @@ public class ScannerTool implements McpTool {
         // Action property
         Map<String, Object> actionProperty = new HashMap<>();
         actionProperty.put("type", "string");
-        actionProperty.put("description", "Scanner action to perform");
+        actionProperty.put("description", "Scanner action. START_SCAN: scan URLs from scratch (urls[]). SCAN_SPECIFIC_REQUEST: scan one raw request (use insertionPointParams/Values for targeted scanning). ADD_TO_SCAN: add to existing scan (scanId). CRAWL_ONLY: discover URLs without scanning. GET_STATUS/GET_ISSUES/CANCEL_SCAN/LIST_SCANS: track active scans. FILTER_ISSUES/SCAN_METRICS/CLEAR_ISSUES: manage results. GENERATE_REPORT: HTML/XML export. IMPORT_BCHECK: load custom check definition.");
         actionProperty.put("enum", SUPPORTED_ACTIONS);
         properties.put("action", actionProperty);
         
@@ -152,7 +153,7 @@ public class ScannerTool implements McpTool {
         // Request for ADD_TO_SCAN
         Map<String, Object> requestProperty = new HashMap<>();
         requestProperty.put("type", "string");
-        requestProperty.put("description", "HTTP request to add to scan");
+        requestProperty.put("description", "HTTP request to add to scan. IMPORTANT: include port in Host header (example.com:443 for HTTPS, example.com:80 for HTTP) — without explicit port, parsing falls back to defaults that may not match useHttps.");
         properties.put("request", requestProperty);
         
         // Insertion points for ADD_TO_SCAN
@@ -223,7 +224,7 @@ public class ScannerTool implements McpTool {
 
         Map<String, Object> useHttpsProperty = new HashMap<>();
         useHttpsProperty.put("type", "boolean");
-        useHttpsProperty.put("description", "Use HTTPS — required, must be set explicitly to true or false");
+        useHttpsProperty.put("description", "Required for SCAN_SPECIFIC_REQUEST and ADD_TO_SCAN actions. true=HTTPS:443, false=HTTP:80 (port can be overridden via 'port' parameter or Host header). If omitted, parsing falls back to URL/Host header — explicit is safer.");
         properties.put("useHttps", useHttpsProperty);
         autoEnableProperty.put("default", true);
         properties.put("autoEnable", autoEnableProperty);

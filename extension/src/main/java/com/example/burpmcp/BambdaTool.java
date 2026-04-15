@@ -131,12 +131,15 @@ public class BambdaTool implements McpTool {
                     "error_responses", "file_uploads", "json_endpoints", "admin_interfaces",
                     "xss_candidates", "auth_endpoints", "interesting_status")));
         
-        properties.put("customScript", McpUtils.createProperty("string", "Custom Bambda script (Java code)"));
+        properties.put("customScript", McpUtils.createProperty("string", "Custom Bambda script (Java code). Has access to: requestResponse (HttpRequestResponse), request (HttpRequest), response (HttpResponse). Must return boolean. Example: 'return requestResponse.request().url().contains(\"/api\");'."));
         properties.put("description", McpUtils.createProperty("string", "Description for custom Bambda"));
         
         properties.put("location", McpUtils.createEnumProperty("string", "Where to apply the Bambda (default: PROXY_HTTP_HISTORY)",
             List.of("PROXY_HTTP_HISTORY", "PROXY_WS_HISTORY", "SITEMAP", "LOGGER")));
-        
+
+        properties.put("verbose", McpUtils.createProperty("boolean",
+            "If true, returns formatted markdown with sections and emoji. Default: compact JSON for token efficiency.", false));
+
         inputSchema.put("properties", properties);
         inputSchema.put("required", List.of("action"));
         

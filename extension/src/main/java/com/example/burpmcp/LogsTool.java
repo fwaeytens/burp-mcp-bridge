@@ -179,14 +179,17 @@ public class LogsTool implements McpTool {
         levelProp.put("type", "string");
         List<String> levelEnum = Arrays.asList("OUTPUT", "ERROR", "DEBUG", "INFO", "WARNING", "CRITICAL");
         levelProp.put("enum", levelEnum);
-        levelProp.put("description", "Log level for WRITE_LOG (OUTPUT/ERROR) or event severity for RAISE_EVENT (DEBUG/INFO/WARNING/CRITICAL). Determines where the log appears in Burp");
+        levelProp.put("description", "Log level. For WRITE_LOG action use OUTPUT or ERROR. For RAISE_EVENT action use DEBUG, INFO, WARNING, or CRITICAL. Other combinations are rejected at runtime.");
         properties.put("level", levelProp);
         
         Map<String, Object> limitProp = new HashMap<>();
         limitProp.put("type", "number");
         limitProp.put("description", "Maximum number of log entries to return with GET_LOGS action. Helps manage large log outputs (default: 100, max: 1000)");
         properties.put("limit", limitProp);
-        
+
+        properties.put("verbose", McpUtils.createProperty("boolean",
+            "If true, returns formatted markdown with sections and emoji. Default: compact JSON for token efficiency.", false));
+
         inputSchema.put("properties", properties);
         List<String> required = Arrays.asList("action");
         inputSchema.put("required", required);

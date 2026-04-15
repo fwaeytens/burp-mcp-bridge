@@ -122,18 +122,18 @@ public class AddIssueTool implements McpTool {
         
         Map<String, Object> requestProperty = new HashMap<>();
         requestProperty.put("type", "string");
-        requestProperty.put("description", "Raw HTTP request that triggered the issue (can also provide array via 'requests')");
+        requestProperty.put("description", "Single raw HTTP request as evidence (alternative to 'requests' array). Use 'request' for one evidence pair, 'requests' for multiple. IMPORTANT: include port in Host header (example.com:443 for HTTPS, example.com:80 for HTTP) — without explicit port, parsing falls back to defaults that may not match useHttps.");
         properties.put("request", requestProperty);
         
         Map<String, Object> responseProperty = new HashMap<>();
         responseProperty.put("type", "string");
-        responseProperty.put("description", "Raw HTTP response showing the vulnerability (can also provide array via 'responses')");
+        responseProperty.put("description", "Single raw HTTP response as evidence (alternative to 'responses' array). Use 'response' for one evidence pair, 'responses' for multiple.");
         properties.put("response", responseProperty);
         
         Map<String, Object> requestsProperty = new HashMap<>();
         requestsProperty.put("type", "array");
-        requestsProperty.put("description", "Evidence requests. Each entry can be a raw request string or an object (e.g. {\"raw\": \"...\"}).\n" +
-            "Objects may also include metadata fields like 'id' or 'notes' – only 'raw'/'request' are required to build evidence.");
+        requestsProperty.put("description", "Evidence requests (array). Use 'requests' for multiple evidence pairs, 'request' for one. Each entry can be a raw request string or an object (e.g. {\"raw\": \"...\"}).\n" +
+            "Objects may also include metadata fields like 'id' or 'notes' – only 'raw'/'request' are required to build evidence. IMPORTANT: include port in Host header (example.com:443 for HTTPS, example.com:80 for HTTP) — without explicit port, parsing falls back to defaults that may not match useHttps.");
         Map<String, Object> reqObjProps = new HashMap<>();
         reqObjProps.put("raw", Map.of("type", "string", "description", "Raw HTTP request string"));
         reqObjProps.put("request", Map.of("type", "string", "description", "Alternative field for raw request"));
@@ -170,7 +170,7 @@ public class AddIssueTool implements McpTool {
 
         Map<String, Object> filtersProperty = new HashMap<>();
         filtersProperty.put("type", "object");
-        filtersProperty.put("description", "ProxyHistoryTool filters for finding request in proxy history (method, parameter, contains, etc.) - see burp_proxy_history for all options. Use when you want to match specific proxy history entries.");
+        filtersProperty.put("description", "Filter object passed to ProxyHistoryTool to find evidence requests. Common keys: hostname, method, path, contains, parameter, statusRange, regex. See burp_proxy_history schema for the complete list.");
         properties.put("filters", filtersProperty);
 
         inputSchema.put("properties", properties);

@@ -65,12 +65,15 @@ public class OrganizerTool implements McpTool {
         properties.put("method", McpUtils.createProperty("string", "HTTP method (for SEND_TO_ORGANIZER or filtering)", "GET"));
         properties.put("fromProxy", McpUtils.createProperty("boolean", "Send from proxy history instead of creating new request (for SEND_TO_ORGANIZER)", false));
         properties.put("limit", McpUtils.createProperty("integer", "Maximum number of items to return (for LIST_ITEMS operations, default 20)", 20));
-        properties.put("statusFilter", McpUtils.createProperty("string", "Filter by status (for LIST_ITEMS_FILTERED)", 
-            List.of("ALL", "NEW", "IN_PROGRESS", "POSTPONED", "DONE", "IGNORED")));
+        properties.put("statusFilter", McpUtils.createEnumProperty("string", "Filter by status (for LIST_ITEMS_FILTERED)",
+            List.of("ALL", "NEW", "IN_PROGRESS", "POSTPONED", "DONE", "IGNORED"), "ALL"));
         properties.put("urlPattern", McpUtils.createProperty("string", "URL pattern to filter (supports partial matching for LIST_ITEMS_FILTERED)"));
         properties.put("methodFilter", McpUtils.createProperty("string", "HTTP method to filter by (for LIST_ITEMS_FILTERED)"));
         properties.put("itemId", McpUtils.createProperty("integer", "Item ID for GET_ITEM_BY_ID or GET_ITEM_STATUS"));
-        
+
+        properties.put("verbose", McpUtils.createProperty("boolean",
+            "If true, returns formatted markdown with sections and emoji. Default: compact JSON for token efficiency.", false));
+
         inputSchema.put("properties", properties);
         inputSchema.put("required", List.of("action"));
         tool.put("inputSchema", inputSchema);

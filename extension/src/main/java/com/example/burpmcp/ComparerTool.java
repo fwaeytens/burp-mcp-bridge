@@ -35,7 +35,8 @@ public class ComparerTool implements McpTool {
         tool.put("description", "Compare HTTP requests, responses, and other data. " +
                 "Use this to identify differences between two pieces of data, useful for finding subtle changes in responses that indicate vulnerabilities. " +
                 "Actions: COMPARE_RESPONSES, COMPARE_REQUESTS, COMPARE_TEXT, SEND_TO_COMPARER (opens Burp UI), COMPARE_PROXY_ENTRIES. " +
-                "Supports word-level and byte-level comparison with optional whitespace ignoring.");
+                "Supports word-level and byte-level comparison with optional whitespace ignoring." +
+                " SEND_TO_COMPARER opens a UI tab in Burp (no programmatic diff returned). The other COMPARE_* actions return diffs as data.");
 
         // MCP 2025-06-18 annotations
         Map<String, Object> annotations = new HashMap<>();
@@ -93,7 +94,10 @@ public class ComparerTool implements McpTool {
         ignoreWhitespaceProperty.put("description", "Ignore whitespace differences");
         ignoreWhitespaceProperty.put("default", false);
         properties.put("ignoreWhitespace", ignoreWhitespaceProperty);
-        
+
+        properties.put("verbose", McpUtils.createProperty("boolean",
+            "If true, returns formatted markdown with sections and emoji. Default: compact JSON for token efficiency.", false));
+
         inputSchema.put("properties", properties);
         inputSchema.put("required", List.of("action"));
         tool.put("inputSchema", inputSchema);

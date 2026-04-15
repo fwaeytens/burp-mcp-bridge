@@ -123,7 +123,8 @@ public class CustomHttpTool implements McpTool {
         
         properties.put("follow_redirects", Map.of(
             "type", "boolean",
-            "description", "[DEPRECATED - use redirection_mode instead] Legacy boolean for redirect following. " +
+            "description", "⚠️ DEPRECATED — DO NOT USE. Use redirection_mode instead. " +
+                "[DEPRECATED - use redirection_mode instead] Legacy boolean for redirect following. " +
                 "true maps to ALWAYS, false maps to NEVER. Maintained for backward compatibility"
         ));
         
