@@ -87,10 +87,7 @@ public class McpServer {
         // Analysis & Comparison
         tools.put("burp_comparer", new ComparerTool(api));
         tools.put("burp_collaborator", new CollaboratorTool(api));
-        
-        // Site Mapping & Discovery - temporarily disabled
-        // tools.put("burp_sitemap", new SiteMapTool(api));
-        
+
         // Configuration & Utilities
         tools.put("burp_scope", new ScopeTool(api));
         tools.put("burp_organizer", new OrganizerTool(api));
@@ -120,9 +117,6 @@ public class McpServer {
         
         // Utilities
         tools.put("burp_utilities", new UtilitiesTool(api));
-        
-        // MCP Storage - temporarily disabled from MCP visibility
-        // tools.put("burp_mcp_storage", storageTool);
     }
 
     private void validateToolRegistration() {
@@ -580,7 +574,6 @@ public class McpServer {
             case "burp_websocket_interceptor": return new WebSocketInterceptorTool(api);
             case "burp_response_analyzer": return new ResponseAnalysisTool(api);
             case "burp_utilities": return new UtilitiesTool(api);
-            // case "burp_mcp_storage": return sharedStorageTool; // Temporarily disabled
             default: return null;
         }
     }

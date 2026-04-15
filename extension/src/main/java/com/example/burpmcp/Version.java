@@ -7,8 +7,8 @@ package com.example.burpmcp;
 public class Version {
     
     // Version components
-    public static final String VERSION = "2.3.1";
-    public static final String BUILD_DATE = "2026-04-04";
+    public static final String VERSION = "2.3.2";
+    public static final String BUILD_DATE = "2026-04-15";
     public static final String RELEASE_NAME = "Montoya API 2026.2";
 
     // Feature tracking
@@ -54,7 +54,13 @@ public class Version {
      * Get detailed changelog for this version.
      */
     public static String getChangelog() {
-        return "## Version 2.3.1 - Scanner insertion points, collaborator logging (2026-04-04)\n\n" +
+        return "## Version 2.3.2 - Dead code cleanup (2026-04-15)\n\n" +
+               "### 🧹 Code Cleanup\n" +
+               "- ✅ Removed commented-out tools (burp_sitemap, burp_mcp_storage)\n" +
+               "- ✅ Removed broken executeLegacyMode in ProxyHistoryTool\n" +
+               "- ✅ Removed unused getStatusIcon helper\n" +
+               "\n" +
+               "## Version 2.3.1 - Scanner insertion points, collaborator logging (2026-04-04)\n\n" +
                "### 🎯 Scanner Improvements\n" +
                "- ✅ **insertionPointParams**: Scan specific parameters by name (auto-resolves byte offsets)\n" +
                "- ✅ **insertionPointValues**: Scan specific values by string match\n" +

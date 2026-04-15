@@ -354,15 +354,7 @@ public class ProxyHistoryTool implements McpTool {
     @Override
     public Object execute(JsonNode arguments) throws Exception {
         String action = arguments.has("action") ? arguments.get("action").asText().toLowerCase() : "list";
-        
-        // For backward compatibility - if old display options are used, use legacy mode
-        boolean hasLegacyOptions = arguments.has("showHeaders") || arguments.has("showBody") || 
-                                  arguments.has("showAnnotations") || arguments.has("showTiming");
-        
-        if (hasLegacyOptions && !arguments.has("action")) {
-            return executeLegacyMode(arguments);
-        }
-        
+
         switch (action) {
             case "detail":
                 return executeDetailMode(arguments);
@@ -599,42 +591,6 @@ public class ProxyHistoryTool implements McpTool {
                                       Math.max(1, startAt - count), count));
         }
         result.append(String.format("• **Jump to:** `action: \"iterate\", startAt: [entry_number], count: %d`\n", count));
-        
-        Map<String, Object> response = new HashMap<>();
-        response.put("type", "text");
-        response.put("text", result.toString());
-        
-        return List.of(response);
-    }
-    
-    private Object executeLegacyMode(JsonNode arguments) throws Exception {
-        // This preserves the v1.7.9.1 behavior for backward compatibility
-        // Implementation would be the same as the original with truncation
-        FilteredResults results = applyFilters(arguments);
-        List<ProxyHttpRequestResponse> filtered = results.entries;
-        
-        boolean recent = arguments.has("recent") ? arguments.get("recent").asBoolean() : true;
-        int limit = arguments.has("limit") ? arguments.get("limit").asInt() : 20;
-        boolean showHeaders = arguments.has("showHeaders") ? arguments.get("showHeaders").asBoolean() : false;
-        boolean showBody = arguments.has("showBody") ? arguments.get("showBody").asBoolean() : false;
-        boolean showAnnotations = arguments.has("showAnnotations") ? arguments.get("showAnnotations").asBoolean() : false;
-        boolean showTiming = arguments.has("showTiming") ? arguments.get("showTiming").asBoolean() : false;
-        
-        if (recent) {
-            java.util.Collections.reverse(filtered);
-        }
-        
-        if (limit > 0 && filtered.size() > limit) {
-            filtered = filtered.subList(0, Math.min(limit, 100)); // Keep 100 max for legacy mode
-        }
-        
-        StringBuilder result = new StringBuilder();
-        result.append("📡 **ADVANCED PROXY HISTORY**\n\n");
-        result.append(String.format("**Total Entries:** %d | **Showing:** %d\n\n", 
-                                  filtered.size(), Math.min(filtered.size(), limit)));
-        
-        // Continue with legacy formatting...
-        // (Implementation details similar to v1.7.9.1)
         
         Map<String, Object> response = new HashMap<>();
         response.put("type", "text");
@@ -890,15 +846,6 @@ public class ProxyHistoryTool implements McpTool {
         }
         
         return new FilteredResults(filtered, originalIndices);
-    }
-    
-    private String getStatusIcon(int statusCode) {
-        if (statusCode == 0) return "⏳";
-        if (statusCode >= 200 && statusCode < 300) return "✅";
-        if (statusCode >= 300 && statusCode < 400) return "🔄";
-        if (statusCode >= 400 && statusCode < 500) return "❌";
-        if (statusCode >= 500) return "💥";
-        return "❓";
     }
     
     // Helper methods for parsing filter parameters
