@@ -52,6 +52,8 @@ The Node.js MCP Bridge acts as a communication layer between Claude Code and the
 | `MCP_KEY_FILE` | `bridge/certs/key.pem` | Path to SSL private key |
 | `MCP_CERT_FILE` | `bridge/certs/cert.pem` | Path to SSL certificate |
 | `MCP_ALLOWED_ORIGINS` | (none) | Comma-separated full URLs (e.g., `https://example.com:3000`) |
+| `MCP_MAX_SSE` | `100` | Maximum concurrent SSE sessions |
+| `MCP_MAX_HTTP_SESSIONS` | `100` | Maximum concurrent Streamable HTTP sessions |
 | `BURP_MCP_SERVER_PORT` | `8081` | Port where Burp extension listens |
 | `BURP_MCP_SERVER_HOST` | `localhost` | Host where Burp extension runs |
 | `BURP_MCP_REQUEST_TIMEOUT` | `30000` | Request timeout in milliseconds |
@@ -86,7 +88,7 @@ node index.js
 
 ### **🆕 Dual Transport Support**
 - ✅ **Stdio Transport** - For Claude Code and stdio-based MCP clients
-- ✅ **HTTP/SSE Transport** - For OpenAI ChatGPT, Google Gemini, and HTTP-based clients
+- ✅ **HTTP/SSE + Streamable HTTP Transport** - For OpenAI ChatGPT, Google Gemini, and HTTP-based clients
 - ✅ **Flexible Modes** - Run `stdio`, `http`, or `both` simultaneously
 - ✅ **Standards Compliant** - Implements official MCP Streamable HTTP specification
 
@@ -122,8 +124,8 @@ MCP_TRANSPORT_MODE=stdio node index.js
 }
 ```
 
-#### **2. HTTPS/SSE Mode (OpenAI, Gemini)**
-HTTP Server-Sent Events for HTTP-based MCP clients (HTTPS enabled by default).
+#### **2. HTTPS/SSE + Streamable HTTP Mode (OpenAI, Gemini)**
+HTTP Server-Sent Events and Streamable HTTP for HTTP-based MCP clients (HTTPS enabled by default).
 
 ```bash
 MCP_TRANSPORT_MODE=http node index.js
@@ -137,7 +139,7 @@ npm run start:http
 
 To use HTTP instead of HTTPS, set `MCP_USE_HTTPS=false`.
 
-**Configure your LLM client:**
+**Configure an SSE client:**
 ```json
 {
   "mcpServers": {
@@ -149,8 +151,20 @@ To use HTTP instead of HTTPS, set `MCP_USE_HTTPS=false`.
 }
 ```
 
+**Configure a Streamable HTTP client:**
+```json
+{
+  "mcpServers": {
+    "burp-mcp-bridge": {
+      "url": "https://localhost:3000/mcp",
+      "transport": "streamable-http"
+    }
+  }
+}
+```
+
 #### **3. Dual Mode (Both Transports Simultaneously)**
-Run both stdio and HTTP/SSE transports at the same time.
+Run stdio plus both HTTP transports at the same time.
 
 ```bash
 MCP_TRANSPORT_MODE=both node index.js
@@ -161,7 +175,7 @@ Serves both stdio and HTTP clients simultaneously.
 
 ### **Graceful Shutdown**
 - ✅ **SIGINT/SIGTERM Handlers** - Clean shutdown on Ctrl+C or kill signal
-- ✅ **SSE Cleanup** - Closes all active SSE connections gracefully
+- ✅ **SSE and Streamable HTTP Cleanup** - Closes all active HTTP connections gracefully
 - ✅ **HTTP Server Shutdown** - Proper server closure with connection cleanup
 - ✅ **Logging** - Clear shutdown progress messages
 
@@ -376,7 +390,7 @@ Add to your `.mcp.json`:
 }
 ```
 
-#### **OpenAI ChatGPT (HTTP/SSE)**
+#### **OpenAI ChatGPT (HTTP/SSE + Streamable HTTP)**
 Start the HTTP(S) server:
 ```bash
 npm run start:http
@@ -393,8 +407,10 @@ Configure in your OpenAI Developer Mode:
 }
 ```
 
-#### **Google Gemini (HTTP/SSE)**
-Same as OpenAI - uses standard MCP HTTP/SSE transport:
+If your client lets you choose a transport explicitly, use `sse` or `streamable-http` as appropriate.
+
+#### **Google Gemini (HTTP/SSE + Streamable HTTP)**
+Same as OpenAI - uses standard MCP HTTP transport:
 ```bash
 MCP_HTTP_PORT=4001 npm run start:http
 ```
@@ -402,8 +418,9 @@ MCP_HTTP_PORT=4001 npm run start:http
 ### **HTTP(S) Endpoints**
 
 When running in HTTP mode:
-- `GET /mcp` - Start SSE connection (MCP protocol)
-- `POST /mcp` - Send MCP messages (requires session ID)
+- `GET /mcp` - Start SSE connection for SSE clients
+- `POST /mcp` - Send MCP messages for SSE or Streamable HTTP sessions
+- `DELETE /mcp` - Close Streamable HTTP sessions
 - `GET /health` - Health check endpoint
 
 #### **Health Check Example**
@@ -417,7 +434,7 @@ Response:
   "status": "ok",
   "version": "2.4.0",
   "burpConnection": "http://localhost:8081",
-  "transports": ["stdio", "http-sse"]
+  "transports": ["stdio", "http-sse", "streamable-http"]
 }
 ```
 

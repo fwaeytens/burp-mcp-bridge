@@ -11,13 +11,14 @@
  * - TLS hardening (minVersion), and key permissions set to 0600
  * - Avoids naming confusion with node:http createServer by renaming method to buildHttpServer()
  * - Basic CORS preflight handling and small security headers
- * - Optional loopback-only enforcement; SSE concurrency + idle TTL limits; POST size guard
+ * - Optional loopback-only enforcement; SSE + streamable HTTP concurrency + idle TTL limits; POST size guard
  * - Request correlation IDs added to logs and forwarded to Burp via headers
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 import { createServer as createNodeHttpServer } from 'node:http';
@@ -157,6 +158,7 @@ class BurpMcpBridge {
     // Timeouts and limits
     this.requestTimeout = toInt(process.env.BURP_MCP_REQUEST_TIMEOUT, 30_000);
     this.maxSseSessions = toInt(process.env.MCP_MAX_SSE, 100);
+    this.maxHttpSessions = toInt(process.env.MCP_MAX_HTTP_SESSIONS, 100);
     this.maxPostBytes = toInt(process.env.MCP_MAX_POST_BYTES, 1_048_576); // 1 MiB
     this.sessionIdleMs = toInt(process.env.MCP_SESSION_IDLE_MS, 30 * 60 * 1000); // 30 minutes
 
@@ -177,25 +179,26 @@ class BurpMcpBridge {
     const validModes = new Set(['stdio', 'http', 'both']);
     this.transportMode = validModes.has(mode) ? mode : 'both';
 
-    // Derived transport name for HTTP
-    this.httpTransportName = this.useHttps ? 'https-sse' : 'http-sse';
+    // Derived transport names for HTTP
+    this.httpSseTransportName = this.useHttps ? 'https-sse' : 'http-sse';
+    this.streamableHttpTransportName = 'streamable-http';
 
     // Version
     this.BRIDGE_VERSION = getBridgeVersion();
 
-    // MCP server
-    this.server = new Server(
-      { name: 'burp-mcp-bridge', version: this.BRIDGE_VERSION },
-      { capabilities: { tools: {} } }
-    );
+    // MCP server for stdio and SSE transports
+    this.server = this.createMcpServer();
 
     // Track active SSE sessions: sessionId -> { transport, lastSeen }
     this.sseTransports = new Map();
 
+    // Track active streamable HTTP sessions: sessionId -> { transport, lastSeen }
+    this.httpTransports = new Map();
+
     // HTTP server handle
     this.httpServer = null;
 
-    // Background sweeper for idle SSE sessions
+    // Background sweeper for idle SSE and streamable HTTP sessions
     this.sessionSweepInterval = setInterval(() => this.sweepIdleSessions(), 60_000);
 
     this.logInfo(`Burp MCP Bridge v${this.BRIDGE_VERSION} initializing…`);
@@ -203,8 +206,6 @@ class BurpMcpBridge {
     this.logInfo(`Connecting to Burp extension at: ${this.burpBaseUrl}`);
     this.logInfo(`Request timeout: ${this.requestTimeout}ms`);
     this.logInfo(`HTTP bind: ${this.useHttps ? 'https' : 'http'}://${this.httpHost}:${this.httpPort} (loopback-only: ${this.bindLoopbackOnly})`);
-
-    this.setupHandlers();
   }
 
   // ---------- Logging
@@ -219,8 +220,17 @@ class BurpMcpBridge {
   }
 
   // ---------- MCP Handlers
-  setupHandlers() {
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => {
+  createMcpServer() {
+    const server = new Server(
+      { name: 'burp-mcp-bridge', version: this.BRIDGE_VERSION },
+      { capabilities: { tools: {} } }
+    );
+    this.setupHandlers(server);
+    return server;
+  }
+
+  setupHandlers(server = this.server) {
+    server.setRequestHandler(ListToolsRequestSchema, async () => {
       const rid = randomUUID();
       try {
         this.logDebug(`[${rid}] Requesting tools list from Burp extension`);
@@ -234,7 +244,7 @@ class BurpMcpBridge {
       }
     });
 
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const rid = randomUUID();
       const toolName = request.params.name;
       try {
@@ -506,8 +516,9 @@ IP.2 = ::1
       return;
     }
     const headers = {
-      'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-      'Access-Control-Allow-Headers': 'mcp-session-id, content-type',
+      'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS',
+      'Access-Control-Allow-Headers': 'mcp-session-id, content-type, accept, last-event-id',
+      'Access-Control-Expose-Headers': 'mcp-session-id',
       'Access-Control-Max-Age': '600',
       'Vary': 'Origin'
     };
@@ -520,11 +531,40 @@ IP.2 = ::1
   transportsEnabled() {
     const transports = [];
     if (this.transportMode === 'stdio' || this.transportMode === 'both') transports.push('stdio');
-    // Only report HTTP/SSE as enabled if the server actually started
+    // Only report HTTP transports as enabled if the server actually started
     if ((this.transportMode === 'http' || this.transportMode === 'both') && this.httpServer) {
-      transports.push(this.httpTransportName);
+      transports.push(this.httpSseTransportName, this.streamableHttpTransportName);
     }
     return transports;
+  }
+
+  createHttpTransport() {
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => randomUUID(),
+      enableJsonResponse: true,
+      onsessioninitialized: (sessionId) => {
+        this.logInfo(`New streamable HTTP session started: ${sessionId}`);
+        this.httpTransports.set(sessionId, { transport, lastSeen: Date.now() });
+      }
+    });
+
+    transport.onclose = () => {
+      const sessionId = transport.sessionId;
+      if (sessionId) {
+        this.logDebug(`Streamable HTTP connection closed: ${sessionId}`);
+        this.httpTransports.delete(sessionId);
+      }
+    };
+
+    transport.onerror = (error) => {
+      this.logError(`Streamable HTTP transport error: ${error?.message || error}`);
+      const sessionId = transport.sessionId;
+      if (sessionId) {
+        this.httpTransports.delete(sessionId);
+      }
+    };
+
+    return transport;
   }
 
   async handleHttpRequest(req, res) {
@@ -558,7 +598,7 @@ IP.2 = ::1
       return;
     }
 
-    // Add simple security headers on all non-SSE responses
+    // Add simple security headers on all non-streaming responses
     this.setSecurityHeaders(res);
     if (origin) {
       res.setHeader('Vary', 'Origin');
@@ -572,7 +612,7 @@ IP.2 = ::1
         version: this.BRIDGE_VERSION,
         transports: this.transportsEnabled(),
         capabilities: ['tools'],
-        endpoints: { sse: '/mcp', health: '/health' }
+        endpoints: { sse: '/mcp', streamableHttp: '/mcp', health: '/health' }
       };
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(payload));
@@ -585,7 +625,8 @@ IP.2 = ::1
         version: this.BRIDGE_VERSION,
         burpConnection: this.burpBaseUrl,
         transports: this.transportsEnabled(),
-        activeSseSessions: this.sseTransports.size
+        activeSseSessions: this.sseTransports.size,
+        activeHttpSessions: this.httpTransports.size
       };
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(payload));
@@ -593,6 +634,52 @@ IP.2 = ::1
     }
 
     if (url.pathname === '/mcp') {
+      if (!['GET', 'POST', 'DELETE'].includes(req.method || '')) {
+        res.writeHead(405, { 'Content-Type': 'text/plain' });
+        res.end('Method Not Allowed');
+        return;
+      }
+
+      if (req.method === 'POST') {
+        const len = toInt(req.headers['content-length'], 0);
+        if (len > this.maxPostBytes) {
+          res.writeHead(413, { 'Content-Type': 'text/plain' });
+          res.end('Payload Too Large');
+          return;
+        }
+      }
+
+      const sessionId = typeof req.headers['mcp-session-id'] === 'string'
+        ? req.headers['mcp-session-id']
+        : null;
+
+      if (sessionId) {
+        const sseRec = this.sseTransports.get(sessionId);
+        if (sseRec) {
+          if (req.method !== 'POST') {
+            res.writeHead(405, { 'Content-Type': 'text/plain' });
+            res.end('Method Not Allowed');
+            return;
+          }
+
+          sseRec.lastSeen = Date.now();
+          await sseRec.transport.handlePostMessage(req, res);
+          return;
+        }
+
+        const httpRec = this.httpTransports.get(sessionId);
+        if (!httpRec) {
+          this.logError(`No active session found for ID: ${sessionId}`);
+          res.writeHead(404, { 'Content-Type': 'text/plain' });
+          res.end('Session not found');
+          return;
+        }
+
+        httpRec.lastSeen = Date.now();
+        await httpRec.transport.handleRequest(req, res);
+        return;
+      }
+
       if (req.method === 'GET') {
         // Concurrency guard
         if (this.sseTransports.size >= this.maxSseSessions) {
@@ -628,38 +715,22 @@ IP.2 = ::1
         return;
       }
 
-      if (req.method === 'POST') {
-        const sessionId = req.headers['mcp-session-id'];
-        if (!sessionId || typeof sessionId !== 'string') {
-          res.writeHead(400, { 'Content-Type': 'text/plain' });
-          res.end('Bad Request: Missing mcp-session-id header');
-          return;
-        }
-
-        // Basic size guard (uses Content-Length if present)
-        const len = toInt(req.headers['content-length'], 0);
-        if (len > this.maxPostBytes) {
-          res.writeHead(413, { 'Content-Type': 'text/plain' });
-          res.end('Payload Too Large');
-          return;
-        }
-
-        const rec = this.sseTransports.get(sessionId);
-        if (!rec) {
-          this.logError(`No active session found for ID: ${sessionId}`);
-          res.writeHead(404, { 'Content-Type': 'text/plain' });
-          res.end('Session not found');
-          return;
-        }
-
-        // Update activity and dispatch
-        rec.lastSeen = Date.now();
-        await rec.transport.handlePostMessage(req, res);
+      if (req.method !== 'POST') {
+        res.writeHead(400, { 'Content-Type': 'text/plain' });
+        res.end('Bad Request: Missing mcp-session-id header');
         return;
       }
 
-      res.writeHead(405, { 'Content-Type': 'text/plain' });
-      res.end('Method Not Allowed');
+      if (this.httpTransports.size >= this.maxHttpSessions) {
+        res.writeHead(503, { 'Content-Type': 'text/plain' });
+        res.end('Service Unavailable: Too many concurrent HTTP sessions');
+        return;
+      }
+
+      const transport = this.createHttpTransport();
+      const server = this.createMcpServer();
+      await server.connect(transport);
+      await transport.handleRequest(req, res);
       return;
     }
 
@@ -675,6 +746,13 @@ IP.2 = ::1
         this.logInfo(`Closing idle SSE session: ${sessionId}`);
         try { rec.transport.close(); } catch {}
         this.sseTransports.delete(sessionId);
+      }
+    }
+    for (const [sessionId, rec] of this.httpTransports.entries()) {
+      if (now - rec.lastSeen > this.sessionIdleMs) {
+        this.logInfo(`Closing idle streamable HTTP session: ${sessionId}`);
+        try { rec.transport.close(); } catch {}
+        this.httpTransports.delete(sessionId);
       }
     }
   }
@@ -701,7 +779,7 @@ IP.2 = ::1
       this.logInfo('✅ Stdio transport started');
     }
 
-    // Start HTTP/SSE transport if enabled
+    // Start HTTP transport if enabled
     if (this.transportMode === 'http' || this.transportMode === 'both') {
       this.httpServer = this.buildHttpServer();
 
@@ -713,8 +791,8 @@ IP.2 = ::1
 
           this.httpServer.listen(this.httpPort, this.httpHost, () => {
             const protocol = this.useHttps ? 'https' : 'http';
-            this.logInfo(`✅ ${protocol.toUpperCase()}/SSE transport started on ${protocol}://${this.httpHost}:${this.httpPort}/mcp`);
-            this.logInfo(`   Endpoints: /mcp (SSE), /health, /.well-known/mcp`);
+            this.logInfo(`✅ ${protocol.toUpperCase()} transport started on ${protocol}://${this.httpHost}:${this.httpPort}/mcp`);
+            this.logInfo(`   Endpoints: /mcp (SSE + streamable HTTP), /health, /.well-known/mcp`);
             if (this.useHttps) {
               this.logInfo('   ⚠️  Using self-signed certificate — clients may need to accept a security warning');
             }
@@ -726,7 +804,7 @@ IP.2 = ::1
 
         // If this was mode 'both' and HTTP failed, we can still continue with stdio
         if (this.transportMode === 'both') {
-          this.logInfo('⚠️  HTTP/SSE transport failed to start, continuing with stdio only');
+          this.logInfo('⚠️  HTTP transport failed to start, continuing with stdio only');
           this.httpServer = null;
         } else {
           // If mode was 'http' only, this is fatal
@@ -753,6 +831,15 @@ IP.2 = ::1
       }
     }
     this.sseTransports.clear();
+
+    // Close all streamable HTTP connections
+    for (const [sessionId, rec] of this.httpTransports.entries()) {
+      this.logDebug(`Closing streamable HTTP session: ${sessionId}`);
+      try { await rec.transport.close(); } catch (error) {
+        this.logError(`Error closing streamable HTTP transport ${sessionId}: ${error.message}`);
+      }
+    }
+    this.httpTransports.clear();
 
     // Close HTTP server if running
     if (this.httpServer) {
