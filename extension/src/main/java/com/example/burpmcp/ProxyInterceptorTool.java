@@ -57,8 +57,8 @@ public class ProxyInterceptorTool implements McpTool {
     private static Registration webSocketHandlerRegistration;
     
     // Configuration
-    private static final boolean USE_TIMEOUT = false; // Wait indefinitely for MCP response
-    private static final long MODIFICATION_TIMEOUT_MS = 30000; // 30 second timeout (only if USE_TIMEOUT is true)
+    private static final boolean USE_TIMEOUT = true; // Protect Burp proxy threads from hanging
+    private static final long MODIFICATION_TIMEOUT_MS = 30000; // 30 second timeout
     
     private final MontoyaApi api;
     private final ObjectMapper objectMapper;

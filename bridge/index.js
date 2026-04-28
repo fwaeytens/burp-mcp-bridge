@@ -568,7 +568,17 @@ IP.2 = ::1
   }
 
   async handleHttpRequest(req, res) {
-    // Optional loopback-only guard using Host header
+    // Socket-level loopback enforcement (immune to DNS rebinding / Host header spoofing)
+    if (this.bindLoopbackOnly) {
+      const remoteIp = req.socket.remoteAddress;
+      if (remoteIp !== '127.0.0.1' && remoteIp !== '::1' && remoteIp !== '::ffff:127.0.0.1') {
+        this.logError(`Rejected non-loopback connection from IP: ${remoteIp}`);
+        req.socket.destroy();
+        return;
+      }
+    }
+
+    // Host header guard (defense in depth)
     const hostHeader = req.headers.host;
     const requestedHost = hostHeaderToHostname(hostHeader);
     if (this.bindLoopbackOnly && !this.isLoopbackHostname(requestedHost)) {
