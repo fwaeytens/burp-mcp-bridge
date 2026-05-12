@@ -1,9 +1,9 @@
 {
-  "version": "2.4.0",
+  "version": "2.4.1",
   "mcpVersion": "2025-06-18",
   "toolCount": 22,
   "compatibility": {
-    "burpSuite": "2026.2+",
+    "burpSuite": "2026.4+",
     "java": "17+",
     "node": "16+",
     "license": "Professional"

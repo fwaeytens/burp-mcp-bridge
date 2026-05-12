@@ -352,7 +352,12 @@ public class ProxyHistoryTool implements McpTool {
         Map<String, Object> outputProps = new HashMap<>();
         outputProps.put("total", SchemaHelper.intProp("Total matching entries"));
         outputProps.put("showing", SchemaHelper.intProp("Number of entries returned"));
-        outputProps.put("entries", SchemaHelper.stringProp("Formatted entry list or details"));
+        Map<String, Object> entryItemProps = new HashMap<>();
+        entryItemProps.put("id", SchemaHelper.intProp("Original proxy history index"));
+        entryItemProps.put("method", SchemaHelper.stringProp("HTTP method"));
+        entryItemProps.put("status", SchemaHelper.intProp("HTTP status code (null if no response)"));
+        entryItemProps.put("url", SchemaHelper.stringProp("Request URL"));
+        outputProps.put("entries", SchemaHelper.objectArrayProp("List of proxy history entries", entryItemProps));
         tool.put("outputSchema", SchemaHelper.outputSchema(outputProps));
 
         return tool;

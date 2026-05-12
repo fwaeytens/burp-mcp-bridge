@@ -20,16 +20,25 @@ public class McpUtils {
      * Creates a compact JSON response. Use this as the default for tool output
      * to minimize tokens consumed by the LLM context. The map is serialized to
      * compact JSON (no pretty-printing) and wrapped in an MCP text content block.
+     *
+     * The result also includes the raw {@code data} as {@code structuredContent} so
+     * the response is spec-compliant for tools that declare an {@code outputSchema}.
+     * MCP clients that enforce the spec (e.g. opencode) reject results lacking
+     * {@code structuredContent} when an output schema is present. The bridge layer
+     * may strip {@code structuredContent} when truncating oversized payloads.
      */
     public static Object createJsonResponse(Map<String, Object> data) {
-        Map<String, Object> result = new HashMap<>();
-        result.put("type", "text");
+        Map<String, Object> textBlock = new HashMap<>();
+        textBlock.put("type", "text");
         try {
-            result.put("text", JSON_MAPPER.writeValueAsString(data));
+            textBlock.put("text", JSON_MAPPER.writeValueAsString(data));
         } catch (Exception e) {
-            result.put("text", "{\"error\":\"serialization_failed\",\"message\":\"" + e.getMessage() + "\"}");
+            textBlock.put("text", "{\"error\":\"serialization_failed\",\"message\":\"" + e.getMessage() + "\"}");
         }
-        return List.of(result);
+        Map<String, Object> result = new HashMap<>();
+        result.put("content", List.of(textBlock));
+        result.put("structuredContent", data);
+        return result;
     }
 
     /**

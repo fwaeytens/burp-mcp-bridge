@@ -18,6 +18,7 @@ import java.io.ByteArrayOutputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
@@ -489,10 +490,58 @@ public class McpServer {
             if (wrapped.containsKey("isError")) {
                 result.put("isError", wrapped.get("isError"));
             }
+            attachStructuredContentIfMissing(result);
             return;
         }
 
         result.put("content", toolResult);
+        attachStructuredContentIfMissing(result);
+    }
+
+    /**
+     * Defensive fallback: when a tool result has text content but no
+     * {@code structuredContent}, and the text is parseable JSON, attach the parsed
+     * object as {@code structuredContent}. MCP clients that enforce the spec (e.g.
+     * opencode) reject responses lacking {@code structuredContent} when the tool
+     * declares an {@code outputSchema}. This keeps all tools spec-compliant without
+     * per-tool changes.
+     */
+    @SuppressWarnings("unchecked")
+    private void attachStructuredContentIfMissing(Map<String, Object> result) {
+        if (result.containsKey("structuredContent")) {
+            return;
+        }
+        Object content = result.get("content");
+        if (!(content instanceof List<?> list) || list.isEmpty()) {
+            return;
+        }
+        Object first = list.get(0);
+        if (!(first instanceof Map<?, ?> blockMap)) {
+            return;
+        }
+        Map<String, Object> block = (Map<String, Object>) blockMap;
+        if (!"text".equals(block.get("type"))) {
+            return;
+        }
+        Object textValue = block.get("text");
+        if (!(textValue instanceof String text)) {
+            return;
+        }
+        String trimmed = text.trim();
+        if (trimmed.isEmpty() || (trimmed.charAt(0) != '{' && trimmed.charAt(0) != '[')) {
+            return;
+        }
+        try {
+            Object parsed = objectMapper.readValue(trimmed, Object.class);
+            // MCP spec: structuredContent must be a JSON object. Wrap arrays.
+            if (parsed instanceof Map) {
+                result.put("structuredContent", parsed);
+            } else if (parsed instanceof List) {
+                result.put("structuredContent", Map.of("items", parsed));
+            }
+        } catch (Exception ignored) {
+            // Not valid JSON — leave content as-is.
+        }
     }
 
     private boolean isOriginAllowed(String originHeader) {

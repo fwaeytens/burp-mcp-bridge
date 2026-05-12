@@ -7,9 +7,9 @@ package com.example.burpmcp;
 public class Version {
     
     // Version components
-    public static final String VERSION = "2.4.0";
-    public static final String BUILD_DATE = "2026-04-15";
-    public static final String RELEASE_NAME = "Montoya API 2026.2";
+    public static final String VERSION = "2.4.1";
+    public static final String BUILD_DATE = "2026-05-12";
+    public static final String RELEASE_NAME = "Montoya API 2026.4 + opencode compat";
 
     // Feature tracking
     public static final int TOOL_COUNT = 22; // Total number of registered tools
@@ -17,9 +17,9 @@ public class Version {
     public static final boolean CONFIG_ENABLED = true;
 
     // Compatibility
-    public static final String MIN_BURP_VERSION = "2026.2";
+    public static final String MIN_BURP_VERSION = "2026.4";
     public static final String MIN_JAVA_VERSION = "17";
-    public static final String MONTOYA_API_VERSION = "2026.2";
+    public static final String MONTOYA_API_VERSION = "2026.4";
     
     /**
      * Get complete version information.
@@ -54,7 +54,17 @@ public class Version {
      * Get detailed changelog for this version.
      */
     public static String getChangelog() {
-        return "## Version 2.4.0 - Token optimization (compact JSON output) (2026-04-15)\n\n" +
+        return "## Version 2.4.1 - opencode compatibility + Montoya 2026.4 (2026-05-12)\n\n" +
+               "### 🤝 MCP Spec Compliance\n" +
+               "- ✅ Tool responses now include `structuredContent` alongside `content` (required by strict MCP clients like opencode when `outputSchema` is declared)\n" +
+               "- ✅ Defensive fallback in `McpServer` auto-parses text JSON into `structuredContent` if a tool forgot to set it\n" +
+               "- ✅ `ProxyHistoryTool.outputSchema` now declares `entries` as an object array (matching real data shape) instead of a string\n" +
+               "\n" +
+               "### 🔧 Montoya API\n" +
+               "- ✅ Bumped from Montoya 2026.2 → 2026.4 (matches Burp build 47702 / 2026.5)\n" +
+               "- ✅ Picks up the new extension HTTP-control surface (drop / inject custom responses) — capability available, not yet wired up\n" +
+               "\n" +
+               "## Version 2.4.0 - Token optimization (compact JSON output) (2026-04-15)\n\n" +
                "### 🪙 Token Optimization\n" +
                "- ✅ **Default output is now compact JSON** (was decorated markdown)\n" +
                "- ✅ Stripped emoji headers, ASCII tables, separator bars, and 'Usage:' footers\n" +
