@@ -1,5 +1,5 @@
 {
-  "version": "2.4.1",
+  "version": "2.4.2",
   "mcpVersion": "2025-06-18",
   "toolCount": 22,
   "compatibility": {
@@ -479,6 +479,35 @@
           "url": {
             "type": "string",
             "description": "URL to analyze (for ANALYZE_PROTOCOL action)"
+          },
+          "target_host": {
+            "type": "string",
+            "description": "TCP destination hostname/IP. Overrides Host header for the socket. Required for host-header SSRF / routing-based SSRF where Host must lie while the connection still hits the real front-end."
+          },
+          "target_port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535,
+            "description": "TCP destination port (paired with target_host). Defaults to 443 if HTTPS, else 80."
+          },
+          "raw_request": {
+            "type": "boolean",
+            "default": false,
+            "description": "Send bytes verbatim: no request-line rewriting (absolute-URI preserved), no URL re-parsing, no implicit Host insertion. LF->CRLF normalization still applied. Required for parser-discrepancy / request-smuggling tests."
+          },
+          "max_concurrency": {
+            "type": "integer",
+            "default": 10,
+            "minimum": 1,
+            "maximum": 50,
+            "description": "SEND_PARALLEL only. Max in-flight requests. Default 10 prevents tail-of-batch drops on large sweeps; set to 50 for race-condition tests (fire-all-at-once)."
+          },
+          "request_delay_ms": {
+            "type": "integer",
+            "default": 0,
+            "minimum": 0,
+            "maximum": 10000,
+            "description": "SEND_PARALLEL only. Minimum gap (ms) between dispatching successive requests. 0 = no pacing."
           }
         },
         "required": ["action"]

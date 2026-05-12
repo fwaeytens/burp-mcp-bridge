@@ -1,4 +1,4 @@
-# Burp MCP Bridge - Agent Context File (v2.4.1)
+# Burp MCP Bridge - Agent Context File (v2.4.2)
 
 ## 🚀 MANDATORY: Always Start With Documentation Discovery
 
@@ -117,17 +117,46 @@ await use_mcp_tool("burp-mcp-bridge", "burp_scanner", {
 });
 ```
 
-### Testing Race Conditions
+### Parallel Requests / Sweeps (SEND_PARALLEL)
 ```javascript
-// SEND_PARALLEL uses 'requests' array (not 'request' + 'count')
-// Always include port: :443 for HTTPS, :80 for HTTP
+// Default: max_concurrency=10 (prevents tail-of-batch drops)
+// Responses come back in INPUT ORDER (.index matches requests[] position)
 await use_mcp_tool("burp-mcp-bridge", "burp_custom_http", {
   "action": "SEND_PARALLEL",
+  "requests": [...50 requests...],
+  "max_concurrency": 10,        // default; raise to 50 for race conditions
+  "request_delay_ms": 100       // optional: pace dispatch for rate-limited targets
+});
+
+// Race condition (opt-in to fire-all-at-once)
+await use_mcp_tool("burp-mcp-bridge", "burp_custom_http", {
+  "action": "SEND_PARALLEL",
+  "max_concurrency": 50,        // bypass the throttle
   "requests": [
     "POST /transfer HTTP/1.1\r\nHost: bank.com:443\r\nContent-Type: application/x-www-form-urlencoded\r\n\r\namount=100",
     "POST /transfer HTTP/1.1\r\nHost: bank.com:443\r\nContent-Type: application/x-www-form-urlencoded\r\n\r\namount=100",
     "POST /transfer HTTP/1.1\r\nHost: bank.com:443\r\nContent-Type: application/x-www-form-urlencoded\r\n\r\namount=100"
   ]
+});
+```
+
+### Host-Header SSRF / Request Smuggling (advanced)
+```javascript
+// Decouple TCP destination from Host header (host-header SSRF)
+await use_mcp_tool("burp-mcp-bridge", "burp_custom_http", {
+  "action": "SEND_REQUEST",
+  "request": "GET /admin HTTP/1.1\r\nHost: 192.168.0.1\r\n\r\n",
+  "target_host": "LAB-ID.web-security-academy.net",  // socket goes here
+  "target_port": 443                                  // Host header (192.168.0.1) sent verbatim
+});
+
+// Preserve absolute-URI request line verbatim (parser-discrepancy / smuggling)
+await use_mcp_tool("burp-mcp-bridge", "burp_custom_http", {
+  "action": "SEND_REQUEST",
+  "request": "GET https://LAB-ID.web-security-academy.net/admin HTTP/1.1\r\nHost: 192.168.0.1\r\n\r\n",
+  "target_host": "LAB-ID.web-security-academy.net",
+  "target_port": 443,
+  "raw_request": true   // no rewrite to origin-form, bytes go as-is
 });
 ```
 
@@ -156,7 +185,7 @@ await use_mcp_tool("burp-mcp-bridge", "burp_help", {
 
 ## 🛠️ Project Info
 
-- **Version**: 2.4.1
+- **Version**: 2.4.2
 - **Total Tools**: 22 (1 help + 21 security)
 - **Port**: 8081 (Burp extension HTTP server)
 - **Transport**: Dual mode (stdio + HTTP/SSE)

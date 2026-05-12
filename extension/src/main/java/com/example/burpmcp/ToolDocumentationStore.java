@@ -281,9 +281,12 @@ public class ToolDocumentationStore {
 
         // burp_custom_http
         addToolMetadata("burp_custom_http", "Core HTTP/Proxy",
-            List.of("http", "request", "send", "post", "get", "parallel", "race", "http2", "redirect"),
+            List.of("http", "request", "send", "post", "get", "parallel", "race", "http2", "redirect",
+                    "smuggling", "host-header", "ssrf", "raw", "target_host"),
             List.of("send HTTP requests", "test race conditions", "modify requests", "HTTP/2 support",
-                    "parallel requests", "custom headers", "SNI configuration"));
+                    "parallel requests", "custom headers", "SNI configuration",
+                    "host-header SSRF", "request smuggling", "parser discrepancy",
+                    "decouple TCP destination from Host header", "send raw verbatim bytes"));
 
         // burp_proxy_history
         addToolMetadata("burp_proxy_history", "Core HTTP/Proxy",
@@ -456,9 +459,12 @@ public class ToolDocumentationStore {
     private void populateEnhancedMetadata() {
         // burp_custom_http - PRIMARY HTTP tool with examples
         addToolMetadata("burp_custom_http", "Core HTTP/Proxy",
-            List.of("http", "request", "send", "post", "get", "parallel", "race", "http2", "redirect"),
+            List.of("http", "request", "send", "post", "get", "parallel", "race", "http2", "redirect",
+                    "smuggling", "host-header", "ssrf", "raw", "target_host"),
             List.of("send HTTP requests", "test race conditions", "modify requests", "HTTP/2 support",
-                    "parallel requests", "custom headers", "SNI configuration"),
+                    "parallel requests", "custom headers", "SNI configuration",
+                    "host-header SSRF", "request smuggling", "parser discrepancy",
+                    "decouple TCP destination from Host header", "send raw verbatim bytes"),
             List.of("burp_response_analyzer", "burp_session_management", "burp_proxy_history"),
             List.of(
                 Map.of(
@@ -476,18 +482,52 @@ public class ToolDocumentationStore {
                     "explanation", "Alternative: use https:// in request line"
                 ),
                 Map.of(
-                    "title", "Race condition test",
+                    "title", "Throttled sweep (default for SEND_PARALLEL)",
                     "input", Map.of("action", "SEND_PARALLEL",
-                        "requests", List.of("POST /transfer HTTP/1.1\\r\\nHost: bank.com:443\\r\\n\\r\\namount=100")),
+                        "requests", List.of("GET /a HTTP/1.1\\r\\nHost: example.com:443\\r\\n\\r\\n",
+                                            "GET /b HTTP/1.1\\r\\nHost: example.com:443\\r\\n\\r\\n"),
+                        "max_concurrency", 10),
+                    "output", Map.of("responses", "array in input order"),
+                    "explanation", "Default max_concurrency=10 prevents tail-of-batch drops on large sweeps. Use this for SSRF/host-header/sitemap sweeps."
+                ),
+                Map.of(
+                    "title", "Race condition test (fire all at once)",
+                    "input", Map.of("action", "SEND_PARALLEL",
+                        "requests", List.of("POST /transfer HTTP/1.1\\r\\nHost: bank.com:443\\r\\n\\r\\namount=100"),
+                        "max_concurrency", 50),
                     "output", Map.of("responses", "array of responses"),
-                    "explanation", "Send multiple requests simultaneously for race condition testing"
+                    "explanation", "Set max_concurrency=50 to opt back into fire-all-at-once behavior. Required for race-condition testing where simultaneity matters."
+                ),
+                Map.of(
+                    "title", "Host-header SSRF (lie in Host, hit real front-end)",
+                    "input", Map.of("action", "SEND_REQUEST",
+                        "request", "GET /admin HTTP/1.1\\r\\nHost: 192.168.0.1\\r\\n\\r\\n",
+                        "target_host", "LAB-ID.web-security-academy.net",
+                        "target_port", 443),
+                    "output", Map.of("status_code", 200, "body", "admin panel HTML"),
+                    "explanation", "TCP socket goes to target_host:target_port; Host header (192.168.0.1) is sent verbatim. Use this for host-header SSRF / virtual-host confusion / cache-poisoning labs."
+                ),
+                Map.of(
+                    "title", "Request smuggling / parser discrepancy (preserve absolute-URI)",
+                    "input", Map.of("action", "SEND_REQUEST",
+                        "request", "GET https://LAB-ID.web-security-academy.net/admin HTTP/1.1\\r\\nHost: 192.168.0.1\\r\\n\\r\\n",
+                        "target_host", "LAB-ID.web-security-academy.net",
+                        "target_port", 443,
+                        "raw_request", true),
+                    "output", Map.of("status_code", 200, "body", "admin panel HTML"),
+                    "explanation", "raw_request=true sends bytes verbatim — the absolute-URI request line is preserved on the wire (no rewrite to origin-form), so front-end and back-end can disagree on routing."
                 )
             ),
             List.of(
                 "Always use port 443 or https:// for HTTPS - Host header alone uses HTTP",
                 "Content-Length is auto-calculated - don't worry about getting it right",
                 "Use SEND_PARALLEL for race condition testing, not burp_intruder",
-                "Check response status_code to verify request was successful"
+                "Check response status_code to verify request was successful",
+                "Use target_host/target_port when Host header must lie (host-header SSRF, routing-based attacks)",
+                "Use raw_request=true to preserve absolute-URI request lines verbatim (parser-discrepancy / request-smuggling)",
+                "SEND_PARALLEL defaults to max_concurrency=10 (prevents silent tail-of-batch drops); pass 50 for race conditions",
+                "Use request_delay_ms to pace dispatch on rate-limited targets",
+                "SEND_PARALLEL responses come back in INPUT ORDER; .index field always matches the requests[] position"
             ));
 
         // burp_scanner with examples

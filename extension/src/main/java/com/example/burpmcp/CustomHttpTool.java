@@ -13,6 +13,8 @@ import burp.api.montoya.http.message.Cookie;
 import burp.api.montoya.http.message.HttpHeader;
 import burp.api.montoya.proxy.ProxyHttpRequestResponse;
 import burp.api.montoya.core.Annotations;
+import burp.api.montoya.core.ByteArray;
+import java.nio.charset.StandardCharsets;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -23,6 +25,11 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.time.Duration;
 
 public class CustomHttpTool implements McpTool {
@@ -55,7 +62,10 @@ public class CustomHttpTool implements McpTool {
             "TOGGLE_REQUEST_METHOD (GET<>POST), ANALYZE_PROTOCOL (HTTP/HTTPS detection). " +
             "Supports HTTP/1.1, HTTP/2, SNI, redirects, and connection reuse. " +
             "BROWSER SYNC: By default, copies headers from proxy traffic and cookies from Burp's cookie jar. " +
-            "Use this instead of burp_repeater (which only opens UI tabs).");
+            "ADVANCED: Use target_host/target_port to decouple TCP destination from Host header (host-header SSRF). " +
+            "Use raw_request=true to preserve absolute-URI request lines verbatim (parser-discrepancy / request-smuggling tests). " +
+            "SEND_PARALLEL: defaults to max_concurrency=10 to prevent tail-of-batch drops; pass max_concurrency=50 to opt back into " +
+            "fire-all-at-once behavior for race-condition tests. Use this instead of burp_repeater (which only opens UI tabs).");
 
         // MCP 2025-06-18 annotations
         Map<String, Object> annotations = new HashMap<>();
@@ -198,6 +208,54 @@ public class CustomHttpTool implements McpTool {
                 "The tool will determine if it's HTTP or HTTPS, extract port information, and check for default ports. " +
                 "Example: 'https://example.com:8443/api'",
             "format", "uri"
+        ));
+
+        properties.put("target_host", Map.of(
+            "type", "string",
+            "description", "TCP destination hostname or IP. Overrides whatever is in the Host header. " +
+                "Required for host-header SSRF / routing-based SSRF / virtual-host confusion attacks where the " +
+                "Host header must lie (e.g. Host: 192.168.0.1) while the socket still hits the real front-end. " +
+                "When set with server_name_indicator and an IP, the SNI is used for TLS and the IP for the socket. " +
+                "If unset, falls back to parsing the Host header (current behavior)."
+        ));
+
+        properties.put("target_port", Map.of(
+            "type", "integer",
+            "description", "TCP destination port (paired with target_host). Defaults to 443 if HTTPS, else 80. " +
+                "Range: 1-65535.",
+            "minimum", 1,
+            "maximum", 65535
+        ));
+
+        properties.put("raw_request", Map.of(
+            "type", "boolean",
+            "description", "Send the request bytes verbatim: no request-line rewriting (absolute-URI form preserved), " +
+                "no URL re-parsing, no implicit Host-header insertion, no header reordering. " +
+                "Line endings are still normalized LF->CRLF. " +
+                "Required for parser-discrepancy / request-smuggling tests where front-end and back-end disagree " +
+                "on how to interpret 'GET https://victim.com/admin HTTP/1.1' vs the Host header. " +
+                "Default false (current parsing behavior preserved).",
+            "default", false
+        ));
+
+        properties.put("max_concurrency", Map.of(
+            "type", "integer",
+            "description", "SEND_PARALLEL only. Maximum number of in-flight requests at any moment. " +
+                "Requests beyond this wait in a FIFO queue. Default 10 (bug-fix: previously unbounded, " +
+                "which caused tail requests to be silently dropped as 'No response' on large batches). " +
+                "Range: 1-50. Set to 50 to opt back into burst/fire-all-at-once behavior for race-condition testing.",
+            "minimum", 1,
+            "maximum", 50,
+            "default", 10
+        ));
+
+        properties.put("request_delay_ms", Map.of(
+            "type", "integer",
+            "description", "SEND_PARALLEL only. Minimum gap in milliseconds between dispatching successive requests from the queue. " +
+                "0 = no pacing (fire as fast as max_concurrency allows). Useful for rate-limited targets. Range: 0-10000.",
+            "minimum", 0,
+            "maximum", 10000,
+            "default", 0
         ));
         
         inputSchema.put("type", "object");
@@ -352,7 +410,7 @@ public class CustomHttpTool implements McpTool {
         try {
             List<HttpRequest> requests = new ArrayList<>();
             for (JsonNode reqNode : arguments.get("requests")) {
-                HttpRequest req = createHttpRequest(reqNode.asText());
+                HttpRequest req = createHttpRequest(reqNode.asText(), arguments);
                 // Apply headers from proxy history (default: enabled) - must be before cookies
                 req = applyHeadersFromProxyHistory(req, arguments);
                 // Apply cookies from Burp's cookie jar (default: enabled)
@@ -367,7 +425,7 @@ public class CustomHttpTool implements McpTool {
             int addedToSiteMap = 0;
             if (addToSiteMap) {
                 for (HttpRequestResponse resp : responses) {
-                    if (resp.response() != null) {
+                    if (resp != null && resp.response() != null) {
                         try {
                             // Add annotation to identify this as an MCP request
                             HttpRequestResponse annotatedResponse = resp.withAnnotations(
@@ -395,19 +453,27 @@ public class CustomHttpTool implements McpTool {
                 HttpRequestResponse resp = responses.get(i);
                 ObjectNode respObj = mapper.createObjectNode();
                 respObj.put("index", i);
-                respObj.put("url", resp.request().url());
-                
-                if (resp.response() != null) {
-                    respObj.put("status_code", resp.response().statusCode());
-                    respObj.put("body_length", resp.response().body().length());
-                    
-                    // Timing data if available
-                    if (resp.timingData().isPresent()) {
-                        Duration responseTime = resp.timingData().get().timeBetweenRequestSentAndEndOfResponse();
-                        respObj.put("response_time_ms", responseTime.toMillis());
-                    }
+
+                if (resp == null) {
+                    // Dispatch threw before we got an HttpRequestResponse back. Still
+                    // report something useful — input URL from the original request list.
+                    respObj.put("url", requests.get(i).url());
+                    respObj.put("error", "Dispatch failed");
+                    respObj.put("error_type", "dispatch_failed");
                 } else {
-                    respObj.put("error", "No response");
+                    respObj.put("url", resp.request().url());
+                    if (resp.response() != null) {
+                        respObj.put("status_code", resp.response().statusCode());
+                        respObj.put("body_length", resp.response().body().length());
+
+                        if (resp.timingData().isPresent()) {
+                            Duration responseTime = resp.timingData().get().timeBetweenRequestSentAndEndOfResponse();
+                            respObj.put("response_time_ms", responseTime.toMillis());
+                        }
+                    } else {
+                        respObj.put("error", "No response");
+                        respObj.put("error_type", "no_response");
+                    }
                 }
                 respArray.add(respObj);
             }
@@ -416,11 +482,11 @@ public class CustomHttpTool implements McpTool {
             // Calculate statistics
             ObjectNode stats = mapper.createObjectNode();
             long totalTime = responses.stream()
-                .filter(r -> r.response() != null && r.timingData().isPresent())
+                .filter(r -> r != null && r.response() != null && r.timingData().isPresent())
                 .mapToLong(r -> r.timingData().get().timeBetweenRequestSentAndEndOfResponse().toMillis())
                 .sum();
             long responseCount = responses.stream()
-                .filter(r -> r.response() != null && r.timingData().isPresent())
+                .filter(r -> r != null && r.response() != null && r.timingData().isPresent())
                 .count();
             stats.put("total_time_ms", totalTime);
             stats.put("average_time_ms", responseCount > 0 ? totalTime / responseCount : 0);
@@ -477,13 +543,6 @@ public class CustomHttpTool implements McpTool {
     }
     
     /**
-     * Helper method to create HttpRequest with proper HttpService
-     */
-    private HttpRequest createHttpRequest(String requestStr) throws Exception {
-        return createHttpRequest(requestStr, null);
-    }
-
-    /**
      * Normalize HTTP request line endings to CRLF.
      * Handles requests that incorrectly use LF-only line endings.
      */
@@ -515,13 +574,28 @@ public class CustomHttpTool implements McpTool {
     }
 
     private HttpRequest createHttpRequest(String requestStr, JsonNode arguments) throws Exception {
-        // Normalize line endings to CRLF (handles agents that incorrectly use LF-only)
+        // Normalize line endings to CRLF (handles agents that incorrectly use LF-only).
+        // Always done — even in raw_request mode — per the spec.
         requestStr = normalizeRequestLineEndings(requestStr);
 
-        // Parse the request into lines
+        boolean rawRequest = arguments != null && arguments.has("raw_request")
+            && arguments.get("raw_request").asBoolean(false);
+        String overrideHost = arguments != null
+            ? McpUtils.getTrimmedStringParam(arguments, "target_host")
+            : null;
+        Integer overridePort = null;
+        if (arguments != null && arguments.has("target_port") && !arguments.get("target_port").isNull()) {
+            int p = arguments.get("target_port").asInt(0);
+            if (p > 0 && p <= 65535) {
+                overridePort = p;
+            } else if (p != 0) {
+                api.logging().logToError("CustomHttpTool: invalid target_port " + p + " (must be 1-65535); ignoring");
+            }
+        }
+
         String[] lines = requestStr.split("\r?\n", -1);
 
-        // Extract Host header if present
+        // Extract Host header if present (informational; may not be used for destination)
         String hostHeader = null;
         for (String line : lines) {
             if (line.toLowerCase().startsWith("host:")) {
@@ -548,7 +622,9 @@ public class CustomHttpTool implements McpTool {
         String urlHost = null;
         Integer urlPort = null;
 
-        // Normalize request line and detect scheme (absolute-form to origin-form)
+        // Detect absolute-form URL in the request line. In raw_request mode we ONLY read
+        // it (to learn scheme) — we do not rewrite the request line. In normal mode we
+        // also rewrite to origin-form, matching legacy behavior.
         if (lines.length > 0) {
             String requestLine = lines[0];
             String[] parts = requestLine.split(" ", 3);
@@ -560,12 +636,9 @@ public class CustomHttpTool implements McpTool {
                     schemeSpecified = true;
                     int schemeSeparator = url.indexOf("://");
                     String afterScheme = schemeSeparator >= 0 ? url.substring(schemeSeparator + 3) : url;
-
-                    // Extract host:port from URL before the path
                     int slashIndex = afterScheme.indexOf('/');
                     String hostPortPart = slashIndex >= 0 ? afterScheme.substring(0, slashIndex) : afterScheme;
 
-                    // Parse host and port from URL (handles IPv6 literals)
                     String[] urlHostPort = parseHostPort(hostPortPart);
                     urlHost = urlHostPort[0];
                     if (urlHostPort[1] != null) {
@@ -576,23 +649,33 @@ public class CustomHttpTool implements McpTool {
                         }
                     }
 
-                    // Convert to origin-form
-                    if (slashIndex >= 0) {
-                        parts[1] = afterScheme.substring(slashIndex);
-                    } else {
-                        parts[1] = "/";
+                    if (!rawRequest) {
+                        // Legacy behavior: convert absolute-form to origin-form
+                        if (slashIndex >= 0) {
+                            parts[1] = afterScheme.substring(slashIndex);
+                        } else {
+                            parts[1] = "/";
+                        }
+                        lines[0] = String.join(" ", parts);
                     }
-                    lines[0] = String.join(" ", parts);
+                    // raw_request mode: leave parts[1] alone — the absolute URI travels on the wire verbatim.
                 }
             }
         }
 
-        // Determine host and port: prefer Host header, fall back to URL
+        // Determine TCP destination. Precedence:
+        //   1. target_host (explicit override — decouples destination from Host header)
+        //   2. Host header
+        //   3. Absolute-URI authority (only when raw_request=false, since raw mode doesn't synthesize Host)
         String host;
         Integer port = null;
 
-        if (hostHeader != null) {
-            // Parse host and port from Host header, including IPv6 literal support
+        if (overrideHost != null && !overrideHost.isEmpty()) {
+            host = overrideHost;
+            if (overridePort != null) {
+                port = overridePort;
+            }
+        } else if (hostHeader != null) {
             String[] hostPort = parseHostPort(hostHeader);
             host = hostPort[0];
             if (hostPort[1] != null) {
@@ -602,27 +685,26 @@ public class CustomHttpTool implements McpTool {
                     api.logging().logToError("Invalid port in host header: " + hostPort[1] + ", using default port");
                 }
             }
-            // If Host header has no port but URL had a port, use URL's port ONLY if hosts match
-            // This prevents combining mismatched host/port from different sources
             if (port == null && urlPort != null && urlHost != null && urlHost.equalsIgnoreCase(host)) {
                 port = urlPort;
             }
         } else if (urlHost != null) {
-            // No Host header but we have absolute-form URL - use URL's host/port
             host = urlHost;
             port = urlPort;
-            // Add Host header to the request
-            String hostHeaderValue = urlPort != null ? urlHost + ":" + urlPort : urlHost;
-            // Handle IPv6 in Host header
-            if (urlHost.contains(":")) {
-                hostHeaderValue = urlPort != null ? "[" + urlHost + "]:" + urlPort : "[" + urlHost + "]";
+            if (!rawRequest) {
+                // Synthesize a Host header from the absolute URI (legacy behavior).
+                // In raw mode we deliberately skip this — caller controls the bytes.
+                String hostHeaderValue = urlPort != null ? urlHost + ":" + urlPort : urlHost;
+                if (urlHost.contains(":")) {
+                    hostHeaderValue = urlPort != null ? "[" + urlHost + "]:" + urlPort : "[" + urlHost + "]";
+                }
+                List<String> lineList = new ArrayList<>(Arrays.asList(lines));
+                lineList.add(1, "Host: " + hostHeaderValue);
+                lines = lineList.toArray(new String[0]);
             }
-            // Insert Host header after request line
-            List<String> lineList = new ArrayList<>(Arrays.asList(lines));
-            lineList.add(1, "Host: " + hostHeaderValue);
-            lines = lineList.toArray(new String[0]);
         } else {
-            throw new IllegalArgumentException("No Host header found in request and no absolute-form URL provided");
+            throw new IllegalArgumentException(
+                "Cannot determine TCP destination: no target_host, no Host header, no absolute-form URL");
         }
 
         // Port-based protocol detection - only if scheme was NOT explicitly specified
@@ -630,16 +712,13 @@ public class CustomHttpTool implements McpTool {
             if (port == 443) {
                 secure = true;
             } else if (port == 80) {
-                secure = false;  // Explicit port 80 means HTTP
+                secure = false;
             }
-            // Other ports keep the default (HTTPS)
         }
 
-        // Set default port based on secure flag
         if (port == null) {
             port = secure ? 443 : 80;
-            // Log helpful warning when defaulting to HTTPS
-            if (secure && !schemeSpecified) {
+            if (secure && !schemeSpecified && overrideHost == null) {
                 api.logging().logToOutput("CustomHttpTool: No port specified in Host header '" + hostHeader +
                     "' - defaulting to HTTPS (port 443). For HTTP, use 'Host: " + host + ":80' or 'http://' URL scheme.");
             }
@@ -653,11 +732,16 @@ public class CustomHttpTool implements McpTool {
             }
         }
 
-        // Reconstruct request string if we modified lines
-        requestStr = String.join("\r\n", Arrays.asList(lines));
-
-        // Create HttpService and HttpRequest
         HttpService service = HttpService.httpService(host, port, secure);
+
+        if (rawRequest) {
+            // Send bytes verbatim. ISO-8859-1 is the 8-bit-clean transport encoding for
+            // HTTP/1.1 framing; any body bytes survive the String round-trip.
+            byte[] bytes = requestStr.getBytes(StandardCharsets.ISO_8859_1);
+            return HttpRequest.httpRequest(service, ByteArray.byteArray(bytes));
+        }
+
+        requestStr = String.join("\r\n", Arrays.asList(lines));
         return HttpRequest.httpRequest(service, requestStr);
     }
 
@@ -991,28 +1075,71 @@ public class CustomHttpTool implements McpTool {
     }
 
     private List<HttpRequestResponse> sendBatchRequests(List<HttpRequest> requests, JsonNode arguments) throws ExecutionException, InterruptedException {
-        // Try to use RequestOptions if available (guard against older Montoya APIs)
-        RequestOptions options = null;
+        // Bounded concurrency: prevents tail-of-batch drops caused by socket/thread-pool
+        // exhaustion when too many requests are in flight simultaneously.
+        int maxConcurrency = 10;
+        if (arguments.has("max_concurrency") && arguments.get("max_concurrency").canConvertToInt()) {
+            int v = arguments.get("max_concurrency").asInt(10);
+            maxConcurrency = Math.min(50, Math.max(1, v));
+        }
+        int delayMs = 0;
+        if (arguments.has("request_delay_ms") && arguments.get("request_delay_ms").canConvertToInt()) {
+            int v = arguments.get("request_delay_ms").asInt(0);
+            delayMs = Math.min(10000, Math.max(0, v));
+        }
+
+        int n = requests.size();
+        int poolSize = Math.min(maxConcurrency, Math.max(1, n));
+        ExecutorService exec = Executors.newFixedThreadPool(poolSize);
+        Semaphore slots = new Semaphore(maxConcurrency);
+        HttpRequestResponse[] results = new HttpRequestResponse[n];
+        List<Future<?>> futures = new ArrayList<>(n);
+
+        api.logging().logToOutput("CustomHttpTool: SEND_PARALLEL dispatching " + n +
+            " requests with max_concurrency=" + maxConcurrency +
+            (delayMs > 0 ? ", request_delay_ms=" + delayMs : ""));
+
         try {
-            options = buildRequestOptions(arguments);
-        } catch (NoSuchMethodError | NoClassDefFoundError e) {
-            api.logging().logToOutput("CustomHttpTool: RequestOptions not available in this Burp version, using legacy API");
+            long lastDispatch = 0;
+            for (int i = 0; i < n; i++) {
+                final int idx = i;
+                final HttpRequest req = requests.get(i);
+                slots.acquire();
+                if (delayMs > 0 && lastDispatch != 0) {
+                    long wait = lastDispatch + delayMs - System.currentTimeMillis();
+                    if (wait > 0) {
+                        Thread.sleep(wait);
+                    }
+                }
+                lastDispatch = System.currentTimeMillis();
+                futures.add(exec.submit(() -> {
+                    try {
+                        results[idx] = sendSingleRequestWithOptions(req, arguments);
+                    } catch (Exception e) {
+                        api.logging().logToError("CustomHttpTool: request " + idx + " failed: " + e.getMessage());
+                        results[idx] = null;
+                    } finally {
+                        slots.release();
+                    }
+                }));
+            }
+            for (Future<?> f : futures) {
+                f.get();
+            }
+        } finally {
+            exec.shutdown();
+            try {
+                if (!exec.awaitTermination(5, TimeUnit.SECONDS)) {
+                    exec.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                exec.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
         }
 
-        if (options == null && !arguments.has("http_mode") && !arguments.has("connection_id")) {
-            return api.http().sendRequests(requests);
-        }
-
-        List<CompletableFuture<HttpRequestResponse>> futures = new ArrayList<>();
-        for (HttpRequest request : requests) {
-            futures.add(CompletableFuture.supplyAsync(() -> sendSingleRequestWithOptions(request, arguments)));
-        }
-
-        List<HttpRequestResponse> responses = new ArrayList<>(futures.size());
-        for (CompletableFuture<HttpRequestResponse> future : futures) {
-            responses.add(future.get());
-        }
-        return responses;
+        // Preserve input order.
+        return Arrays.asList(results);
     }
 
     private RequestOptions buildRequestOptions(JsonNode arguments) {

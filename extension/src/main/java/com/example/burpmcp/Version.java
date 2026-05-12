@@ -7,9 +7,9 @@ package com.example.burpmcp;
 public class Version {
     
     // Version components
-    public static final String VERSION = "2.4.1";
+    public static final String VERSION = "2.4.2";
     public static final String BUILD_DATE = "2026-05-12";
-    public static final String RELEASE_NAME = "Montoya API 2026.4 + opencode compat";
+    public static final String RELEASE_NAME = "burp_custom_http advanced primitives + SEND_PARALLEL throttle";
 
     // Feature tracking
     public static final int TOOL_COUNT = 22; // Total number of registered tools
@@ -54,14 +54,26 @@ public class Version {
      * Get detailed changelog for this version.
      */
     public static String getChangelog() {
-        return "## Version 2.4.1 - opencode compatibility + Montoya 2026.4 (2026-05-12)\n\n" +
+        return "## Version 2.4.2 - burp_custom_http advanced primitives + SEND_PARALLEL throttle (2026-05-12)\n\n" +
+               "### 🎯 burp_custom_http: host-header SSRF & request smuggling primitives\n" +
+               "- ✅ **target_host / target_port**: TCP destination overrides the Host header. Lets the Host header lie (e.g. `Host: 192.168.0.1`) while the socket still hits the real front-end. Required for host-header SSRF, routing-based SSRF, virtual-host confusion.\n" +
+               "- ✅ **raw_request**: send bytes verbatim. Skips absolute-URI rewrite, URL re-parsing, implicit Host insertion, header reordering. Required for parser-discrepancy / request-smuggling tests.\n" +
+               "\n" +
+               "### ⚡ burp_custom_http SEND_PARALLEL: bounded concurrency\n" +
+               "- ✅ **max_concurrency** (default 10, range 1-50): caps in-flight requests. Fixes silent tail-of-batch drops on large sweeps (50 requests previously returned 5-10 `No response` entries due to thread/socket pool exhaustion).\n" +
+               "- ✅ **request_delay_ms** (range 0-10000): minimum gap between dispatches, for rate-limited targets.\n" +
+               "- ✅ Response array preserves **input order**; `.index` field always matches `requests[]` position.\n" +
+               "- ✅ Pass `max_concurrency: 50` to opt back into fire-all-at-once for race-condition tests.\n" +
+               "- ✅ Dispatch failures now surface `error_type` (`dispatch_failed` / `no_response`) so callers can distinguish tool drops from upstream failures.\n" +
+               "\n" +
+               "## Version 2.4.1 - opencode compat + Montoya 2026.4 (2026-05-12)\n\n" +
                "### 🤝 MCP Spec Compliance\n" +
                "- ✅ Tool responses now include `structuredContent` alongside `content` (required by strict MCP clients like opencode when `outputSchema` is declared)\n" +
                "- ✅ Defensive fallback in `McpServer` auto-parses text JSON into `structuredContent` if a tool forgot to set it\n" +
                "- ✅ `ProxyHistoryTool.outputSchema` now declares `entries` as an object array (matching real data shape) instead of a string\n" +
                "\n" +
                "### 🔧 Montoya API\n" +
-               "- ✅ Bumped from Montoya 2026.2 → 2026.4 (matches Burp build 47702 / 2026.5)\n" +
+               "- ✅ Bumped from Montoya 2026.2 → 2026.4 (matches Burp build 47702)\n" +
                "- ✅ Picks up the new extension HTTP-control surface (drop / inject custom responses) — capability available, not yet wired up\n" +
                "\n" +
                "## Version 2.4.0 - Token optimization (compact JSON output) (2026-04-15)\n\n" +
