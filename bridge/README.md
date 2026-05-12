@@ -203,7 +203,7 @@ Press **Ctrl+C** to stop the bridge cleanly at any time.
 ### **Self-Documentation & Tool Discovery**
 - ✅ **Tool Coverage** - Surfaces all 22 tools to connected agents
 - ✅ **Workflow Guidance** - Bridges access to on-demand documentation and workflows via MCP
-- ✅ **Consistency** - Ensures tooling metadata matches Burp MCP Bridge v2.4.2 release
+- ✅ **Consistency** - Ensures tooling metadata matches Burp MCP Bridge v2.4.3 release
 
 ## 🔧 **Troubleshooting**
 
@@ -239,7 +239,7 @@ Press **Ctrl+C** to stop the bridge cleanly at any time.
 **Solutions:**
 1. ✅ Reload the Burp MCP Bridge extension
 2. ✅ Check Extensions → Errors tab for extension issues
-3. ✅ Verify `burp-mcp-bridge-2.4.2.jar` is properly loaded
+3. ✅ Verify `burp-mcp-bridge-2.4.3.jar` is properly loaded
 4. ✅ Restart Burp Suite if needed
 
 ### **Configuration Issues**
@@ -284,17 +284,18 @@ BURP_MCP_DEBUG=true node index.js
 
 **Example:**
 ```
-[INFO] 2026-01-27T16:54:23.456Z - Burp MCP Bridge v2.4.2 initializing...
+[INFO] 2026-01-27T16:54:23.456Z - Burp MCP Bridge v2.4.3 initializing...
 [INFO] 2025-10-22T16:54:23.457Z - Connecting to Burp extension at: http://localhost:8081
 [DEBUG] 2025-10-22T16:54:23.458Z - Sending request to Burp: ping
 [INFO] 2025-10-22T16:54:23.480Z - ✅ Successfully connected to Burp extension
-[INFO] 2026-01-27T16:54:23.481Z - 🚀 Burp MCP Bridge v2.4.2 started and ready for Claude Code
+[INFO] 2026-01-27T16:54:23.481Z - 🚀 Burp MCP Bridge v2.4.3 started and ready for Claude Code
 ```
 
 ## 🔄 **Version Compatibility**
 
 | Bridge Version | Extension Version | Features |
 |----------------|-------------------|----------|
+| v2.4.3 | v2.4.3 | `burp_custom_http` SEND_PIPELINED: HTTP/1.1 pipelined requests on ONE TLS socket — unblocks request-smuggling labs (CL.0/TE.CL/CL.TE/TE.0/0.CL/connection-state). Includes robust response parser, base64 raw_bytes per response, trailing_bytes for response-queue-poisoning detection. |
 | v2.4.2 | v2.4.2 | `burp_custom_http` new params: `target_host`/`target_port` (decouple TCP destination from Host header for host-header SSRF), `raw_request` (preserve absolute-URI request lines for smuggling), `max_concurrency` (default 10, fixes silent tail-of-batch drops in SEND_PARALLEL) + `request_delay_ms` (dispatch pacing) |
 | v2.4.1 | v2.4.1 | Montoya API 2026.4, MCP `structuredContent` for opencode/strict-spec clients, ProxyHistoryTool output schema fix |
 | v2.4.0 | v2.4.0 | Token optimization: compact JSON output by default, verbose flag for human debugging |
@@ -434,7 +435,7 @@ Response:
 ```json
 {
   "status": "ok",
-  "version": "2.4.2",
+  "version": "2.4.3",
   "burpConnection": "http://localhost:8081",
   "transports": ["stdio", "http-sse", "streamable-http"]
 }

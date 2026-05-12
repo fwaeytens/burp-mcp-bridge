@@ -7,9 +7,9 @@ package com.example.burpmcp;
 public class Version {
     
     // Version components
-    public static final String VERSION = "2.4.2";
+    public static final String VERSION = "2.4.3";
     public static final String BUILD_DATE = "2026-05-12";
-    public static final String RELEASE_NAME = "burp_custom_http advanced primitives + SEND_PARALLEL throttle";
+    public static final String RELEASE_NAME = "SEND_PIPELINED: HTTP/1.1 pipelined requests on one TLS socket";
 
     // Feature tracking
     public static final int TOOL_COUNT = 22; // Total number of registered tools
@@ -54,7 +54,20 @@ public class Version {
      * Get detailed changelog for this version.
      */
     public static String getChangelog() {
-        return "## Version 2.4.2 - burp_custom_http advanced primitives + SEND_PARALLEL throttle (2026-05-12)\n\n" +
+        return "## Version 2.4.3 - SEND_PIPELINED: HTTP/1.1 pipelined requests on one TLS socket (2026-05-12)\n\n" +
+               "### 🔗 burp_custom_http SEND_PIPELINED (new action)\n" +
+               "- ✅ Writes 2-20 raw HTTP/1.1 requests back-to-back on a SINGLE TLS socket — unblocks the entire request-smuggling track (CL.0, TE.CL, CL.TE, TE.0, 0.CL, connection-state attacks).\n" +
+               "- ✅ Bytes preserved verbatim (LF->CRLF only); no Content-Length recomputation, no header reordering, no implicit Host insertion.\n" +
+               "- ✅ Robust HTTP/1.1 response parser: Content-Length / Transfer-Encoding: chunked / connection-close framing. Multiple responses parsed from the single stream.\n" +
+               "- ✅ Each response includes parsed fields + `raw_bytes` (base64) so callers can inspect malformed/smuggled responses.\n" +
+               "- ✅ Per-request dispatch view (`requests[].bytes_written` / `dispatched`) + top-level `connection_closed_early` / `closed_after_response` so callers can distinguish 'never sent' from 'sent but server closed after response N' (common in smuggling labs where response 1 has `Connection: close`).\n" +
+               "- ✅ `trailing_bytes` captures stray data after the expected response count — used to surface poisoned-queue responses.\n" +
+               "- ✅ Params: `inter_request_delay_ms` (pause-based desync), `expect_responses` (asymmetric smuggling shapes), `read_timeout_ms` (per-read socket timeout).\n" +
+               "- ✅ ALPN forces http/1.1 in v1; returns a clear error if server insists on H2 (H2 pipelining is a follow-up).\n" +
+               "- ✅ Responses added to Burp's site map with annotation `MCP: pipelined group=<id> idx=<i>` for traceability.\n" +
+               "- ✅ TLS verification mirrors `upstream_tls_verification` (default permissive, matches the rest of burp_custom_http).\n" +
+               "\n" +
+               "## Version 2.4.2 - burp_custom_http advanced primitives + SEND_PARALLEL throttle (2026-05-12)\n\n" +
                "### 🎯 burp_custom_http: host-header SSRF & request smuggling primitives\n" +
                "- ✅ **target_host / target_port**: TCP destination overrides the Host header. Lets the Host header lie (e.g. `Host: 192.168.0.1`) while the socket still hits the real front-end. Required for host-header SSRF, routing-based SSRF, virtual-host confusion.\n" +
                "- ✅ **raw_request**: send bytes verbatim. Skips absolute-URI rewrite, URL re-parsing, implicit Host insertion, header reordering. Required for parser-discrepancy / request-smuggling tests.\n" +

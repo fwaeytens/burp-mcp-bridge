@@ -15,6 +15,19 @@ import burp.api.montoya.proxy.ProxyHttpRequestResponse;
 import burp.api.montoya.core.Annotations;
 import burp.api.montoya.core.ByteArray;
 import java.nio.charset.StandardCharsets;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.ByteArrayOutputStream;
+import java.net.InetSocketAddress;
+import java.security.cert.X509Certificate;
+import java.util.Base64;
+import java.util.UUID;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSocket;
+import javax.net.ssl.SSLSocketFactory;
+import javax.net.ssl.SSLParameters;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -40,6 +53,7 @@ public class CustomHttpTool implements McpTool {
     private static final List<String> SUPPORTED_ACTIONS = List.of(
         "SEND_REQUEST",
         "SEND_PARALLEL",
+        "SEND_PIPELINED",
         "TOGGLE_REQUEST_METHOD",
         "ANALYZE_PROTOCOL"
     );
@@ -59,6 +73,7 @@ public class CustomHttpTool implements McpTool {
             "Content-Length is automatically calculated - no need to specify it accurately. " +
             "Line endings are auto-normalized (LF to CRLF). " +
             "Actions: SEND_REQUEST (single request), SEND_PARALLEL (race condition testing with array of requests), " +
+            "SEND_PIPELINED (HTTP/1.1 only — write 2-20 raw requests back-to-back on ONE TLS socket, for CL.0/TE.CL/CL.TE/TE.0/0.CL/connection-state smuggling labs), " +
             "TOGGLE_REQUEST_METHOD (GET<>POST), ANALYZE_PROTOCOL (HTTP/HTTPS detection). " +
             "Supports HTTP/1.1, HTTP/2, SNI, redirects, and connection reuse. " +
             "BROWSER SYNC: By default, copies headers from proxy traffic and cookies from Burp's cookie jar. " +
@@ -257,6 +272,36 @@ public class CustomHttpTool implements McpTool {
             "maximum", 10000,
             "default", 0
         ));
+
+        properties.put("inter_request_delay_ms", Map.of(
+            "type", "integer",
+            "description", "SEND_PIPELINED only. Gap (ms) between writing successive requests to the SAME socket. " +
+                "0 (default) = concatenate all bytes and send in a single write() — required for most smuggling attacks. " +
+                ">0 = write each request, sleep, write next — used for pause-based desync and timing-sensitive attacks. " +
+                "Range: 0-10000.",
+            "minimum", 0,
+            "maximum", 10000,
+            "default", 0
+        ));
+
+        properties.put("expect_responses", Map.of(
+            "type", "integer",
+            "description", "SEND_PIPELINED only. Number of HTTP responses to wait for before closing the socket. " +
+                "Defaults to requests.length. Override when smuggling shapes consume requests asymmetrically (e.g. the smuggled " +
+                "request may be absorbed by the back-end queue and produce no client-visible response). Range: 0-50.",
+            "minimum", 0,
+            "maximum", 50
+        ));
+
+        properties.put("read_timeout_ms", Map.of(
+            "type", "integer",
+            "description", "SEND_PIPELINED only. After expect_responses have been parsed, wait this many ms for any trailing bytes " +
+                "(stray queued responses, poisoned response from previous victim) before closing. Also serves as the per-read socket " +
+                "timeout during the main read loop. Range: 100-60000.",
+            "minimum", 100,
+            "maximum", 60000,
+            "default", 5000
+        ));
         
         inputSchema.put("type", "object");
         inputSchema.put("properties", properties);
@@ -291,6 +336,8 @@ public class CustomHttpTool implements McpTool {
                     return sendRequest(arguments);
                 case "SEND_PARALLEL":
                     return sendParallelRequests(arguments);
+                case "SEND_PIPELINED":
+                    return sendPipelined(arguments);
                 case "TOGGLE_REQUEST_METHOD":
                     return toggleRequestMethod(arguments);
                 case "ANALYZE_PROTOCOL":
@@ -503,6 +550,482 @@ public class CustomHttpTool implements McpTool {
             return McpUtils.createErrorResponse("Failed to send parallel requests: " + message);
         } catch (Exception e) {
             return McpUtils.createErrorResponse("Failed to send parallel requests: " + e.getMessage());
+        }
+    }
+
+    /**
+     * SEND_PIPELINED — write 2-20 raw HTTP/1.1 requests back-to-back on ONE TLS socket
+     * and read the response stream. Required for request-smuggling labs (CL.0, TE.CL,
+     * CL.TE, TE.0, 0.CL, connection-state attacks) where the desync depends on a
+     * single TCP/TLS connection carrying multiple framed messages.
+     *
+     * Each request is sent verbatim. No Content-Length recomputation, no header
+     * insertion, no reordering — the only normalization is LF -> CRLF.
+     */
+    private Object sendPipelined(JsonNode arguments) {
+        if (!arguments.has("requests") || !arguments.get("requests").isArray()) {
+            return McpUtils.createErrorResponse("requests array is required");
+        }
+        ArrayNode reqArr = (ArrayNode) arguments.get("requests");
+        int n = reqArr.size();
+        if (n < 2 || n > 20) {
+            return McpUtils.createErrorResponse("SEND_PIPELINED requires 2-20 requests (got " + n + ")");
+        }
+
+        String overrideHost = McpUtils.getTrimmedStringParam(arguments, "target_host");
+        Integer overridePortBoxed = null;
+        if (arguments.has("target_port") && arguments.get("target_port").canConvertToInt()) {
+            int p = arguments.get("target_port").asInt(0);
+            if (p > 0 && p <= 65535) overridePortBoxed = p;
+        }
+
+        // Destination resolution: prefer target_host; otherwise pull the Host header
+        // from requests[0]. Pipelined sends always run against the SAME destination
+        // (one socket — the whole point) so we only inspect the first request.
+        String host = overrideHost;
+        Integer port = overridePortBoxed;
+        if (host == null || host.isEmpty()) {
+            String firstReq = reqArr.get(0).asText();
+            for (String line : firstReq.split("\r?\n")) {
+                if (line.toLowerCase().startsWith("host:")) {
+                    String[] hp = parseHostPort(line.substring(5).trim());
+                    host = hp[0];
+                    if (hp[1] != null) {
+                        try { port = Integer.parseInt(hp[1]); } catch (NumberFormatException ignored) {}
+                    }
+                    break;
+                }
+            }
+        }
+        if (host == null || host.isEmpty()) {
+            return McpUtils.createErrorResponse("Cannot resolve destination: no target_host and no Host header in requests[0]");
+        }
+        int finalPort = port != null ? port : 443;
+
+        String sni = McpUtils.getTrimmedStringParam(arguments, "server_name_indicator");
+        if (sni == null || sni.isEmpty()) sni = host;
+
+        int interDelay = 0;
+        if (arguments.has("inter_request_delay_ms") && arguments.get("inter_request_delay_ms").canConvertToInt()) {
+            interDelay = Math.min(10000, Math.max(0, arguments.get("inter_request_delay_ms").asInt(0)));
+        }
+        int expectResponses = n;
+        if (arguments.has("expect_responses") && arguments.get("expect_responses").canConvertToInt()) {
+            expectResponses = Math.min(50, Math.max(0, arguments.get("expect_responses").asInt(n)));
+        }
+        int readTimeoutMs = 5000;
+        if (arguments.has("read_timeout_ms") && arguments.get("read_timeout_ms").canConvertToInt()) {
+            readTimeoutMs = Math.min(60000, Math.max(100, arguments.get("read_timeout_ms").asInt(5000)));
+        }
+        boolean tlsVerify = arguments.has("upstream_tls_verification") && arguments.get("upstream_tls_verification").asBoolean(false);
+        boolean addToSiteMap = McpUtils.getBooleanParam(arguments, "add_to_sitemap", true);
+
+        // Build the concatenated byte stream (CRLF normalized).
+        List<byte[]> reqBytes = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) {
+            String raw = normalizeRequestLineEndings(reqArr.get(i).asText());
+            reqBytes.add(raw.getBytes(StandardCharsets.ISO_8859_1));
+        }
+
+        String groupId = UUID.randomUUID().toString().substring(0, 8);
+        api.logging().logToOutput("CustomHttpTool: SEND_PIPELINED group=" + groupId +
+            " host=" + host + ":" + finalPort + " sni=" + sni +
+            " requests=" + n + " expect=" + expectResponses +
+            " inter_delay=" + interDelay + "ms tls_verify=" + tlsVerify);
+
+        long startMs = System.currentTimeMillis();
+        SSLSocket sock = null;
+        try {
+            SSLSocketFactory factory;
+            if (tlsVerify) {
+                factory = (SSLSocketFactory) SSLSocketFactory.getDefault();
+            } else {
+                SSLContext ctx = SSLContext.getInstance("TLS");
+                ctx.init(null, new TrustManager[]{TRUST_ALL}, new java.security.SecureRandom());
+                factory = ctx.getSocketFactory();
+            }
+            sock = (SSLSocket) factory.createSocket();
+            sock.connect(new InetSocketAddress(host, finalPort), readTimeoutMs);
+            sock.setSoTimeout(readTimeoutMs);
+
+            // SNI + ALPN: force HTTP/1.1 (v1 scope; H2 pipelining is a follow-up).
+            // TODO(h2-multiplex): To support H2-track smuggling labs (H2.CL, H2.TE,
+            // H2 response-queue poisoning, H2 request tunnelling) we need ONE persistent
+            // H2 connection with multiple streams dispatched at different wall-clock
+            // times. Recommended path: persistent worker thread keyed by connection_id
+            // that holds the H2 socket open and dispatches per-stream sends. Out of
+            // scope for v1 — raw Python with the h2 library is the current fallback.
+            SSLParameters params = sock.getSSLParameters();
+            params.setServerNames(java.util.Collections.singletonList(new javax.net.ssl.SNIHostName(sni)));
+            params.setApplicationProtocols(new String[]{"http/1.1"});
+            sock.setSSLParameters(params);
+            sock.startHandshake();
+
+            String tlsVersion = sock.getSession().getProtocol();
+            String negotiatedProto = sock.getApplicationProtocol();
+            if (negotiatedProto != null && !negotiatedProto.isEmpty() && !"http/1.1".equalsIgnoreCase(negotiatedProto)) {
+                return McpUtils.createErrorResponse("Server negotiated " + negotiatedProto +
+                    " via ALPN; SEND_PIPELINED v1 only supports HTTP/1.1 (H2 pipelining is a follow-up).");
+            }
+
+            // Per-request write tracking. bytesWritten[i] is "0 until proven written",
+            // and gets set to reqBytes[i].length once that request's full slice has
+            // been handed to the OutputStream. Lets callers distinguish
+            //   responses_received < expect_responses because the bytes never went out
+            // from
+            //   responses_received < expect_responses because the server closed after responding to N.
+            int[] bytesWritten = new int[n];
+            String writeError = null;
+            OutputStream out = sock.getOutputStream();
+            try {
+                if (interDelay == 0) {
+                    // Concatenated single write (the spec's preferred behavior). Either
+                    // the bulk write returns and all requests are on the wire, or it
+                    // throws — in which case we conservatively report 0 for everything,
+                    // since the kernel may have partially flushed but we can't observe
+                    // the split point.
+                    ByteArrayOutputStream all = new ByteArrayOutputStream();
+                    for (byte[] b : reqBytes) all.write(b);
+                    out.write(all.toByteArray());
+                    out.flush();
+                    for (int i = 0; i < n; i++) bytesWritten[i] = reqBytes.get(i).length;
+                } else {
+                    for (int i = 0; i < n; i++) {
+                        out.write(reqBytes.get(i));
+                        out.flush();
+                        bytesWritten[i] = reqBytes.get(i).length;
+                        if (i < n - 1) Thread.sleep(interDelay);
+                    }
+                }
+            } catch (Exception we) {
+                writeError = we.getClass().getSimpleName() + ": " + we.getMessage();
+                api.logging().logToError("SEND_PIPELINED group=" + groupId + " write failed: " + writeError);
+            }
+
+            InputStream in = sock.getInputStream();
+            List<ParsedResponse> parsed = parseResponseStream(in, expectResponses, readTimeoutMs);
+
+            // Drain any trailing bytes after expected responses (response queue poisoning).
+            byte[] trailing = drainTrailing(in, readTimeoutMs);
+
+            long totalMs = System.currentTimeMillis() - startMs;
+
+            // Optional sitemap publish — synthesize HttpRequestResponse per pair.
+            int addedToMap = 0;
+            if (addToSiteMap) {
+                HttpService svc = HttpService.httpService(host, finalPort, true);
+                for (int i = 0; i < parsed.size() && i < n; i++) {
+                    try {
+                        HttpRequest req = HttpRequest.httpRequest(svc, ByteArray.byteArray(reqBytes.get(i)));
+                        ParsedResponse pr = parsed.get(i);
+                        burp.api.montoya.http.message.responses.HttpResponse resp =
+                            burp.api.montoya.http.message.responses.HttpResponse.httpResponse(
+                                ByteArray.byteArray(pr.rawBytes));
+                        HttpRequestResponse hrr = HttpRequestResponse.httpRequestResponse(req, resp)
+                            .withAnnotations(Annotations.annotations(
+                                "MCP: pipelined group=" + groupId + " idx=" + i));
+                        api.siteMap().add(hrr);
+                        addedToMap++;
+                    } catch (Exception e) {
+                        api.logging().logToError("SEND_PIPELINED: failed to add idx=" + i + " to site map: " + e.getMessage());
+                    }
+                }
+            }
+
+            ObjectNode result = mapper.createObjectNode();
+            result.put("success", true);
+            result.put("group_id", groupId);
+            ObjectNode conn = mapper.createObjectNode();
+            conn.put("host", host);
+            conn.put("port", finalPort);
+            conn.put("sni", sni);
+            conn.put("http_version", "HTTP/1.1");
+            conn.put("tls_version", tlsVersion);
+            conn.put("alpn", negotiatedProto != null ? negotiatedProto : "");
+            result.set("connection", conn);
+            result.put("requests_sent", n);
+            result.put("responses_received", parsed.size());
+            result.put("added_to_sitemap", addedToMap);
+            result.put("total_time_ms", totalMs);
+            if (writeError != null) {
+                result.put("write_error", writeError);
+            }
+            // Hint: if fewer responses came back than expected AND all bytes left the
+            // socket, the server likely closed the connection after responding to N
+            // (e.g. Connection: close on response 1). Common in smuggling labs.
+            boolean allBytesWritten = writeError == null;
+            if (allBytesWritten && parsed.size() < expectResponses && parsed.size() > 0) {
+                result.put("connection_closed_early", true);
+                result.put("closed_after_response", parsed.size() - 1);
+            }
+
+            // Per-request dispatch view — present for all N inputs regardless of how
+            // many responses came back. Lets callers tell "never sent" from
+            // "sent but no response".
+            ArrayNode reqStats = mapper.createArrayNode();
+            for (int i = 0; i < n; i++) {
+                ObjectNode r = mapper.createObjectNode();
+                r.put("index", i);
+                r.put("bytes_total", reqBytes.get(i).length);
+                r.put("bytes_written", bytesWritten[i]);
+                r.put("dispatched", bytesWritten[i] == reqBytes.get(i).length);
+                reqStats.add(r);
+            }
+            result.set("requests", reqStats);
+
+            ArrayNode respArr = mapper.createArrayNode();
+            for (int i = 0; i < parsed.size(); i++) {
+                ParsedResponse pr = parsed.get(i);
+                ObjectNode r = mapper.createObjectNode();
+                r.put("index", i);
+                if (pr.parseError != null) {
+                    r.put("parse_error", pr.parseError);
+                } else {
+                    r.put("status_code", pr.statusCode);
+                    r.put("reason_phrase", pr.reasonPhrase);
+                    r.put("http_version", pr.httpVersion);
+                    ArrayNode hdrs = mapper.createArrayNode();
+                    for (Map.Entry<String, String> e : pr.headers.entrySet()) {
+                        ObjectNode h = mapper.createObjectNode();
+                        h.put("name", e.getKey());
+                        h.put("value", e.getValue());
+                        hdrs.add(h);
+                    }
+                    r.set("headers", hdrs);
+                    r.put("body_length", pr.body.length);
+                    // Keep body as best-effort text for readability; raw_bytes has the truth.
+                    r.put("body", new String(pr.body, StandardCharsets.ISO_8859_1));
+                }
+                r.put("raw_bytes", Base64.getEncoder().encodeToString(pr.rawBytes));
+                respArr.add(r);
+            }
+            result.set("responses", respArr);
+            result.put("trailing_bytes",
+                trailing.length == 0 ? "" : Base64.getEncoder().encodeToString(trailing));
+            result.put("trailing_bytes_length", trailing.length);
+
+            return McpUtils.createSuccessResponse(result.toString());
+        } catch (Exception e) {
+            api.logging().logToError("SEND_PIPELINED group=" + groupId + " failed: " + e.getMessage());
+            return McpUtils.createErrorResponse("SEND_PIPELINED failed: " + e.getMessage());
+        } finally {
+            if (sock != null) {
+                try { sock.close(); } catch (Exception ignored) {}
+            }
+        }
+    }
+
+    /**
+     * Permissive trust manager — used when upstream_tls_verification=false (the default,
+     * matching the rest of burp_custom_http). Smuggling labs typically use real certs
+     * so this rarely matters, but Burp's own MITM cert / self-signed targets need it.
+     */
+    private static final X509TrustManager TRUST_ALL = new X509TrustManager() {
+        public void checkClientTrusted(X509Certificate[] xcs, String s) {}
+        public void checkServerTrusted(X509Certificate[] xcs, String s) {}
+        public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
+    };
+
+    /**
+     * Parsed HTTP/1.1 response — minimal representation we hand back to the caller.
+     */
+    private static final class ParsedResponse {
+        String httpVersion;
+        int statusCode;
+        String reasonPhrase;
+        Map<String, String> headers = new LinkedHashMap<>();
+        byte[] body = new byte[0];
+        byte[] rawBytes = new byte[0];
+        String parseError;
+    }
+
+    /**
+     * Read up to {@code expected} HTTP/1.1 responses from the stream, framing each by
+     * Content-Length / Transfer-Encoding: chunked / connection-close. Stops early if
+     * the socket closes. Returns whatever it parsed.
+     */
+    private List<ParsedResponse> parseResponseStream(InputStream in, int expected, int readTimeoutMs) {
+        List<ParsedResponse> out = new ArrayList<>();
+        PushbackByteStream stream = new PushbackByteStream(in);
+        for (int i = 0; i < expected; i++) {
+            try {
+                ParsedResponse pr = parseSingleResponse(stream);
+                if (pr == null) break;
+                out.add(pr);
+                if (pr.parseError != null) break;
+            } catch (java.net.SocketTimeoutException ste) {
+                break;
+            } catch (Exception e) {
+                ParsedResponse err = new ParsedResponse();
+                err.parseError = "parse error: " + e.getMessage();
+                out.add(err);
+                break;
+            }
+        }
+        return out;
+    }
+
+    private ParsedResponse parseSingleResponse(PushbackByteStream in) throws Exception {
+        ByteArrayOutputStream raw = new ByteArrayOutputStream();
+
+        // Status line.
+        String statusLine = readLine(in, raw);
+        if (statusLine == null) return null;
+        // Skip leading blank lines (some servers send keep-alive whitespace).
+        while (statusLine.isEmpty()) {
+            statusLine = readLine(in, raw);
+            if (statusLine == null) return null;
+        }
+
+        ParsedResponse pr = new ParsedResponse();
+        String[] sp = statusLine.split(" ", 3);
+        if (sp.length < 2 || !sp[0].startsWith("HTTP/")) {
+            pr.parseError = "malformed status line: " + statusLine;
+            pr.rawBytes = raw.toByteArray();
+            return pr;
+        }
+        pr.httpVersion = sp[0];
+        try {
+            pr.statusCode = Integer.parseInt(sp[1]);
+        } catch (NumberFormatException e) {
+            pr.parseError = "non-numeric status code: " + sp[1];
+            pr.rawBytes = raw.toByteArray();
+            return pr;
+        }
+        pr.reasonPhrase = sp.length >= 3 ? sp[2] : "";
+
+        // Headers.
+        long contentLength = -1;
+        boolean chunked = false;
+        boolean connectionClose = false;
+        while (true) {
+            String line = readLine(in, raw);
+            if (line == null || line.isEmpty()) break;
+            int colon = line.indexOf(':');
+            if (colon <= 0) continue;
+            String name = line.substring(0, colon).trim();
+            String value = line.substring(colon + 1).trim();
+            pr.headers.put(name, value);
+            String lower = name.toLowerCase();
+            if (lower.equals("content-length")) {
+                try { contentLength = Long.parseLong(value); } catch (NumberFormatException ignored) {}
+            } else if (lower.equals("transfer-encoding") && value.toLowerCase().contains("chunked")) {
+                chunked = true;
+            } else if (lower.equals("connection") && value.toLowerCase().contains("close")) {
+                connectionClose = true;
+            }
+        }
+
+        // Body framing.
+        ByteArrayOutputStream body = new ByteArrayOutputStream();
+        if (chunked) {
+            while (true) {
+                String sizeLine = readLine(in, raw);
+                if (sizeLine == null) break;
+                int semi = sizeLine.indexOf(';');
+                String sizeStr = (semi >= 0 ? sizeLine.substring(0, semi) : sizeLine).trim();
+                int size;
+                try { size = Integer.parseInt(sizeStr, 16); }
+                catch (NumberFormatException nfe) { pr.parseError = "bad chunk size: " + sizeStr; break; }
+                if (size == 0) {
+                    // trailers
+                    while (true) {
+                        String t = readLine(in, raw);
+                        if (t == null || t.isEmpty()) break;
+                    }
+                    break;
+                }
+                byte[] chunk = readN(in, size, raw);
+                if (chunk == null) break;
+                body.write(chunk);
+                readLine(in, raw); // trailing CRLF after chunk
+            }
+        } else if (contentLength >= 0) {
+            if (contentLength > 0) {
+                byte[] b = readN(in, (int) Math.min(contentLength, Integer.MAX_VALUE), raw);
+                if (b != null) body.write(b);
+            }
+        } else if (connectionClose || pr.statusCode == 204 || pr.statusCode == 304 || (pr.statusCode >= 100 && pr.statusCode < 200)) {
+            // No framing — read to EOF (only safe when connection: close OR no-body status).
+            if (pr.statusCode >= 200 && pr.statusCode != 204 && pr.statusCode != 304) {
+                byte[] rest = readAll(in, raw);
+                if (rest != null) body.write(rest);
+            }
+        }
+        // Otherwise: no length, no chunked, response with body → caller can inspect raw_bytes.
+
+        pr.body = body.toByteArray();
+        pr.rawBytes = raw.toByteArray();
+        return pr;
+    }
+
+    private byte[] drainTrailing(InputStream in, int timeoutMs) {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try {
+            byte[] buf = new byte[4096];
+            long deadline = System.currentTimeMillis() + Math.min(timeoutMs, 2000);
+            while (System.currentTimeMillis() < deadline) {
+                if (in.available() <= 0) {
+                    try { Thread.sleep(50); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
+                    continue;
+                }
+                int n = in.read(buf);
+                if (n <= 0) break;
+                out.write(buf, 0, n);
+                if (out.size() > 65536) break;
+            }
+        } catch (Exception ignored) {}
+        return out.toByteArray();
+    }
+
+    // ─── Stream helpers (kept inline; only used by SEND_PIPELINED) ─────────────────
+
+    private static final class PushbackByteStream {
+        final InputStream in;
+        PushbackByteStream(InputStream in) { this.in = in; }
+        int read() throws Exception { return in.read(); }
+    }
+
+    private String readLine(PushbackByteStream s, ByteArrayOutputStream raw) throws Exception {
+        ByteArrayOutputStream line = new ByteArrayOutputStream();
+        int prev = -1;
+        while (true) {
+            int b = s.read();
+            if (b == -1) {
+                if (line.size() == 0) return null;
+                return new String(line.toByteArray(), StandardCharsets.ISO_8859_1);
+            }
+            raw.write(b);
+            if (prev == '\r' && b == '\n') {
+                byte[] arr = line.toByteArray();
+                // Strip the trailing \r we already accumulated.
+                int len = arr.length > 0 && arr[arr.length - 1] == '\r' ? arr.length - 1 : arr.length;
+                return new String(arr, 0, len, StandardCharsets.ISO_8859_1);
+            }
+            line.write(b);
+            prev = b;
+        }
+    }
+
+    private byte[] readN(PushbackByteStream s, int n, ByteArrayOutputStream raw) throws Exception {
+        ByteArrayOutputStream out = new ByteArrayOutputStream(n);
+        for (int i = 0; i < n; i++) {
+            int b = s.read();
+            if (b == -1) return out.size() == 0 ? null : out.toByteArray();
+            raw.write(b);
+            out.write(b);
+        }
+        return out.toByteArray();
+    }
+
+    private byte[] readAll(PushbackByteStream s, ByteArrayOutputStream raw) throws Exception {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        while (true) {
+            int b = s.read();
+            if (b == -1) return out.toByteArray();
+            raw.write(b);
+            out.write(b);
+            if (out.size() > 50_000_000) return out.toByteArray(); // safety cap
         }
     }
 

@@ -1,5 +1,5 @@
 {
-  "version": "2.4.2",
+  "version": "2.4.3",
   "mcpVersion": "2025-06-18",
   "toolCount": 22,
   "compatibility": {
@@ -408,8 +408,8 @@
         "properties": {
           "action": {
             "type": "string",
-            "enum": ["SEND_REQUEST", "SEND_PARALLEL", "TOGGLE_REQUEST_METHOD", "ANALYZE_PROTOCOL"],
-            "description": "HTTP action to perform"
+            "enum": ["SEND_REQUEST", "SEND_PARALLEL", "SEND_PIPELINED", "TOGGLE_REQUEST_METHOD", "ANALYZE_PROTOCOL"],
+            "description": "HTTP action to perform. SEND_PIPELINED writes 2-20 raw HTTP/1.1 requests back-to-back on a SINGLE TLS socket — required for request-smuggling labs (CL.0, TE.CL, CL.TE, TE.0, 0.CL, connection-state)."
           },
           "request": {
             "type": "string",
@@ -508,6 +508,26 @@
             "minimum": 0,
             "maximum": 10000,
             "description": "SEND_PARALLEL only. Minimum gap (ms) between dispatching successive requests. 0 = no pacing."
+          },
+          "inter_request_delay_ms": {
+            "type": "integer",
+            "default": 0,
+            "minimum": 0,
+            "maximum": 10000,
+            "description": "SEND_PIPELINED only. Gap (ms) between writes on the SAME socket. 0 = concatenate and single-write (required for most smuggling); >0 = pause-based desync / timing attacks."
+          },
+          "expect_responses": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 50,
+            "description": "SEND_PIPELINED only. Number of HTTP responses to wait for. Defaults to requests.length. Override for asymmetric smuggling shapes where a smuggled request is consumed by the back-end queue."
+          },
+          "read_timeout_ms": {
+            "type": "integer",
+            "default": 5000,
+            "minimum": 100,
+            "maximum": 60000,
+            "description": "SEND_PIPELINED only. Per-read socket timeout. Also the wait for trailing bytes after expected responses (used for response-queue-poisoning detection)."
           }
         },
         "required": ["action"]
