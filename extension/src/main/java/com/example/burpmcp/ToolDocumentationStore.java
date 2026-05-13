@@ -527,6 +527,33 @@ public class ToolDocumentationStore {
                         "target_port", 443),
                     "output", Map.of("responses", "[{status_code:200,...},{status_code:302,...}]", "trailing_bytes_length", 0),
                     "explanation", "Two requests on ONE TCP/TLS connection — the back-end interprets the smuggled GET in request 1's body. Required for CL.0/TE.CL/CL.TE/TE.0/0.CL and connection-state attacks; SEND_REQUEST/SEND_PARALLEL open separate sockets and cannot trigger the desync."
+                ),
+                Map.of(
+                    "title", "Visible in HTTP history (default for SEND_REQUEST)",
+                    "input", Map.of("action", "SEND_REQUEST",
+                        "request", "GET /admin HTTP/1.1\\r\\nHost: example.com:443\\r\\nConnection: close\\r\\n\\r\\n"),
+                    "output", Map.of("routed_via_proxy", true, "proxy", "127.0.0.1:8080", "status_code", 200),
+                    "explanation", "route_via_proxy defaults to TRUE for SEND_REQUEST: the request CONNECTs through Burp's local proxy listener, so it appears in Proxy → HTTP history alongside browser traffic."
+                ),
+                Map.of(
+                    "title", "Bypass the proxy for byte-exact smuggling tests",
+                    "input", Map.of("action", "SEND_REQUEST",
+                        "request", "GET https://LAB-ID.web-security-academy.net/admin HTTP/1.1\\r\\nHost: 192.168.0.1\\r\\n\\r\\n",
+                        "target_host", "LAB-ID.web-security-academy.net",
+                        "target_port", 443,
+                        "raw_request", true,
+                        "route_via_proxy", false),
+                    "output", Map.of("status_code", 200),
+                    "explanation", "Setting route_via_proxy=false skips the proxy so Burp's match/replace and proxy parsing don't rewrite the absolute-URI request line. Required for raw_request smuggling tests."
+                ),
+                Map.of(
+                    "title", "SEND_PARALLEL with history visibility (opt-in)",
+                    "input", Map.of("action", "SEND_PARALLEL",
+                        "requests", List.of("GET /a HTTP/1.1\\r\\nHost: example.com:443\\r\\n\\r\\n",
+                                             "GET /b HTTP/1.1\\r\\nHost: example.com:443\\r\\n\\r\\n"),
+                        "route_via_proxy", true),
+                    "output", Map.of("routed_via_proxy", true, "responses", "[{index:0,...},{index:1,...}]"),
+                    "explanation", "SEND_PARALLEL defaults route_via_proxy=false. Opt in when you want each request logged in HTTP history; expect slightly slower throughput (extra CONNECT+TLS per worker) and no proxy-bypass of match/replace rules."
                 )
             ),
             List.of(
@@ -540,7 +567,12 @@ public class ToolDocumentationStore {
                 "Use request_delay_ms to pace dispatch on rate-limited targets",
                 "SEND_PARALLEL responses come back in INPUT ORDER; .index field always matches the requests[] position",
                 "SEND_PIPELINED writes 2-20 requests on ONE TLS socket — required for ALL request-smuggling labs (CL.0, TE.CL, etc.); SEND_REQUEST/SEND_PARALLEL open separate sockets and cannot trigger desync",
-                "SEND_PIPELINED responses include raw_bytes (base64) so callers can inspect malformed/smuggled responses the parser truncated"
+                "SEND_PIPELINED responses include raw_bytes (base64) so callers can inspect malformed/smuggled responses the parser truncated",
+                "route_via_proxy makes requests appear in Proxy → HTTP history by tunnelling through Burp's local proxy listener (default 127.0.0.1:8080)",
+                "route_via_proxy defaults: TRUE for SEND_REQUEST, FALSE for SEND_PARALLEL/SEND_PIPELINED (proxy may serialise/re-frame and break those workflows)",
+                "Turn route_via_proxy OFF when you need byte-exact wire fidelity (raw_request smuggling, host-header lies that match/replace would clobber)",
+                "Turn route_via_proxy ON for SEND_PARALLEL when you want each request visible in HTTP history (extra CONNECT+TLS per worker, no rate-limit benefit)",
+                "When route_via_proxy=true: http_mode is forced to HTTP/1.1, redirection_mode and connection_id are ignored, match/replace rules apply"
             ));
 
         // burp_scanner with examples

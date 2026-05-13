@@ -1,5 +1,5 @@
 {
-  "version": "2.4.3",
+  "version": "2.5.0",
   "mcpVersion": "2025-06-18",
   "toolCount": 22,
   "compatibility": {
@@ -528,6 +528,22 @@
             "minimum": 100,
             "maximum": 60000,
             "description": "SEND_PIPELINED only. Per-read socket timeout. Also the wait for trailing bytes after expected responses (used for response-queue-poisoning detection)."
+          },
+          "route_via_proxy": {
+            "type": "boolean",
+            "description": "Tunnel the request(s) through Burp's local proxy listener (CONNECT + TLS) so they appear in Proxy → HTTP history. Defaults: TRUE for SEND_REQUEST, FALSE for SEND_PARALLEL and SEND_PIPELINED (proxy may serialise parallel work and almost certainly breaks pipelined smuggling framing). When ON: http_mode is forced to HTTP/1.1, redirection_mode and connection_id are ignored, and Burp's match/replace rules apply (incompatible with raw_request byte-exactness)."
+          },
+          "proxy_host": {
+            "type": "string",
+            "default": "127.0.0.1",
+            "description": "Hostname/IP of Burp's proxy listener. Used only when route_via_proxy=true."
+          },
+          "proxy_port": {
+            "type": "integer",
+            "default": 8080,
+            "minimum": 1,
+            "maximum": 65535,
+            "description": "Port of Burp's proxy listener. Used only when route_via_proxy=true."
           }
         },
         "required": ["action"]

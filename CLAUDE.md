@@ -1,4 +1,4 @@
-# Burp MCP Bridge - Agent Context File (v2.4.3)
+# Burp MCP Bridge - Agent Context File (v2.5.0)
 
 ## 🚀 MANDATORY: Always Start With Documentation Discovery
 
@@ -90,6 +90,44 @@ await use_mcp_tool("burp-mcp-bridge", "burp_repeater", {...}); // ❌
 
 **Line endings**: Both `\n` and `\r\n` work (auto-normalized to CRLF).
 **Content-Length**: Automatically calculated — no need to specify it accurately.
+
+### HTTP History Visibility — `route_via_proxy`
+
+`burp_custom_http` requests can be **tunnelled through Burp's local proxy listener** (CONNECT + TLS) so they show up in Proxy → HTTP history. Defaults:
+
+| Action | Default | Why |
+|--------|---------|-----|
+| `SEND_REQUEST` | `route_via_proxy: true` | Day-to-day testing — usually you want it visible. |
+| `SEND_PARALLEL` | `route_via_proxy: false` | Proxy may serialise dispatch; per-worker CONNECT+TLS adds latency. |
+| `SEND_PIPELINED` | `route_via_proxy: false` | Burp re-frames pipelined requests on its own upstream connections — breaks smuggling semantics. |
+
+```javascript
+// Default — visible in HTTP history
+await use_mcp_tool("burp-mcp-bridge", "burp_custom_http", {
+  "action": "SEND_REQUEST",
+  "request": "GET /admin HTTP/1.1\r\nHost: example.com:443\r\n\r\n"
+});
+// → routed_via_proxy: true, proxy: "127.0.0.1:8080"
+
+// Opt out — byte-exact wire behaviour, no match/replace rewrites
+await use_mcp_tool("burp-mcp-bridge", "burp_custom_http", {
+  "action": "SEND_REQUEST",
+  "request": "GET https://lab/admin HTTP/1.1\r\nHost: 192.168.0.1\r\n\r\n",
+  "raw_request": true,
+  "route_via_proxy": false   // ← required for smuggling/raw_request work
+});
+
+// Opt in on SEND_PARALLEL — each request lands in HTTP history
+await use_mcp_tool("burp-mcp-bridge", "burp_custom_http", {
+  "action": "SEND_PARALLEL",
+  "requests": [...],
+  "route_via_proxy": true    // ← extra TLS handshake per worker
+});
+```
+
+**When `route_via_proxy=true`:** `http_mode` is forced to HTTP/1.1, `redirection_mode` / `connection_id` are ignored, and Burp's match-and-replace rules apply (incompatible with `raw_request` byte-exactness).
+
+**Proxy endpoint:** defaults to `127.0.0.1:8080`. Override with `proxy_host` / `proxy_port` if you've moved Burp's listener.
 
 ### Scanning with Targeted Parameters (Scan Selected Insertion Points)
 ```javascript
@@ -208,7 +246,7 @@ await use_mcp_tool("burp-mcp-bridge", "burp_help", {
 
 ## 🛠️ Project Info
 
-- **Version**: 2.4.3
+- **Version**: 2.5.0
 - **Total Tools**: 22 (1 help + 21 security)
 - **Port**: 8081 (Burp extension HTTP server)
 - **Transport**: Dual mode (stdio + HTTP/SSE)

@@ -7,9 +7,9 @@ package com.example.burpmcp;
 public class Version {
     
     // Version components
-    public static final String VERSION = "2.4.3";
-    public static final String BUILD_DATE = "2026-05-12";
-    public static final String RELEASE_NAME = "SEND_PIPELINED: HTTP/1.1 pipelined requests on one TLS socket";
+    public static final String VERSION = "2.5.0";
+    public static final String BUILD_DATE = "2026-05-13";
+    public static final String RELEASE_NAME = "route_via_proxy — burp_custom_http traffic visible in Proxy → HTTP history";
 
     // Feature tracking
     public static final int TOOL_COUNT = 22; // Total number of registered tools
@@ -54,7 +54,15 @@ public class Version {
      * Get detailed changelog for this version.
      */
     public static String getChangelog() {
-        return "## Version 2.4.3 - SEND_PIPELINED: HTTP/1.1 pipelined requests on one TLS socket (2026-05-12)\n\n" +
+        return "## Version 2.5.0 - route_via_proxy — burp_custom_http traffic visible in Proxy → HTTP history (2026-05-13)\n\n" +
+               "### 👁 burp_custom_http: route_via_proxy (new flag)\n" +
+               "- ✅ Requests tunnel through Burp's local proxy listener (default 127.0.0.1:8080) via CONNECT + TLS, so they appear in Proxy → HTTP history alongside browser traffic.\n" +
+               "- ✅ Defaults: TRUE for SEND_REQUEST (the day-to-day case); FALSE for SEND_PARALLEL and SEND_PIPELINED (proxy serialises parallel dispatch and re-frames pipelined requests, breaking smuggling semantics).\n" +
+               "- ✅ Agent can toggle per call: set route_via_proxy=false on SEND_REQUEST for byte-exact wire tests; set route_via_proxy=true on SEND_PARALLEL/SEND_PIPELINED when you want history visibility and accept the caveats.\n" +
+               "- ✅ Configurable proxy endpoint via proxy_host / proxy_port (defaults 127.0.0.1:8080).\n" +
+               "- ⚠️ When route_via_proxy=true: http_mode is forced to HTTP/1.1 (CONNECT path can't multiplex H2), redirection_mode and connection_id are ignored, and Burp's match/replace rules apply (bad for raw_request).\n" +
+               "- 📝 Help tool, ToolDocumentationStore, tools.json, README, and CLAUDE.md all updated with the new flag, defaults, and trade-offs.\n\n" +
+               "## Version 2.4.3 - SEND_PIPELINED: HTTP/1.1 pipelined requests on one TLS socket (2026-05-12)\n\n" +
                "### 🔗 burp_custom_http SEND_PIPELINED (new action)\n" +
                "- ✅ Writes 2-20 raw HTTP/1.1 requests back-to-back on a SINGLE TLS socket — unblocks the entire request-smuggling track (CL.0, TE.CL, CL.TE, TE.0, 0.CL, connection-state attacks).\n" +
                "- ✅ Bytes preserved verbatim (LF->CRLF only); no Content-Length recomputation, no header reordering, no implicit Host insertion.\n" +

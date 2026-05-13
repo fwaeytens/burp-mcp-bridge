@@ -80,7 +80,14 @@ public class CustomHttpTool implements McpTool {
             "ADVANCED: Use target_host/target_port to decouple TCP destination from Host header (host-header SSRF). " +
             "Use raw_request=true to preserve absolute-URI request lines verbatim (parser-discrepancy / request-smuggling tests). " +
             "SEND_PARALLEL: defaults to max_concurrency=10 to prevent tail-of-batch drops; pass max_concurrency=50 to opt back into " +
-            "fire-all-at-once behavior for race-condition tests. Use this instead of burp_repeater (which only opens UI tabs).");
+            "fire-all-at-once behavior for race-condition tests. Use this instead of burp_repeater (which only opens UI tabs). " +
+            "HISTORY VISIBILITY: route_via_proxy tunnels the request through Burp's local proxy listener (default 127.0.0.1:8080) " +
+            "so it appears in Proxy → HTTP history. Default is TRUE for SEND_REQUEST (normal day-to-day testing) and FALSE for " +
+            "SEND_PARALLEL / SEND_PIPELINED (proxy may serialize parallel work or break pipelined smuggling semantics). " +
+            "Set route_via_proxy=false on SEND_REQUEST when you need byte-exact wire behavior (raw_request smuggling, host-header tricks " +
+            "that proxy match/replace would clobber). Set route_via_proxy=true on SEND_PARALLEL/SEND_PIPELINED only when you accept " +
+            "those caveats and want history visibility. When route_via_proxy is on, http_mode is forced to HTTP/1.1, redirection_mode " +
+            "is ignored (handle redirects yourself), and connection_id is ignored — all options that only the Montoya direct-send path supports.");
 
         // MCP 2025-06-18 annotations
         Map<String, Object> annotations = new HashMap<>();
@@ -293,6 +300,36 @@ public class CustomHttpTool implements McpTool {
             "maximum", 50
         ));
 
+        properties.put("route_via_proxy", Map.of(
+            "type", "boolean",
+            "description", "Tunnel the request(s) through Burp's local proxy listener so they appear in Proxy → HTTP history. " +
+                "DEFAULTS: TRUE for SEND_REQUEST (history visibility is usually what you want), FALSE for SEND_PARALLEL and " +
+                "SEND_PIPELINED (proxy may serialize parallel dispatch and almost certainly breaks pipelined-smuggling framing " +
+                "since Burp re-frames requests on its own upstream connections). " +
+                "MECHANISM: opens TCP to proxy_host:proxy_port, sends CONNECT target:port, then (for HTTPS targets) wraps the " +
+                "tunnel in TLS, then sends the actual request bytes. Burp decrypts, logs to HTTP history, and forwards upstream. " +
+                "TRADE-OFFS WHEN ON: (1) http_mode is forced to HTTP/1.1 (proxy CONNECT path can't multiplex H2), " +
+                "(2) redirection_mode is ignored (you must follow redirects yourself), (3) connection_id is ignored, " +
+                "(4) Burp's match/replace and proxy interception rules apply to the request — bad for raw_request byte-exact tests. " +
+                "TURN OFF when: you need raw byte fidelity (smuggling labs), you're testing through a flaky/dead proxy, or you " +
+                "want HTTP/2 / redirects / connection reuse. " +
+                "TURN ON when: you want the requests visible in HTTP history for review / cross-referencing with browser traffic."
+        ));
+
+        properties.put("proxy_host", Map.of(
+            "type", "string",
+            "description", "Hostname or IP of Burp's proxy listener. Used only when route_via_proxy=true. Default: 127.0.0.1.",
+            "default", "127.0.0.1"
+        ));
+
+        properties.put("proxy_port", Map.of(
+            "type", "integer",
+            "description", "Port of Burp's proxy listener. Used only when route_via_proxy=true. Default: 8080. Range: 1-65535.",
+            "minimum", 1,
+            "maximum", 65535,
+            "default", 8080
+        ));
+
         properties.put("read_timeout_ms", Map.of(
             "type", "integer",
             "description", "SEND_PIPELINED only. After expect_responses have been parsed, wait this many ms for any trailing bytes " +
@@ -369,6 +406,14 @@ public class CustomHttpTool implements McpTool {
 
             // Apply cookies from Burp's cookie jar (default: enabled)
             request = applyCookiesFromJar(request, arguments);
+
+            // Route via Burp's proxy listener so the request appears in HTTP history?
+            // SEND_REQUEST defaults TRUE — this is the day-to-day behaviour users expect.
+            // Caller can disable for byte-exact tests.
+            boolean routeViaProxy = resolveRouteViaProxy(arguments, true);
+            if (routeViaProxy) {
+                return sendRequestViaProxyTunnel(request, arguments);
+            }
 
             HttpRequestResponse response = sendSingleRequestWithOptions(request, arguments);
 
@@ -449,6 +494,222 @@ public class CustomHttpTool implements McpTool {
         }
     }
 
+    /**
+     * SEND_REQUEST via Burp's local proxy listener. Tunnels through CONNECT so the
+     * request lands in Proxy → HTTP history. Same response shape as the direct path.
+     */
+    private Object sendRequestViaProxyTunnel(HttpRequest request, JsonNode arguments) {
+        warnIgnoredOptionsOnProxyPath(arguments, "SEND_REQUEST");
+        try {
+            HttpService svc = request.httpService();
+            int timeout = 30000;
+            if (arguments.has("response_timeout") && arguments.get("response_timeout").canConvertToLong()) {
+                long t = arguments.get("response_timeout").asLong(30000L);
+                if (t >= 100 && t <= 600000) timeout = (int) t;
+            }
+            boolean tlsVerify = arguments.has("upstream_tls_verification") && arguments.get("upstream_tls_verification").asBoolean(false);
+            String sni = McpUtils.getTrimmedStringParam(arguments, "server_name_indicator");
+            ProxyTunnelConfig cfg = new ProxyTunnelConfig(
+                proxyHostOf(arguments), proxyPortOf(arguments),
+                svc.host(), svc.port(), svc.secure(),
+                sni, tlsVerify, timeout);
+
+            byte[] reqBytes = request.toByteArray().getBytes();
+            long start = System.currentTimeMillis();
+            api.logging().logToOutput("CustomHttpTool: route_via_proxy=true SEND_REQUEST tunnelling " +
+                svc.host() + ":" + svc.port() + " via " + cfg.proxyHost + ":" + cfg.proxyPort +
+                (svc.secure() ? " (TLS)" : " (cleartext)"));
+            ParsedResponse pr = sendOneViaTunnel(reqBytes, cfg);
+            long elapsed = System.currentTimeMillis() - start;
+
+            ObjectNode result = mapper.createObjectNode();
+            result.put("success", true);
+            result.put("routed_via_proxy", true);
+            result.put("proxy", cfg.proxyHost + ":" + cfg.proxyPort);
+            // Sitemap is intentionally skipped — Burp's proxy logs to HTTP history natively.
+            result.put("added_to_sitemap", false);
+
+            ObjectNode reqDetails = mapper.createObjectNode();
+            reqDetails.put("url", request.url());
+            reqDetails.put("method", request.method());
+            reqDetails.put("http_version", request.httpVersion());
+            result.set("request", reqDetails);
+
+            ObjectNode respDetails = mapper.createObjectNode();
+            if (pr.parseError != null) {
+                respDetails.put("parse_error", pr.parseError);
+                respDetails.put("raw_bytes", Base64.getEncoder().encodeToString(pr.rawBytes));
+            } else {
+                respDetails.put("status_code", pr.statusCode);
+                respDetails.put("reason_phrase", pr.reasonPhrase);
+                respDetails.put("http_version", pr.httpVersion);
+                respDetails.put("body_length", pr.body.length);
+                respDetails.put("response_time_ms", elapsed);
+                ArrayNode headers = mapper.createArrayNode();
+                for (Map.Entry<String, String> e : pr.headers.entrySet()) {
+                    ObjectNode h = mapper.createObjectNode();
+                    h.put("name", e.getKey());
+                    h.put("value", e.getValue());
+                    headers.add(h);
+                }
+                respDetails.set("headers", headers);
+                String body = new String(pr.body, StandardCharsets.ISO_8859_1);
+                if (body.length() > 5000) body = body.substring(0, 5000) + "\n... [truncated]";
+                respDetails.put("body", body);
+            }
+            result.set("response", respDetails);
+
+            return McpUtils.createSuccessResponse(result.toString());
+        } catch (Exception e) {
+            String msg = "Proxy-tunnel send failed: " + e.getMessage() +
+                ". Burp proxy listener reachable at " + proxyHostOf(arguments) + ":" + proxyPortOf(arguments) + "? " +
+                "Set route_via_proxy=false to bypass the proxy.";
+            api.logging().logToError("CustomHttpTool: " + msg);
+            return McpUtils.createErrorResponse(msg);
+        }
+    }
+
+    /**
+     * SEND_PARALLEL via Burp's proxy listener. Each worker opens its own CONNECT tunnel
+     * — extra TLS handshake per request, but each lands in HTTP history independently.
+     */
+    private Object sendParallelRequestsViaProxyTunnel(List<HttpRequest> requests, JsonNode arguments) {
+        warnIgnoredOptionsOnProxyPath(arguments, "SEND_PARALLEL");
+        int n = requests.size();
+        int maxConcurrency = 10;
+        if (arguments.has("max_concurrency") && arguments.get("max_concurrency").canConvertToInt()) {
+            maxConcurrency = Math.min(50, Math.max(1, arguments.get("max_concurrency").asInt(10)));
+        }
+        int delayMs = 0;
+        if (arguments.has("request_delay_ms") && arguments.get("request_delay_ms").canConvertToInt()) {
+            delayMs = Math.min(10000, Math.max(0, arguments.get("request_delay_ms").asInt(0)));
+        }
+        int timeout = 30000;
+        if (arguments.has("response_timeout") && arguments.get("response_timeout").canConvertToLong()) {
+            long t = arguments.get("response_timeout").asLong(30000L);
+            if (t >= 100 && t <= 600000) timeout = (int) t;
+        }
+        boolean tlsVerify = arguments.has("upstream_tls_verification") && arguments.get("upstream_tls_verification").asBoolean(false);
+        String sni = McpUtils.getTrimmedStringParam(arguments, "server_name_indicator");
+        String proxyHost = proxyHostOf(arguments);
+        int proxyPort = proxyPortOf(arguments);
+
+        api.logging().logToOutput("CustomHttpTool: route_via_proxy=true SEND_PARALLEL dispatching " + n +
+            " requests via " + proxyHost + ":" + proxyPort + " (max_concurrency=" + maxConcurrency + ")");
+
+        ParsedResponse[] results = new ParsedResponse[n];
+        long[] elapsed = new long[n];
+        int poolSize = Math.min(maxConcurrency, Math.max(1, n));
+        ExecutorService exec = Executors.newFixedThreadPool(poolSize);
+        Semaphore slots = new Semaphore(maxConcurrency);
+        List<Future<?>> futures = new ArrayList<>(n);
+        final int finalTimeout = timeout;
+        final boolean finalTlsVerify = tlsVerify;
+        final String finalSni = sni;
+        long startAll = System.currentTimeMillis();
+        try {
+            long lastDispatch = 0;
+            for (int i = 0; i < n; i++) {
+                final int idx = i;
+                final HttpRequest req = requests.get(i);
+                slots.acquire();
+                if (delayMs > 0 && lastDispatch != 0) {
+                    long wait = lastDispatch + delayMs - System.currentTimeMillis();
+                    if (wait > 0) Thread.sleep(wait);
+                }
+                lastDispatch = System.currentTimeMillis();
+                futures.add(exec.submit(() -> {
+                    long s = System.currentTimeMillis();
+                    try {
+                        HttpService svc = req.httpService();
+                        ProxyTunnelConfig cfg = new ProxyTunnelConfig(
+                            proxyHost, proxyPort,
+                            svc.host(), svc.port(), svc.secure(),
+                            finalSni, finalTlsVerify, finalTimeout);
+                        results[idx] = sendOneViaTunnel(req.toByteArray().getBytes(), cfg);
+                    } catch (Exception e) {
+                        ParsedResponse err = new ParsedResponse();
+                        err.parseError = "dispatch failed: " + e.getMessage();
+                        results[idx] = err;
+                    } finally {
+                        elapsed[idx] = System.currentTimeMillis() - s;
+                        slots.release();
+                    }
+                }));
+            }
+            for (Future<?> f : futures) f.get();
+        } catch (Exception e) {
+            Thread.currentThread().interrupt();
+            return McpUtils.createErrorResponse("Failed to send parallel requests via proxy: " + e.getMessage());
+        } finally {
+            exec.shutdown();
+            try {
+                if (!exec.awaitTermination(5, TimeUnit.SECONDS)) exec.shutdownNow();
+            } catch (InterruptedException ie) {
+                exec.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        ObjectNode result = mapper.createObjectNode();
+        result.put("success", true);
+        result.put("routed_via_proxy", true);
+        result.put("proxy", proxyHost + ":" + proxyPort);
+        result.put("total_requests", n);
+        result.put("total_responses", n);
+        // Sitemap is intentionally skipped — Burp's proxy logs to HTTP history natively.
+        result.put("added_to_sitemap", 0);
+
+        ArrayNode respArr = mapper.createArrayNode();
+        long totalTime = 0;
+        int responseCount = 0;
+        for (int i = 0; i < n; i++) {
+            ObjectNode r = mapper.createObjectNode();
+            r.put("index", i);
+            r.put("url", requests.get(i).url());
+            ParsedResponse pr = results[i];
+            if (pr == null || pr.parseError != null) {
+                r.put("error", pr == null ? "dispatch failed" : pr.parseError);
+                r.put("error_type", "dispatch_failed");
+            } else {
+                r.put("status_code", pr.statusCode);
+                r.put("body_length", pr.body.length);
+                r.put("response_time_ms", elapsed[i]);
+                totalTime += elapsed[i];
+                responseCount++;
+            }
+            respArr.add(r);
+        }
+        result.set("responses", respArr);
+
+        ObjectNode stats = mapper.createObjectNode();
+        stats.put("total_time_ms", System.currentTimeMillis() - startAll);
+        stats.put("average_time_ms", responseCount > 0 ? totalTime / responseCount : 0);
+        result.set("statistics", stats);
+
+        return McpUtils.createSuccessResponse(result.toString());
+    }
+
+    private void warnIgnoredOptionsOnProxyPath(JsonNode arguments, String action) {
+        if (arguments == null) return;
+        List<String> ignored = new ArrayList<>();
+        if (arguments.has("http_mode")) {
+            String m = McpUtils.getStringParam(arguments, "http_mode", "AUTO");
+            if (m != null && m.contains("HTTP_2")) ignored.add("http_mode=" + m + " (forced HTTP/1.1)");
+        }
+        if (arguments.has("redirection_mode")) ignored.add("redirection_mode (follow redirects yourself)");
+        if (arguments.has("follow_redirects") && arguments.get("follow_redirects").asBoolean(false)) {
+            ignored.add("follow_redirects (follow redirects yourself)");
+        }
+        if (arguments.has("connection_id")) {
+            String cid = McpUtils.getTrimmedStringParam(arguments, "connection_id");
+            if (cid != null && !cid.isEmpty()) ignored.add("connection_id (per-call tunnels)");
+        }
+        if (!ignored.isEmpty()) {
+            api.logging().logToOutput("CustomHttpTool: " + action + " route_via_proxy=true ignores: " + String.join(", ", ignored));
+        }
+    }
+
     private Object sendParallelRequests(JsonNode arguments) {
         if (!arguments.has("requests") || !arguments.get("requests").isArray()) {
             return McpUtils.createErrorResponse("Requests array is required");
@@ -463,6 +724,14 @@ public class CustomHttpTool implements McpTool {
                 // Apply cookies from Burp's cookie jar (default: enabled)
                 req = applyCookiesFromJar(req, arguments);
                 requests.add(req);
+            }
+
+            // SEND_PARALLEL defaults to direct (Montoya) send. Caller must explicitly
+            // opt in to route_via_proxy=true to accept the trade-off (proxy may serialize
+            // dispatch, match/replace rewrites apply).
+            boolean routeViaProxy = resolveRouteViaProxy(arguments, false);
+            if (routeViaProxy) {
+                return sendParallelRequestsViaProxyTunnel(requests, arguments);
             }
 
             List<HttpRequestResponse> responses = sendBatchRequests(requests, arguments);
@@ -620,6 +889,17 @@ public class CustomHttpTool implements McpTool {
         boolean tlsVerify = arguments.has("upstream_tls_verification") && arguments.get("upstream_tls_verification").asBoolean(false);
         boolean addToSiteMap = McpUtils.getBooleanParam(arguments, "add_to_sitemap", true);
 
+        // SEND_PIPELINED defaults to direct (no proxy) — Burp's proxy almost certainly
+        // re-frames pipelined messages on its own upstream connections, breaking the
+        // single-socket semantics that smuggling labs require. Caller can opt in if
+        // they want history visibility and accept the risk.
+        boolean routeViaProxy = resolveRouteViaProxy(arguments, false);
+        if (routeViaProxy) {
+            warnIgnoredOptionsOnProxyPath(arguments, "SEND_PIPELINED");
+            api.logging().logToOutput("CustomHttpTool: SEND_PIPELINED route_via_proxy=true — " +
+                "Burp's proxy may re-frame these requests on separate upstream connections, breaking smuggling semantics.");
+        }
+
         // Build the concatenated byte stream (CRLF normalized).
         List<byte[]> reqBytes = new ArrayList<>(n);
         for (int i = 0; i < n; i++) {
@@ -636,30 +916,38 @@ public class CustomHttpTool implements McpTool {
         long startMs = System.currentTimeMillis();
         SSLSocket sock = null;
         try {
-            SSLSocketFactory factory;
-            if (tlsVerify) {
-                factory = (SSLSocketFactory) SSLSocketFactory.getDefault();
+            if (routeViaProxy) {
+                // Tunnel through Burp's proxy: CONNECT host:port, then TLS inside the tunnel.
+                ProxyTunnelConfig cfg = new ProxyTunnelConfig(
+                    proxyHostOf(arguments), proxyPortOf(arguments),
+                    host, finalPort, true, sni, tlsVerify, readTimeoutMs);
+                sock = (SSLSocket) openTunneledSocket(cfg);
             } else {
-                SSLContext ctx = SSLContext.getInstance("TLS");
-                ctx.init(null, new TrustManager[]{TRUST_ALL}, new java.security.SecureRandom());
-                factory = ctx.getSocketFactory();
-            }
-            sock = (SSLSocket) factory.createSocket();
-            sock.connect(new InetSocketAddress(host, finalPort), readTimeoutMs);
-            sock.setSoTimeout(readTimeoutMs);
+                SSLSocketFactory factory;
+                if (tlsVerify) {
+                    factory = (SSLSocketFactory) SSLSocketFactory.getDefault();
+                } else {
+                    SSLContext ctx = SSLContext.getInstance("TLS");
+                    ctx.init(null, new TrustManager[]{TRUST_ALL}, new java.security.SecureRandom());
+                    factory = ctx.getSocketFactory();
+                }
+                sock = (SSLSocket) factory.createSocket();
+                sock.connect(new InetSocketAddress(host, finalPort), readTimeoutMs);
+                sock.setSoTimeout(readTimeoutMs);
 
-            // SNI + ALPN: force HTTP/1.1 (v1 scope; H2 pipelining is a follow-up).
-            // TODO(h2-multiplex): To support H2-track smuggling labs (H2.CL, H2.TE,
-            // H2 response-queue poisoning, H2 request tunnelling) we need ONE persistent
-            // H2 connection with multiple streams dispatched at different wall-clock
-            // times. Recommended path: persistent worker thread keyed by connection_id
-            // that holds the H2 socket open and dispatches per-stream sends. Out of
-            // scope for v1 — raw Python with the h2 library is the current fallback.
-            SSLParameters params = sock.getSSLParameters();
-            params.setServerNames(java.util.Collections.singletonList(new javax.net.ssl.SNIHostName(sni)));
-            params.setApplicationProtocols(new String[]{"http/1.1"});
-            sock.setSSLParameters(params);
-            sock.startHandshake();
+                // SNI + ALPN: force HTTP/1.1 (v1 scope; H2 pipelining is a follow-up).
+                // TODO(h2-multiplex): To support H2-track smuggling labs (H2.CL, H2.TE,
+                // H2 response-queue poisoning, H2 request tunnelling) we need ONE persistent
+                // H2 connection with multiple streams dispatched at different wall-clock
+                // times. Recommended path: persistent worker thread keyed by connection_id
+                // that holds the H2 socket open and dispatches per-stream sends. Out of
+                // scope for v1 — raw Python with the h2 library is the current fallback.
+                SSLParameters params = sock.getSSLParameters();
+                params.setServerNames(java.util.Collections.singletonList(new javax.net.ssl.SNIHostName(sni)));
+                params.setApplicationProtocols(new String[]{"http/1.1"});
+                sock.setSSLParameters(params);
+                sock.startHandshake();
+            }
 
             String tlsVersion = sock.getSession().getProtocol();
             String negotiatedProto = sock.getApplicationProtocol();
@@ -711,8 +999,9 @@ public class CustomHttpTool implements McpTool {
             long totalMs = System.currentTimeMillis() - startMs;
 
             // Optional sitemap publish — synthesize HttpRequestResponse per pair.
+            // Skip when routed through proxy (Burp's proxy already logs to HTTP history).
             int addedToMap = 0;
-            if (addToSiteMap) {
+            if (addToSiteMap && !routeViaProxy) {
                 HttpService svc = HttpService.httpService(host, finalPort, true);
                 for (int i = 0; i < parsed.size() && i < n; i++) {
                     try {
@@ -735,6 +1024,10 @@ public class CustomHttpTool implements McpTool {
             ObjectNode result = mapper.createObjectNode();
             result.put("success", true);
             result.put("group_id", groupId);
+            result.put("routed_via_proxy", routeViaProxy);
+            if (routeViaProxy) {
+                result.put("proxy", proxyHostOf(arguments) + ":" + proxyPortOf(arguments));
+            }
             ObjectNode conn = mapper.createObjectNode();
             conn.put("host", host);
             conn.put("port", finalPort);
@@ -816,6 +1109,197 @@ public class CustomHttpTool implements McpTool {
     }
 
     /**
+     * Resolved proxy-tunnel configuration: where to CONNECT to, where the real target is,
+     * whether to wrap the tunnel in TLS, and an SNI override (used when target_host is an
+     * IP but we still want a particular SNI inside the tunnel).
+     */
+    private static final class ProxyTunnelConfig {
+        final String proxyHost;
+        final int proxyPort;
+        final String targetHost;
+        final int targetPort;
+        final boolean secure;       // wrap tunnel in TLS?
+        final String sni;            // null = use targetHost
+        final boolean tlsVerify;
+        final int readTimeoutMs;
+        ProxyTunnelConfig(String proxyHost, int proxyPort, String targetHost, int targetPort,
+                          boolean secure, String sni, boolean tlsVerify, int readTimeoutMs) {
+            this.proxyHost = proxyHost;
+            this.proxyPort = proxyPort;
+            this.targetHost = targetHost;
+            this.targetPort = targetPort;
+            this.secure = secure;
+            this.sni = sni;
+            this.tlsVerify = tlsVerify;
+            this.readTimeoutMs = readTimeoutMs;
+        }
+    }
+
+    /**
+     * Resolve route_via_proxy + proxy_host + proxy_port from arguments, with action-aware
+     * defaults: SEND_REQUEST defaults TRUE; SEND_PARALLEL / SEND_PIPELINED default FALSE.
+     */
+    private boolean resolveRouteViaProxy(JsonNode arguments, boolean defaultValue) {
+        if (arguments != null && arguments.has("route_via_proxy") && !arguments.get("route_via_proxy").isNull()) {
+            return arguments.get("route_via_proxy").asBoolean(defaultValue);
+        }
+        return defaultValue;
+    }
+
+    private String proxyHostOf(JsonNode arguments) {
+        String h = McpUtils.getTrimmedStringParam(arguments, "proxy_host");
+        return (h == null || h.isEmpty()) ? "127.0.0.1" : h;
+    }
+
+    private int proxyPortOf(JsonNode arguments) {
+        if (arguments != null && arguments.has("proxy_port") && arguments.get("proxy_port").canConvertToInt()) {
+            int p = arguments.get("proxy_port").asInt(8080);
+            if (p > 0 && p <= 65535) return p;
+        }
+        return 8080;
+    }
+
+    /**
+     * Open a connection to the real target via Burp's proxy listener.
+     *
+     * For HTTPS targets: CONNECT host:port → 200 → TLS handshake inside the tunnel
+     * (SNI + ALPN forced to http/1.1, server cert trusted-all unless tlsVerify=true).
+     *
+     * For HTTP cleartext targets: just open TCP to the proxy. The CALLER is responsible
+     * for rewriting the request line to absolute-form (`GET http://host:port/path …`) —
+     * that's the standard HTTP-proxy wire format that lets Burp parse, log, and forward
+     * the inner request. We deliberately do NOT use CONNECT for cleartext targets,
+     * because the inner plain HTTP traffic inside a CONNECT tunnel is opaque to Burp
+     * (it just blind-forwards bytes) and would skip Proxy → HTTP history.
+     */
+    private java.net.Socket openTunneledSocket(ProxyTunnelConfig cfg) throws Exception {
+        java.net.Socket raw = new java.net.Socket();
+        raw.connect(new InetSocketAddress(cfg.proxyHost, cfg.proxyPort), cfg.readTimeoutMs);
+        raw.setSoTimeout(cfg.readTimeoutMs);
+
+        if (!cfg.secure) {
+            // HTTP cleartext: no CONNECT. Caller writes absolute-form request directly.
+            return raw;
+        }
+
+        // HTTPS path — send CONNECT and verify 200. The Host header should mirror the
+        // request-line authority — some proxies are picky.
+        String authority = cfg.targetHost + ":" + cfg.targetPort;
+        String connect = "CONNECT " + authority + " HTTP/1.1\r\n"
+            + "Host: " + authority + "\r\n"
+            + "Proxy-Connection: keep-alive\r\n"
+            + "\r\n";
+        OutputStream pout = raw.getOutputStream();
+        pout.write(connect.getBytes(StandardCharsets.ISO_8859_1));
+        pout.flush();
+
+        // Read CONNECT response status line + headers until blank line.
+        InputStream pin = raw.getInputStream();
+        ByteArrayOutputStream hdr = new ByteArrayOutputStream();
+        int prev1 = -1, prev2 = -1, prev3 = -1;
+        while (true) {
+            int b = pin.read();
+            if (b == -1) {
+                raw.close();
+                throw new java.io.IOException("Proxy closed connection during CONNECT (proxy=" + cfg.proxyHost + ":" + cfg.proxyPort + ")");
+            }
+            hdr.write(b);
+            if (prev3 == '\r' && prev2 == '\n' && prev1 == '\r' && b == '\n') break;
+            prev3 = prev2; prev2 = prev1; prev1 = b;
+            if (hdr.size() > 16384) {
+                raw.close();
+                throw new java.io.IOException("CONNECT response exceeded 16KB without terminator");
+            }
+        }
+        String connectResp = hdr.toString(StandardCharsets.ISO_8859_1);
+        String firstLine = connectResp.split("\r?\n", 2)[0];
+        if (!firstLine.matches("HTTP/1\\.[01] 200 .*") && !firstLine.matches("HTTP/1\\.[01] 200")) {
+            raw.close();
+            throw new java.io.IOException("Proxy CONNECT failed: " + firstLine + " (proxy=" + cfg.proxyHost + ":" + cfg.proxyPort + ")");
+        }
+
+        // Wrap in TLS.
+        SSLSocketFactory factory;
+        if (cfg.tlsVerify) {
+            factory = (SSLSocketFactory) SSLSocketFactory.getDefault();
+        } else {
+            SSLContext ctx = SSLContext.getInstance("TLS");
+            ctx.init(null, new TrustManager[]{TRUST_ALL}, new java.security.SecureRandom());
+            factory = ctx.getSocketFactory();
+        }
+        String sni = (cfg.sni == null || cfg.sni.isEmpty()) ? cfg.targetHost : cfg.sni;
+        SSLSocket ssl = (SSLSocket) factory.createSocket(raw, sni, cfg.targetPort, true);
+        SSLParameters params = ssl.getSSLParameters();
+        params.setServerNames(java.util.Collections.singletonList(new javax.net.ssl.SNIHostName(sni)));
+        params.setApplicationProtocols(new String[]{"http/1.1"});
+        ssl.setSSLParameters(params);
+        ssl.setSoTimeout(cfg.readTimeoutMs);
+        ssl.startHandshake();
+        return ssl;
+    }
+
+    /**
+     * Send a single request through Burp's proxy (CONNECT+TLS for HTTPS, absolute-form
+     * for cleartext) and parse one response. Used by SEND_REQUEST and SEND_PARALLEL when
+     * route_via_proxy=true.
+     */
+    private ParsedResponse sendOneViaTunnel(byte[] requestBytes, ProxyTunnelConfig cfg) throws Exception {
+        java.net.Socket sock = openTunneledSocket(cfg);
+        try {
+            // For cleartext targets we did NOT CONNECT — the proxy needs an absolute-URI
+            // request line (`GET http://host:port/path HTTP/1.1`) to know where to forward.
+            byte[] toSend = cfg.secure
+                ? requestBytes
+                : rewriteRequestLineToAbsoluteForm(requestBytes, cfg.targetHost, cfg.targetPort);
+            OutputStream out = sock.getOutputStream();
+            out.write(toSend);
+            out.flush();
+            InputStream in = sock.getInputStream();
+            // Single-shot socket — we close right after this response, so EOF framing is
+            // safe for unframed responses (Burp/CF sometimes serve without Content-Length).
+            List<ParsedResponse> parsed = parseResponseStream(in, 1, cfg.readTimeoutMs, true);
+            if (parsed.isEmpty()) {
+                ParsedResponse pr = new ParsedResponse();
+                pr.parseError = "no response from proxy tunnel";
+                return pr;
+            }
+            return parsed.get(0);
+        } finally {
+            try { sock.close(); } catch (Exception ignored) {}
+        }
+    }
+
+    /**
+     * Rewrite the request line from origin-form (`GET /path HTTP/1.1`) to absolute-form
+     * (`GET http://host:port/path HTTP/1.1`) so HTTP proxies can route it without CONNECT.
+     * Leaves the bytes alone if the request line is already absolute-form (raw_request).
+     */
+    private byte[] rewriteRequestLineToAbsoluteForm(byte[] bytes, String host, int port) {
+        // Find end of first line.
+        int eol = -1;
+        for (int i = 0; i < bytes.length - 1; i++) {
+            if (bytes[i] == '\r' && bytes[i + 1] == '\n') { eol = i; break; }
+        }
+        if (eol < 0) return bytes;
+        String reqLine = new String(bytes, 0, eol, StandardCharsets.ISO_8859_1);
+        String[] parts = reqLine.split(" ", 3);
+        if (parts.length < 2 || parts[1].isEmpty()) return bytes;
+        String path = parts[1];
+        if (path.startsWith("http://") || path.startsWith("https://")) {
+            // Already absolute-form (raw_request mode or similar) — leave it.
+            return bytes;
+        }
+        if (!path.startsWith("/")) path = "/" + path;
+        String newPath = "http://" + host + ":" + port + path;
+        String newLine = parts[0] + " " + newPath + (parts.length == 3 ? " " + parts[2] : "");
+        byte[] newHead = newLine.getBytes(StandardCharsets.ISO_8859_1);
+        byte[] out = new byte[newHead.length + (bytes.length - eol)];
+        System.arraycopy(newHead, 0, out, 0, newHead.length);
+        System.arraycopy(bytes, eol, out, newHead.length, bytes.length - eol);
+        return out;
+    }
+
+    /**
      * Permissive trust manager — used when upstream_tls_verification=false (the default,
      * matching the rest of burp_custom_http). Smuggling labs typically use real certs
      * so this rarely matters, but Burp's own MITM cert / self-signed targets need it.
@@ -845,11 +1329,21 @@ public class CustomHttpTool implements McpTool {
      * the socket closes. Returns whatever it parsed.
      */
     private List<ParsedResponse> parseResponseStream(InputStream in, int expected, int readTimeoutMs) {
+        return parseResponseStream(in, expected, readTimeoutMs, false);
+    }
+
+    /**
+     * @param assumeCloseFraming pass true when the socket is single-shot (will be closed
+     *     after this response) — lets the parser handle responses that omit Content-Length
+     *     and Transfer-Encoding by reading to EOF. Set false on persistent / pipelined
+     *     sockets so the parser strictly respects framing headers.
+     */
+    private List<ParsedResponse> parseResponseStream(InputStream in, int expected, int readTimeoutMs, boolean assumeCloseFraming) {
         List<ParsedResponse> out = new ArrayList<>();
         PushbackByteStream stream = new PushbackByteStream(in);
         for (int i = 0; i < expected; i++) {
             try {
-                ParsedResponse pr = parseSingleResponse(stream);
+                ParsedResponse pr = parseSingleResponse(stream, assumeCloseFraming);
                 if (pr == null) break;
                 out.add(pr);
                 if (pr.parseError != null) break;
@@ -865,7 +1359,7 @@ public class CustomHttpTool implements McpTool {
         return out;
     }
 
-    private ParsedResponse parseSingleResponse(PushbackByteStream in) throws Exception {
+    private ParsedResponse parseSingleResponse(PushbackByteStream in, boolean assumeCloseFraming) throws Exception {
         ByteArrayOutputStream raw = new ByteArrayOutputStream();
 
         // Status line.
@@ -945,14 +1439,37 @@ public class CustomHttpTool implements McpTool {
                 byte[] b = readN(in, (int) Math.min(contentLength, Integer.MAX_VALUE), raw);
                 if (b != null) body.write(b);
             }
-        } else if (connectionClose || pr.statusCode == 204 || pr.statusCode == 304 || (pr.statusCode >= 100 && pr.statusCode < 200)) {
-            // No framing — read to EOF (only safe when connection: close OR no-body status).
-            if (pr.statusCode >= 200 && pr.statusCode != 204 && pr.statusCode != 304) {
-                byte[] rest = readAll(in, raw);
-                if (rest != null) body.write(rest);
+        } else if (pr.statusCode == 204 || pr.statusCode == 304 || (pr.statusCode >= 100 && pr.statusCode < 200)) {
+            // No body for these statuses by spec.
+        } else if (connectionClose
+                || "HTTP/1.0".equalsIgnoreCase(pr.httpVersion)
+                || assumeCloseFraming) {
+            // EOF-framed body — read to socket close. Only safe when the server has
+            // signalled close (Connection: close, HTTP/1.0 default) OR the caller has
+            // told us this is a single-shot socket that will be closed after this
+            // response (assumeCloseFraming, set by the SEND_REQUEST proxy path).
+            // For keep-alive sockets (SEND_PIPELINED) we deliberately do NOT do this —
+            // it would block until timeout and silently consume the next response's bytes.
+            //
+            // Read byte-by-byte into BOTH body and raw so a SocketTimeoutException
+            // partway through still keeps everything we already received. (readAll()
+            // only returns on EOF, so on timeout the partial bytes would be lost.)
+            try {
+                while (true) {
+                    int b = in.read();
+                    if (b == -1) break;
+                    raw.write(b);
+                    body.write(b);
+                    if (body.size() > 50_000_000) break; // safety cap
+                }
+            } catch (java.net.SocketTimeoutException ste) {
+                // Soft EOF — server held the connection open with no further framing.
+                // Status + headers + partial body are still valid; bubbling would drop
+                // everything parseSingleResponse just parsed.
             }
         }
-        // Otherwise: no length, no chunked, response with body → caller can inspect raw_bytes.
+        // Otherwise: no length, no chunked, persistent socket — return what we have
+        // (status + headers); caller can inspect raw_bytes if they need more.
 
         pr.body = body.toByteArray();
         pr.rawBytes = raw.toByteArray();
@@ -1016,17 +1533,6 @@ public class CustomHttpTool implements McpTool {
             out.write(b);
         }
         return out.toByteArray();
-    }
-
-    private byte[] readAll(PushbackByteStream s, ByteArrayOutputStream raw) throws Exception {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        while (true) {
-            int b = s.read();
-            if (b == -1) return out.toByteArray();
-            raw.write(b);
-            out.write(b);
-            if (out.size() > 50_000_000) return out.toByteArray(); // safety cap
-        }
     }
 
     private HttpMode parseHttpMode(String mode) {
@@ -1159,8 +1665,17 @@ public class CustomHttpTool implements McpTool {
                     schemeSpecified = true;
                     int schemeSeparator = url.indexOf("://");
                     String afterScheme = schemeSeparator >= 0 ? url.substring(schemeSeparator + 3) : url;
-                    int slashIndex = afterScheme.indexOf('/');
-                    String hostPortPart = slashIndex >= 0 ? afterScheme.substring(0, slashIndex) : afterScheme;
+                    // Authority ends at the first of `/`, `?`, or `#`. The earlier
+                    // version only split on `/`, which mis-parsed
+                    // `http://example.com?x=1` as host="example.com?x=1" and dropped the
+                    // query during the origin-form rewrite.
+                    int authorityEnd = -1;
+                    for (int i = 0; i < afterScheme.length(); i++) {
+                        char c = afterScheme.charAt(i);
+                        if (c == '/' || c == '?' || c == '#') { authorityEnd = i; break; }
+                    }
+                    String hostPortPart = authorityEnd >= 0 ? afterScheme.substring(0, authorityEnd) : afterScheme;
+                    String pathAndAfter = authorityEnd >= 0 ? afterScheme.substring(authorityEnd) : "";
 
                     String[] urlHostPort = parseHostPort(hostPortPart);
                     urlHost = urlHostPort[0];
@@ -1173,11 +1688,15 @@ public class CustomHttpTool implements McpTool {
                     }
 
                     if (!rawRequest) {
-                        // Legacy behavior: convert absolute-form to origin-form
-                        if (slashIndex >= 0) {
-                            parts[1] = afterScheme.substring(slashIndex);
-                        } else {
+                        // Legacy behavior: convert absolute-form to origin-form. Preserve
+                        // query/fragment by prepending "/" only when the authority was
+                        // followed by `?` or `#` (or by nothing at all).
+                        if (pathAndAfter.isEmpty()) {
                             parts[1] = "/";
+                        } else if (pathAndAfter.charAt(0) == '/') {
+                            parts[1] = pathAndAfter;
+                        } else {
+                            parts[1] = "/" + pathAndAfter;
                         }
                         lines[0] = String.join(" ", parts);
                     }
@@ -1273,7 +1792,14 @@ public class CustomHttpTool implements McpTool {
      * Merges with any existing Cookie header in the request.
      */
     private HttpRequest applyCookiesFromJar(HttpRequest request, JsonNode arguments) {
-        boolean useCookieJar = McpUtils.getBooleanParam(arguments, "use_cookie_jar", true);
+        // raw_request promises byte-exact transmission. Cookie-jar merging would
+        // rewrite the Cookie header and re-serialise the request, breaking that
+        // contract. Default off when raw_request=true; the caller can force it back
+        // on by setting use_cookie_jar=true explicitly.
+        boolean rawRequest = arguments != null && arguments.has("raw_request")
+            && arguments.get("raw_request").asBoolean(false);
+        boolean defaultUseJar = !rawRequest;
+        boolean useCookieJar = McpUtils.getBooleanParam(arguments, "use_cookie_jar", defaultUseJar);
         if (!useCookieJar) {
             return request;
         }
@@ -1356,7 +1882,13 @@ public class CustomHttpTool implements McpTool {
      * Request headers take precedence - existing headers are not overwritten.
      */
     private HttpRequest applyHeadersFromProxyHistory(HttpRequest request, JsonNode arguments) {
-        boolean useProxyHeaders = McpUtils.getBooleanParam(arguments, "use_proxy_headers", true);
+        // Same logic as applyCookiesFromJar: raw_request must not be silently mutated.
+        // Browser-style header injection would add Sec-*/User-Agent/etc that the
+        // caller specifically didn't ask for. Default off when raw_request=true.
+        boolean rawRequest = arguments != null && arguments.has("raw_request")
+            && arguments.get("raw_request").asBoolean(false);
+        boolean defaultUseProxyHeaders = !rawRequest;
+        boolean useProxyHeaders = McpUtils.getBooleanParam(arguments, "use_proxy_headers", defaultUseProxyHeaders);
         if (!useProxyHeaders) {
             return request;
         }
