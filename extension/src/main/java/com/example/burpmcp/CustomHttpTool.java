@@ -1864,16 +1864,26 @@ public class CustomHttpTool implements McpTool {
             String host = request.httpService().host();
             List<Cookie> cookies = api.http().cookieJar().cookies();
 
-            // Filter cookies for this domain (including parent domains)
-            List<String> matchingCookies = new ArrayList<>();
+            // Filter cookies for this domain (including parent domains) AND dedupe by
+            // name — Burp's cookie jar accumulates cookies (setCookie is "add", not
+            // "upsert"), so the same name can appear multiple times. Browsers send a
+            // single value per name; if we emit both we get `Cookie: session=A;
+            // session=B` and the server's choice between them is undefined (observed:
+            // a fresh login session and a stale one both sent, server picked the
+            // stale one and 302'd to /login). Keep the LAST occurrence — Burp's jar
+            // iteration order tracks insertion, so "last" is the most recent setCookie.
+            LinkedHashMap<String, String> byName = new LinkedHashMap<>();
             for (Cookie cookie : cookies) {
                 String cookieDomain = cookie.domain();
-                // Match exact domain or parent domain (e.g., .example.com matches sub.example.com)
                 if (host.equalsIgnoreCase(cookieDomain) ||
                     host.endsWith("." + cookieDomain) ||
                     (cookieDomain.startsWith(".") && host.endsWith(cookieDomain))) {
-                    matchingCookies.add(cookie.name() + "=" + cookie.value());
+                    byName.put(cookie.name(), cookie.value()); // overwrite older value
                 }
+            }
+            List<String> matchingCookies = new ArrayList<>(byName.size());
+            for (Map.Entry<String, String> e : byName.entrySet()) {
+                matchingCookies.add(e.getKey() + "=" + e.getValue());
             }
 
             if (matchingCookies.isEmpty()) {

@@ -352,7 +352,7 @@ public class AnnotateTool implements McpTool {
                   .append(entryId != null ? " entryId=" + entryId : "")
                   .append("\n");
         } else {
-            applyAnnotation(targetEntry.annotations(), notes, highlightColorStr, result);
+            applyAnnotation(targetEntry.annotations(), notes, highlightColorStr, notesMode, result);
         }
 
         return createAnnotationResult(result, targetEntry != null, "Proxy History",
@@ -406,22 +406,32 @@ public class AnnotateTool implements McpTool {
         String highlightColorStr = arguments.has("highlightColor") ? arguments.get("highlightColor").asText() : null;
         String method = arguments.has("method") ? arguments.get("method").asText() : null;
         String notesMode = arguments.has("notesMode") ? arguments.get("notesMode").asText() : "APPEND";
-
-        if (url == null || url.isEmpty()) {
-            return McpUtils.createErrorResponse("URL is required for ANNOTATE_TARGET action");
-        }
+        Integer entryId = parseIntParam(arguments, "entryId");
 
         SiteMap siteMap = api.siteMap();
         List<HttpRequestResponse> siteMapEntries = siteMap.requestResponses();
         HttpRequestResponse targetEntry = null;
 
-        for (HttpRequestResponse entry : siteMapEntries) {
-            if (entry.request() == null) continue;
-            if (!urlMatches(entry.request().url(), url)) continue;
-            if (method != null && !method.isEmpty()
-                    && !method.equalsIgnoreCase(entry.request().method())) continue;
-            targetEntry = entry;
-            break;
+        // entryId path: exact-target a single sitemap entry by 1-based index (mirrors
+        // the proxy path). When set, url/method are not required and are ignored.
+        if (entryId != null) {
+            int idx = entryId - 1;
+            if (idx < 0 || idx >= siteMapEntries.size()) {
+                return McpUtils.createErrorResponse("entryId " + entryId + " out of range (sitemap size: " + siteMapEntries.size() + ")");
+            }
+            targetEntry = siteMapEntries.get(idx);
+        } else {
+            if (url == null || url.isEmpty()) {
+                return McpUtils.createErrorResponse("Either entryId or url is required for ANNOTATE_TARGET action");
+            }
+            for (HttpRequestResponse entry : siteMapEntries) {
+                if (entry.request() == null) continue;
+                if (!urlMatches(entry.request().url(), url)) continue;
+                if (method != null && !method.isEmpty()
+                        && !method.equalsIgnoreCase(entry.request().method())) continue;
+                targetEntry = entry;
+                break;
+            }
         }
 
         if (!McpUtils.isVerbose(arguments)) {
@@ -447,7 +457,7 @@ public class AnnotateTool implements McpTool {
         if (targetEntry == null) {
             result.append("❌ No site map entry found for URL: ").append(url).append("\n");
         } else {
-            applyAnnotation(targetEntry.annotations(), notes, highlightColorStr, result);
+            applyAnnotation(targetEntry.annotations(), notes, highlightColorStr, notesMode, result);
         }
 
         return createAnnotationResult(result, targetEntry != null, "Target/Site Map",
@@ -1903,6 +1913,16 @@ public class AnnotateTool implements McpTool {
     // Unified annotation application method
     private void applyAnnotation(Annotations annotations, String notes, String highlightColorStr, StringBuilder result) {
         applyAnnotationCore(annotations, notes, highlightColorStr, true, result);
+    }
+
+    /**
+     * Like {@link #applyAnnotation} but respects notesMode (APPEND | REPLACE) so verbose
+     * callers honour the same contract as the non-verbose JSON path.
+     */
+    private void applyAnnotation(Annotations annotations, String notes, String highlightColorStr,
+                                 String notesMode, StringBuilder result) {
+        boolean append = !"REPLACE".equalsIgnoreCase(notesMode);
+        applyAnnotationCore(annotations, notes, highlightColorStr, append, result);
     }
 
     private void applyBulkAnnotation(Annotations annotations, String notes, String highlightColorStr) {
