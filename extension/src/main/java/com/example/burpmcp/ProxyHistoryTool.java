@@ -659,7 +659,25 @@ public class ProxyHistoryTool implements McpTool {
                     headers.add(hm);
                 });
                 resp.put("headers", headers);
-                resp.put("body", entry.response().bodyToString());
+                // Same maxBodyBytes contract as the detail path: default 5000,
+                // 0 = unlimited. Iterate is the worst place to dump uncapped
+                // bodies — it loops over many entries and a single big response
+                // can fill the context window.
+                String iterBody = entry.response().bodyToString();
+                int iterCap = 5000;
+                if (arguments.has("maxBodyBytes")) {
+                    JsonNode n = arguments.get("maxBodyBytes");
+                    if (n.canConvertToInt()) iterCap = n.asInt();
+                    else if (n.isTextual()) {
+                        try { iterCap = Integer.parseInt(n.asText().trim()); } catch (NumberFormatException ignored) {}
+                    }
+                }
+                if (iterCap > 0 && iterBody.length() > iterCap) {
+                    resp.put("body", iterBody.substring(0, iterCap));
+                    resp.put("bodyTruncatedBytes", iterBody.length() - iterCap);
+                } else {
+                    resp.put("body", iterBody);
+                }
                 e.put("response", resp);
             }
             jsonEntries.add(e);

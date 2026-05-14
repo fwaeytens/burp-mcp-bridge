@@ -52,9 +52,20 @@ public class CollaboratorTool implements McpTool {
                     this.collaboratorClient = api.collaborator().restoreClient(SecretKey.secretKey(existingSecret));
                     api.logging().logToOutput("[Collaborator] Restored client from persisted secret");
                 } catch (Exception restoreFailure) {
-                    api.logging().logToError("[Collaborator] Could not restore client (" + restoreFailure.getMessage() + "), creating fresh");
+                    // Restore can fail transiently (server unreachable, key expired
+                    // server-side, etc.). DO NOT overwrite the persisted secret on
+                    // failure — if we did, the next reload would have no way to
+                    // recover the original session even after the transient cause
+                    // clears. Rotate the failed secret to a .bak file so it stays
+                    // recoverable manually, and run with a fresh in-memory client
+                    // without persisting it.
+                    api.logging().logToError("[Collaborator] Could not restore client (" + restoreFailure.getMessage() + "). Preserving saved secret; running with a fresh in-memory client (NOT persisted).");
+                    rotatePersistedSecretToBackup();
                     this.collaboratorClient = api.collaborator().createClient();
-                    persistSecret(this.collaboratorClient.getSecretKey().toString());
+                    // Intentional: no persistSecret() here. Operator must either fix
+                    // the transient cause (then next reload restores the .bak) or
+                    // explicitly persist the new client via GET_SECRET_KEY +
+                    // RESTORE_CLIENT after capturing the value.
                 }
             } else {
                 this.collaboratorClient = api.collaborator().createClient();
@@ -83,6 +94,25 @@ public class CollaboratorTool implements McpTool {
             return java.nio.file.Files.readString(p).trim();
         } catch (Exception e) {
             return null;
+        }
+    }
+
+    /**
+     * Move the current secret file to a .bak.<epoch> sidecar so a failed restore
+     * doesn't permanently lose the saved session if the cause was transient. The
+     * primary file is then absent; next reload will create a fresh client unless
+     * the operator manually swaps the .bak back into place.
+     */
+    private void rotatePersistedSecretToBackup() {
+        try {
+            java.nio.file.Path p = secretPath();
+            if (java.nio.file.Files.exists(p)) {
+                java.nio.file.Path bak = p.resolveSibling(p.getFileName() + ".bak." + System.currentTimeMillis());
+                java.nio.file.Files.move(p, bak, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                api.logging().logToOutput("[Collaborator] Rotated failed-restore secret to " + bak);
+            }
+        } catch (Exception e) {
+            api.logging().logToError("[Collaborator] Could not rotate secret to .bak: " + e.getMessage());
         }
     }
 
