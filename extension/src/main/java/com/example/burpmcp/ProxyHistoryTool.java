@@ -720,7 +720,11 @@ public class ProxyHistoryTool implements McpTool {
                 for (Map<String, String> h : headers) {
                     result.append(h.get("name")).append(": ").append(h.get("value")).append("\n");
                 }
-                result.append("\n").append(resp.get("body")).append("\n```\n");
+                result.append("\n").append(resp.get("body"));
+                if (resp.containsKey("bodyTruncatedBytes")) {
+                    result.append("\n... [").append(resp.get("bodyTruncatedBytes")).append(" bytes truncated] ...");
+                }
+                result.append("\n```\n");
             }
             result.append("\n---\n\n");
         }

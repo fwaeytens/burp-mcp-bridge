@@ -59,13 +59,16 @@ public class CollaboratorTool implements McpTool {
                     // clears. Rotate the failed secret to a .bak file so it stays
                     // recoverable manually, and run with a fresh in-memory client
                     // without persisting it.
-                    api.logging().logToError("[Collaborator] Could not restore client (" + restoreFailure.getMessage() + "). Preserving saved secret; running with a fresh in-memory client (NOT persisted).");
+                    api.logging().logToError("[Collaborator] Could not restore client (" + restoreFailure.getMessage() + "). Preserving saved secret as .bak.<epoch>; running with a fresh in-memory client (NOT persisted).");
                     rotatePersistedSecretToBackup();
                     this.collaboratorClient = api.collaborator().createClient();
-                    // Intentional: no persistSecret() here. Operator must either fix
-                    // the transient cause (then next reload restores the .bak) or
-                    // explicitly persist the new client via GET_SECRET_KEY +
-                    // RESTORE_CLIENT after capturing the value.
+                    // Intentional: no persistSecret() here. There is NO automatic
+                    // restore from the .bak on subsequent reloads — if the operator
+                    // wants the old session back, they must manually rename the
+                    // .bak.<epoch> sidecar back to the primary secret path (or pass
+                    // its contents to RESTORE_CLIENT and then GET_SECRET_KEY +
+                    // re-persist). Until then, every reload sees no primary secret
+                    // and creates a fresh persisted client.
                 }
             } else {
                 this.collaboratorClient = api.collaborator().createClient();
