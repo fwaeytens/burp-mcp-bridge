@@ -7,9 +7,9 @@ package com.example.burpmcp;
 public class Version {
     
     // Version components
-    public static final String VERSION = "2.5.0";
-    public static final String BUILD_DATE = "2026-05-13";
-    public static final String RELEASE_NAME = "route_via_proxy — burp_custom_http traffic visible in Proxy → HTTP history";
+    public static final String VERSION = "2.5.1";
+    public static final String BUILD_DATE = "2026-05-14";
+    public static final String RELEASE_NAME = "cookie jar carry-over + annotate-by-entryId/method/notesMode";
 
     // Feature tracking
     public static final int TOOL_COUNT = 22; // Total number of registered tools

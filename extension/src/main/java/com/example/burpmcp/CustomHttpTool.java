@@ -34,6 +34,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -464,21 +467,39 @@ public class CustomHttpTool implements McpTool {
                 
                 // Include headers
                 ArrayNode headers = mapper.createArrayNode();
+                List<String> setCookieHeaders = new ArrayList<>();
                 for (var header : resp.headers()) {
                     ObjectNode h = mapper.createObjectNode();
                     h.put("name", header.name());
                     h.put("value", header.value());
                     headers.add(h);
+                    if ("set-cookie".equalsIgnoreCase(header.name())) {
+                        setCookieHeaders.add(header.value());
+                    }
                 }
                 respDetails.set("headers", headers);
-                
+
+                // Push Set-Cookie into Burp's cookie jar so subsequent burp_custom_http
+                // calls pick the session up automatically. See updateCookieJarFromSetCookies.
+                List<Map<String, String>> applied = updateCookieJarFromSetCookies(
+                    request.httpService().host(), setCookieHeaders, arguments);
+                if (!applied.isEmpty()) {
+                    ArrayNode sc = mapper.createArrayNode();
+                    for (Map<String, String> c : applied) {
+                        ObjectNode o = mapper.createObjectNode();
+                        c.forEach(o::put);
+                        sc.add(o);
+                    }
+                    respDetails.set("set_cookies", sc);
+                }
+
                 // Include body (truncated if large)
                 String body = resp.bodyToString();
                 if (body.length() > 5000) {
                     body = body.substring(0, 5000) + "\n... [truncated]";
                 }
                 respDetails.put("body", body);
-                
+
                 result.set("response", respDetails);
             } else {
                 result.put("error", "No response received");
@@ -546,13 +567,40 @@ public class CustomHttpTool implements McpTool {
                 respDetails.put("body_length", pr.body.length);
                 respDetails.put("response_time_ms", elapsed);
                 ArrayNode headers = mapper.createArrayNode();
+                boolean setCookieEmitted = false;
                 for (Map.Entry<String, String> e : pr.headers.entrySet()) {
-                    ObjectNode h = mapper.createObjectNode();
-                    h.put("name", e.getKey());
-                    h.put("value", e.getValue());
-                    headers.add(h);
+                    if ("set-cookie".equalsIgnoreCase(e.getKey())) {
+                        // Emit every Set-Cookie (the map collapses to one — pr.setCookies has them all).
+                        if (setCookieEmitted) continue;
+                        setCookieEmitted = true;
+                        for (String v : pr.setCookies) {
+                            ObjectNode h = mapper.createObjectNode();
+                            h.put("name", e.getKey());
+                            h.put("value", v);
+                            headers.add(h);
+                        }
+                    } else {
+                        ObjectNode h = mapper.createObjectNode();
+                        h.put("name", e.getKey());
+                        h.put("value", e.getValue());
+                        headers.add(h);
+                    }
                 }
                 respDetails.set("headers", headers);
+
+                // Push every Set-Cookie into Burp's cookie jar — see updateCookieJarFromSetCookies.
+                List<Map<String, String>> applied = updateCookieJarFromSetCookies(
+                    svc.host(), pr.setCookies, arguments);
+                if (!applied.isEmpty()) {
+                    ArrayNode sc = mapper.createArrayNode();
+                    for (Map<String, String> c : applied) {
+                        ObjectNode o = mapper.createObjectNode();
+                        c.forEach(o::put);
+                        sc.add(o);
+                    }
+                    respDetails.set("set_cookies", sc);
+                }
+
                 String body = new String(pr.body, StandardCharsets.ISO_8859_1);
                 if (body.length() > 5000) body = body.substring(0, 5000) + "\n... [truncated]";
                 respDetails.put("body", body);
@@ -1318,6 +1366,9 @@ public class CustomHttpTool implements McpTool {
         int statusCode;
         String reasonPhrase;
         Map<String, String> headers = new LinkedHashMap<>();
+        // Set-Cookie headers are kept separately because they can repeat and the
+        // headers map (one value per name) would silently collapse all but the last.
+        List<String> setCookies = new ArrayList<>();
         byte[] body = new byte[0];
         byte[] rawBytes = new byte[0];
         String parseError;
@@ -1401,6 +1452,11 @@ public class CustomHttpTool implements McpTool {
             String value = line.substring(colon + 1).trim();
             pr.headers.put(name, value);
             String lower = name.toLowerCase();
+            if (lower.equals("set-cookie")) {
+                // Keep every Set-Cookie verbatim — pr.headers (Map) would otherwise drop
+                // all but the last when the server sets multiple cookies at once.
+                pr.setCookies.add(value);
+            }
             if (lower.equals("content-length")) {
                 try { contentLength = Long.parseLong(value); } catch (NumberFormatException ignored) {}
             } else if (lower.equals("transfer-encoding") && value.toLowerCase().contains("chunked")) {
@@ -1875,6 +1931,114 @@ public class CustomHttpTool implements McpTool {
             api.logging().logToError("CustomHttpTool: Error applying cookies from jar: " + e.getMessage());
             return request;
         }
+    }
+
+    /**
+     * Push every Set-Cookie value from a response into Burp's Cookie Jar so that the
+     * next burp_custom_http call picks them up via applyCookiesFromJar.
+     *
+     * <p>Burp's built-in cookie tracking is source-gated in Settings → Sessions →
+     * Cookie jar. By default only Proxy is enabled, and even traffic that physically
+     * flows through the Proxy listener via CONNECT (our route_via_proxy=true path) is
+     * not always ingested into the jar — empirical evidence: a Set-Cookie from a POST
+     * tunnelled through the listener was not picked up on the next request to the
+     * same host. We write it ourselves to make multi-step lab flows reliable.</p>
+     *
+     * <p>raw_request callers can opt out by setting use_cookie_jar=false; that flag
+     * already toggles the read side and we honour it for the write side too, so
+     * byte-exact testing has no surprise side effect on the jar.</p>
+     *
+     * @return the parsed name/value/path/domain/expiration tuples actually written.
+     */
+    private List<Map<String, String>> updateCookieJarFromSetCookies(
+            String host, List<String> setCookieHeaders, JsonNode arguments) {
+        List<Map<String, String>> applied = new ArrayList<>();
+        if (setCookieHeaders == null || setCookieHeaders.isEmpty() || host == null) return applied;
+
+        boolean rawRequest = arguments != null && arguments.has("raw_request")
+            && arguments.get("raw_request").asBoolean(false);
+        boolean defaultUseJar = !rawRequest;
+        boolean useCookieJar = McpUtils.getBooleanParam(arguments, "use_cookie_jar", defaultUseJar);
+        if (!useCookieJar) return applied;
+
+        for (String setCookie : setCookieHeaders) {
+            Map<String, String> parsed = parseSetCookie(setCookie, host);
+            if (parsed == null) continue;
+            try {
+                ZonedDateTime expiration = null;
+                String expStr = parsed.get("expiration");
+                if (expStr != null) {
+                    try { expiration = ZonedDateTime.parse(expStr); } catch (Exception ignored) {}
+                }
+                api.http().cookieJar().setCookie(
+                    parsed.get("name"),
+                    parsed.get("value"),
+                    parsed.get("path"),
+                    parsed.get("domain"),
+                    expiration
+                );
+                applied.add(parsed);
+            } catch (Exception e) {
+                api.logging().logToError("CustomHttpTool: failed to setCookie '" + parsed.get("name") + "': " + e.getMessage());
+            }
+        }
+        if (!applied.isEmpty()) {
+            api.logging().logToOutput("CustomHttpTool: wrote " + applied.size() + " Set-Cookie value(s) into the jar for " + host);
+        }
+        return applied;
+    }
+
+    /**
+     * Parse a single Set-Cookie header value into {name, value, path, domain,
+     * expiration} (ISO-8601). Returns null if the input has no name=value pair.
+     */
+    private Map<String, String> parseSetCookie(String setCookie, String fallbackDomain) {
+        if (setCookie == null || setCookie.isEmpty()) return null;
+        String[] parts = setCookie.split(";");
+        if (parts.length == 0) return null;
+        String first = parts[0].trim();
+        int eq = first.indexOf('=');
+        if (eq <= 0) return null;
+        Map<String, String> out = new LinkedHashMap<>();
+        out.put("name", first.substring(0, eq).trim());
+        out.put("value", first.substring(eq + 1).trim());
+        // Defaults: domain = request host, path = "/" (cookie host-only on request host
+        // unless an explicit Domain attribute appears — we approximate that here).
+        out.put("domain", fallbackDomain);
+        out.put("path", "/");
+        for (int i = 1; i < parts.length; i++) {
+            String attr = parts[i].trim();
+            if (attr.isEmpty()) continue;
+            int aeq = attr.indexOf('=');
+            String aname = (aeq >= 0 ? attr.substring(0, aeq) : attr).trim().toLowerCase();
+            String aval = aeq >= 0 ? attr.substring(aeq + 1).trim() : "";
+            switch (aname) {
+                case "domain":
+                    if (!aval.isEmpty()) out.put("domain", aval.startsWith(".") ? aval.substring(1) : aval);
+                    break;
+                case "path":
+                    if (!aval.isEmpty()) out.put("path", aval);
+                    break;
+                case "expires":
+                    // RFC 1123 date — convert to ISO-8601 for Cookie API.
+                    try {
+                        ZonedDateTime zdt = ZonedDateTime.parse(aval,
+                            DateTimeFormatter.RFC_1123_DATE_TIME);
+                        out.put("expiration", zdt.toString());
+                    } catch (Exception ignored) {}
+                    break;
+                case "max-age":
+                    try {
+                        long secs = Long.parseLong(aval);
+                        out.put("expiration", ZonedDateTime.now().plusSeconds(secs).toString());
+                    } catch (NumberFormatException ignored) {}
+                    break;
+                default:
+                    // Secure, HttpOnly, SameSite — irrelevant for jar tracking.
+                    break;
+            }
+        }
+        return out;
     }
 
     /**
