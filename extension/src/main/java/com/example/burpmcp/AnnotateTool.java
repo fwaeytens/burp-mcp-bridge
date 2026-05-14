@@ -141,7 +141,7 @@ public class AnnotateTool implements McpTool {
         // request is deterministic even when URL+method aren't unique.
         Map<String, Object> entryIdProperty = new HashMap<>();
         entryIdProperty.put("type", "integer");
-        entryIdProperty.put("description", "Exact Proxy/Target history entry id (1-based, same id returned by burp_proxy_history). When set, url/method/pattern filters are ignored. Use this to disambiguate when multiple requests share a URL (e.g. GET vs POST /login, repeated fuzz attempts).");
+        entryIdProperty.put("description", "Exact entry id (1-based). For ANNOTATE_PROXY / CLEAR_ANNOTATIONS source=PROXY: same id space as burp_proxy_history returns (proxy-history index + 1). For ANNOTATE_TARGET: index into api.siteMap().requestResponses() + 1 — Burp's Montoya sitemap exposes no stable id, so this is the current in-memory ordering and is NOT interchangeable with the proxy id. For CLEAR_ANNOTATIONS the source param must be PROXY when entryId is given (or omitted, which defaults to PROXY); TARGET+entryId or ALL+entryId are rejected. url/method/pattern filters are ignored when entryId is set.");
         properties.put("entryId", entryIdProperty);
 
         // Notes mode — APPEND (default, preserves audit trail) vs REPLACE.
@@ -1754,7 +1754,18 @@ public class AnnotateTool implements McpTool {
         Integer entryId = parseIntParam(arguments, "entryId");
 
         // entryId path: clear annotation on exactly one Proxy entry. Wins over filters.
+        // Guarded: entryId is proxy-history-indexed only. Reject TARGET/ALL+entryId so
+        // a caller asking to clear sitemap entry N doesn't silently nuke proxy entry N
+        // (Codex 2026-05-14 review). Sitemap currently has no stable Montoya id either,
+        // and ANNOTATE_TARGET's entryId is "current in-memory index" — different space.
         if (entryId != null) {
+            boolean sourceOmitted = !arguments.has("source");
+            if (!sourceOmitted && !"PROXY".equalsIgnoreCase(source)) {
+                return McpUtils.createErrorResponse(
+                    "entryId with source=" + source + " is not supported. " +
+                    "entryId targets Proxy history only; omit source or set source=PROXY. " +
+                    "To clear a Target/Site Map annotation, use url + method filters instead.");
+            }
             List<ProxyHttpRequestResponse> proxyHistory = api.proxy().history();
             int idx = entryId - 1;
             if (idx < 0 || idx >= proxyHistory.size()) {
