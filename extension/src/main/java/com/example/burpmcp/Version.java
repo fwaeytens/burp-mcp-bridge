@@ -54,7 +54,28 @@ public class Version {
      * Get detailed changelog for this version.
      */
     public static String getChangelog() {
-        return "## Version 2.5.0 - route_via_proxy — burp_custom_http traffic visible in Proxy → HTTP history (2026-05-13)\n\n" +
+        return "## Version 2.5.1 - cookie jar carry-over, body-cap override, persistent Collaborator client, annotation precision (2026-05-14)\n\n" +
+               "### 🍪 burp_custom_http: Set-Cookie auto-applied to Cookie Jar\n" +
+               "- ✅ Every Set-Cookie value from a response is written into Burp's Cookie Jar via api.http().cookieJar().setCookie(...) and surfaced as a `set_cookies[]` array in the response JSON. The next burp_custom_http call picks them up automatically.\n" +
+               "- ✅ Cookie-jar reads dedupe by name (LinkedHashMap, most-recent-wins) — no more `Cookie: session=A; session=B` when the jar accumulates same-name cookies.\n" +
+               "- ✅ Honours `use_cookie_jar=false` and the `raw_request=true` default-off contract — byte-exact tests still have no jar side effects.\n" +
+               "- ✅ ParsedResponse.setCookies (List) captures every Set-Cookie verbatim; the headers map no longer collapses multi-cookie responses to the last value.\n\n" +
+               "### ✂️ Body-cap override (new param)\n" +
+               "- ✅ `max_body_bytes` on `burp_custom_http` (SEND_REQUEST, proxy-tunnel, SEND_PIPELINED) and `maxBodyBytes` on `burp_proxy_history` (detail + iterate). Default 5000 keeps context small; set 0 for unlimited; positive int overrides.\n" +
+               "- ✅ `body_truncated_bytes` (`bodyTruncatedBytes` on proxy_history) reports dropped tail length when the cap kicks in.\n" +
+               "- ✅ Iterate verbose markdown path prints a `[N bytes truncated] ...` marker for parity with detail.\n\n" +
+               "### 🔄 burp_collaborator: persistent client across reloads\n" +
+               "- ✅ Client secret persisted to `~/.config/burp-mcp-bridge/collaborator-secret` and restored on extension load — CHECK_INTERACTIONS keeps seeing payloads issued before the most recent reload.\n" +
+               "- ✅ New `RESTORE_CLIENT` action takes a saved `secretKey` for explicit recovery.\n" +
+               "- ✅ Restore failure rotates the failing secret to a `.bak.<epoch>` sidecar (preserves it) and runs with an in-memory-only fresh client — no overwrite of the saved secret on transient failures.\n" +
+               "- ✅ `LIST_PAYLOAD_TYPES` is the preferred action name; `LIST_PAYLOADS` kept as a deprecated alias with a `note` field clarifying the semantics (returns built-in TYPES, not issued payloads).\n\n" +
+               "### 🎯 burp_annotate: precise targeting\n" +
+               "- ✅ `entryId` (1-based) on ANNOTATE_PROXY / ANNOTATE_TARGET / CLEAR_ANNOTATIONS. For PROXY it matches the id `burp_proxy_history` returns; for TARGET it indexes `api.siteMap().requestResponses()` (Montoya exposes no stable sitemap id).\n" +
+               "- ✅ `method` filter is now honoured (was silently ignored before).\n" +
+               "- ✅ `notesMode: APPEND | REPLACE` (default APPEND, preserves audit trail). Honoured in both compact-JSON and verbose-markdown paths.\n" +
+               "- ✅ CLEAR_ANNOTATIONS rejects `entryId` with `source=TARGET` / `source=ALL` to avoid wiping the wrong list.\n" +
+               "- ✅ parseIntParam helper accepts numeric or stringified integers (some MCP clients stringify everything).\n\n" +
+               "## Version 2.5.0 - route_via_proxy — burp_custom_http traffic visible in Proxy → HTTP history (2026-05-13)\n\n" +
                "### 👁 burp_custom_http: route_via_proxy (new flag)\n" +
                "- ✅ Requests tunnel through Burp's local proxy listener (default 127.0.0.1:8080) via CONNECT + TLS, so they appear in Proxy → HTTP history alongside browser traffic.\n" +
                "- ✅ Defaults: TRUE for SEND_REQUEST (the day-to-day case); FALSE for SEND_PARALLEL and SEND_PIPELINED (proxy serialises parallel dispatch and re-frames pipelined requests, breaking smuggling semantics).\n" +
