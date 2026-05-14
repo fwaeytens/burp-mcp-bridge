@@ -213,6 +213,11 @@
             "default": false,
             "description": "Include body in output"
           },
+          "maxBodyBytes": {
+            "type": "integer",
+            "default": 5000,
+            "description": "Max bytes of response body to return inline (when showBody=true). Default 5000 keeps context small. Set 0 for unlimited (use sparingly — large HTML responses can blow up the context window). When the cap kicks in, bodyTruncatedBytes reports the number of dropped bytes."
+          },
           "showAnnotations": {
             "type": "boolean",
             "default": false,
@@ -454,6 +459,11 @@
             "type": "boolean",
             "default": true,
             "description": "Add request/response to Burp Site Map"
+          },
+          "max_body_bytes": {
+            "type": "integer",
+            "default": 5000,
+            "description": "Max bytes of response body to return inline. Default 5000 (keeps context small). Set 0 for unlimited (use sparingly — large HTML pages can blow up the context window). body_length always reflects the true size; body_truncated_bytes reports dropped bytes when the cap kicks in."
           },
           "use_cookie_jar": {
             "type": "boolean",
@@ -914,13 +924,13 @@
       "name": "burp_collaborator",
       "title": "Collaborator (OOB)",
       "category": "Analysis & Comparison",
-      "description": "Generate payloads and monitor out-of-band interactions for blind vulnerability testing. Use this for SSRF, blind XXE, blind SQL injection, and other vulnerabilities that require external callback verification. Actions: GENERATE_PAYLOAD (create unique callback URLs), CHECK_INTERACTIONS (poll for callbacks), LIST_PAYLOADS, SERVER_INFO. Professional license required. Supports DNS, HTTP, HTTPS, and SMTP interactions.",
+      "description": "Generate payloads and monitor out-of-band interactions for blind vulnerability testing. Use this for SSRF, blind XXE, blind SQL injection, and other vulnerabilities that require external callback verification. Actions: GENERATE_PAYLOAD (create unique callback URLs), CHECK_INTERACTIONS (poll for callbacks — returns interactions for the CURRENT client; if you reloaded the extension or rotated the secret since GENERATE_PAYLOAD, use RESTORE_CLIENT with the captured secretKey), LIST_PAYLOAD_TYPES (also LIST_PAYLOADS — DEPRECATED NAME — returns the four built-in payload formats, NOT a list of generated payloads; track payload ids yourself), RESTORE_CLIENT (recreate a client from a saved secretKey to recover older interactions), SERVER_INFO, GET_SECRET_KEY. The Collaborator client is now persisted across extension reloads via ~/.config/burp-mcp-bridge/collaborator-secret so CHECK_INTERACTIONS keeps seeing prior payloads. Professional license required. Supports DNS, HTTP, HTTPS, and SMTP interactions.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "action": {
             "type": "string",
-            "enum": ["GENERATE_PAYLOAD", "CHECK_INTERACTIONS", "LIST_PAYLOADS", "CLEAR_INTERACTIONS", "STATUS", "GET_SECRET_KEY", "SERVER_INFO", "GENERATE_WITH_CUSTOM_DATA", "FILTER_INTERACTIONS"],
+            "enum": ["GENERATE_PAYLOAD", "CHECK_INTERACTIONS", "LIST_PAYLOADS", "LIST_PAYLOAD_TYPES", "RESTORE_CLIENT", "CLEAR_INTERACTIONS", "STATUS", "GET_SECRET_KEY", "SERVER_INFO", "GENERATE_WITH_CUSTOM_DATA", "FILTER_INTERACTIONS"],
             "description": "Collaborator action"
           },
           "payloadType": {

@@ -29,6 +29,8 @@ public class CollaboratorTool implements McpTool {
         "GENERATE_PAYLOAD",
         "CHECK_INTERACTIONS",
         "LIST_PAYLOADS",
+        "LIST_PAYLOAD_TYPES",
+        "RESTORE_CLIENT",
         "CLEAR_INTERACTIONS",
         "STATUS",
         "GET_SECRET_KEY",
@@ -40,10 +42,60 @@ public class CollaboratorTool implements McpTool {
     public CollaboratorTool(MontoyaApi api) {
         this.api = api;
         try {
-            this.collaboratorClient = api.collaborator().createClient();
+            // Persist the Collaborator client secret across extension reloads so
+            // interactions for previously-issued payloads remain visible. Otherwise
+            // a reload (or auto-reload on jar update) creates a brand-new client
+            // whose getAllInteractions() never sees the old payloads' callbacks.
+            String existingSecret = readPersistedSecret();
+            if (existingSecret != null && !existingSecret.isEmpty()) {
+                try {
+                    this.collaboratorClient = api.collaborator().restoreClient(SecretKey.secretKey(existingSecret));
+                    api.logging().logToOutput("[Collaborator] Restored client from persisted secret");
+                } catch (Exception restoreFailure) {
+                    api.logging().logToError("[Collaborator] Could not restore client (" + restoreFailure.getMessage() + "), creating fresh");
+                    this.collaboratorClient = api.collaborator().createClient();
+                    persistSecret(this.collaboratorClient.getSecretKey().toString());
+                }
+            } else {
+                this.collaboratorClient = api.collaborator().createClient();
+                persistSecret(this.collaboratorClient.getSecretKey().toString());
+            }
         } catch (Exception e) {
             this.collaboratorClient = null;
             api.logging().logToError("Collaborator not available: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Where the Collaborator client secret is stored. One per Linux/macOS user.
+     * Persisted across extension reloads so CHECK_INTERACTIONS sees interactions
+     * for payloads generated before the most recent reload.
+     */
+    private static java.nio.file.Path secretPath() {
+        String home = System.getProperty("user.home", ".");
+        return java.nio.file.Paths.get(home, ".config", "burp-mcp-bridge", "collaborator-secret");
+    }
+
+    private String readPersistedSecret() {
+        try {
+            java.nio.file.Path p = secretPath();
+            if (!java.nio.file.Files.exists(p)) return null;
+            return java.nio.file.Files.readString(p).trim();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private void persistSecret(String secret) {
+        try {
+            java.nio.file.Path p = secretPath();
+            java.nio.file.Files.createDirectories(p.getParent());
+            java.nio.file.Files.writeString(p, secret);
+            // Best-effort tighten perms to user-only.
+            try { p.toFile().setReadable(false, false); p.toFile().setReadable(true, true);
+                  p.toFile().setWritable(false, false); p.toFile().setWritable(true, true); } catch (Exception ignored) {}
+        } catch (Exception e) {
+            api.logging().logToError("[Collaborator] Could not persist secret: " + e.getMessage());
         }
     }
 
@@ -54,8 +106,9 @@ public class CollaboratorTool implements McpTool {
         tool.put("title", "Collaborator (OOB)");
         tool.put("description", "Generate payloads and monitor out-of-band interactions for blind vulnerability testing. " +
                 "Use this for SSRF, blind XXE, blind SQL injection, and other vulnerabilities that require external callback verification. " +
-                "Actions: GENERATE_PAYLOAD, CHECK_INTERACTIONS, LIST_PAYLOADS, CLEAR_INTERACTIONS, STATUS, GET_SECRET_KEY, SERVER_INFO, GENERATE_WITH_CUSTOM_DATA, FILTER_INTERACTIONS. " +
-                "GENERATE_PAYLOAD/GENERATE_WITH_CUSTOM_DATA: create callback URLs. CHECK_INTERACTIONS/FILTER_INTERACTIONS: poll for callbacks. LIST_PAYLOADS/CLEAR_INTERACTIONS: manage. STATUS/SERVER_INFO: diagnostics. GET_SECRET_KEY: restore client session. " +
+                "Actions: GENERATE_PAYLOAD, CHECK_INTERACTIONS, LIST_PAYLOAD_TYPES (also LIST_PAYLOADS, kept as deprecated alias — returns the four built-in payload formats, NOT a list of generated payloads), CLEAR_INTERACTIONS, STATUS, GET_SECRET_KEY, RESTORE_CLIENT (recreate a client from a previously-captured secretKey so CHECK_INTERACTIONS can see older interactions), SERVER_INFO, GENERATE_WITH_CUSTOM_DATA, FILTER_INTERACTIONS. " +
+                "GENERATE_PAYLOAD/GENERATE_WITH_CUSTOM_DATA: create callback URLs. CHECK_INTERACTIONS/FILTER_INTERACTIONS: poll for callbacks. LIST_PAYLOAD_TYPES/CLEAR_INTERACTIONS: introspection/maintenance. STATUS/SERVER_INFO: diagnostics. GET_SECRET_KEY: capture the current client's secret. " +
+                "Client lifetime: the Collaborator client is persisted across extension reloads via a secret stored at ~/.config/burp-mcp-bridge/collaborator-secret. If you need to switch sessions, use RESTORE_CLIENT with a saved secretKey. " +
                 "Professional license required. Supports DNS, HTTP, HTTPS, and SMTP interactions.");
 
         // MCP 2025-06-18 annotations
@@ -171,7 +224,10 @@ public class CollaboratorTool implements McpTool {
                 case "CHECK_INTERACTIONS":
                     return checkInteractions(arguments, result);
                 case "LIST_PAYLOADS":
+                case "LIST_PAYLOAD_TYPES":
                     return listPayloads(arguments, result);
+                case "RESTORE_CLIENT":
+                    return restoreClient(arguments, result);
                 case "CLEAR_INTERACTIONS":
                     return clearInteractions(arguments, result);
                 case "STATUS":
@@ -448,9 +504,40 @@ public class CollaboratorTool implements McpTool {
         return List.of(resultMap);
     }
     
+    /**
+     * Restore a Collaborator client from a previously-captured secret so older
+     * interactions become visible to CHECK_INTERACTIONS. Persists the secret to
+     * the on-disk store so subsequent reloads stay on this session.
+     */
+    private Object restoreClient(JsonNode arguments, StringBuilder result) {
+        String secret = arguments.has("secretKey") ? arguments.get("secretKey").asText() : null;
+        if (secret == null || secret.isEmpty()) {
+            return McpUtils.createErrorResponse("secretKey is required for RESTORE_CLIENT");
+        }
+        try {
+            this.collaboratorClient = api.collaborator().restoreClient(SecretKey.secretKey(secret));
+            persistSecret(secret);
+            Map<String, Object> data = new HashMap<>();
+            data.put("operation", "RESTORE_CLIENT");
+            data.put("success", true);
+            data.put("note", "Client restored. CHECK_INTERACTIONS will now poll the restored session.");
+            return McpUtils.createJsonResponse(data);
+        } catch (Exception e) {
+            return McpUtils.createErrorResponse("Failed to restore client: " + e.getMessage());
+        }
+    }
+
+    /**
+     * NOTE: name is historical. This action returns the four PAYLOAD TYPES (HOSTNAME,
+     * HTTP_URL, HTTPS_URL, EMAIL) and attack-scenario tags — NOT a list of payloads
+     * already generated. Burp's Collaborator API doesn't expose a list of issued
+     * payloads; track the ids you got from GENERATE_PAYLOAD yourself.
+     * Preferred action name: LIST_PAYLOAD_TYPES (alias).
+     */
     private Object listPayloads(JsonNode arguments, StringBuilder result) {
         if (!McpUtils.isVerbose(arguments)) {
             Map<String, Object> data = new HashMap<>();
+            data.put("note", "Returns the built-in payload TYPES, not a list of generated payloads. Burp's API exposes no such list — track payload ids yourself.");
             List<Map<String, String>> types = new ArrayList<>();
             String[][] typeData = {
                 {"HOSTNAME", "abc123.collaborator.net", "DNS lookups, hostname injection"},

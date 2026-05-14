@@ -241,6 +241,16 @@ public class ProxyHistoryTool implements McpTool {
         showBodyProperty.put("description", "Include body in output");
         showBodyProperty.put("default", false);
         properties.put("showBody", showBodyProperty);
+
+        Map<String, Object> maxBodyBytesProperty = new HashMap<>();
+        maxBodyBytesProperty.put("type", "integer");
+        maxBodyBytesProperty.put("description",
+            "Max bytes of response body to return inline (when showBody=true). Default 5000 — " +
+            "keeps context small. Set 0 for unlimited (use sparingly — large HTML responses can " +
+            "blow up the context window). When the cap kicks in, bodyTruncatedBytes reports the " +
+            "number of dropped bytes.");
+        maxBodyBytesProperty.put("default", 5000);
+        properties.put("maxBodyBytes", maxBodyBytesProperty);
         
         Map<String, Object> showAnnotationsProperty = new HashMap<>();
         showAnnotationsProperty.put("type", "boolean");
@@ -494,9 +504,17 @@ public class ProxyHistoryTool implements McpTool {
                 resp.put("headers", headers);
                 String respBody = entry.response().bodyToString();
                 if (!respBody.isEmpty()) {
-                    if (respBody.length() > 5000) {
-                        resp.put("body", respBody.substring(0, 5000));
-                        resp.put("bodyTruncatedBytes", respBody.length() - 5000);
+                    int cap = 5000;
+                    if (arguments.has("maxBodyBytes")) {
+                        JsonNode n = arguments.get("maxBodyBytes");
+                        if (n.canConvertToInt()) cap = n.asInt();
+                        else if (n.isTextual()) {
+                            try { cap = Integer.parseInt(n.asText().trim()); } catch (NumberFormatException ignored) {}
+                        }
+                    }
+                    if (cap > 0 && respBody.length() > cap) {
+                        resp.put("body", respBody.substring(0, cap));
+                        resp.put("bodyTruncatedBytes", respBody.length() - cap);
                     } else {
                         resp.put("body", respBody);
                     }

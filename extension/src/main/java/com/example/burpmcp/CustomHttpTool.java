@@ -184,6 +184,15 @@ public class CustomHttpTool implements McpTool {
             "default", true
         ));
 
+        properties.put("max_body_bytes", Map.of(
+            "type", "integer",
+            "description", "Max bytes of the response body to return inline. Default 5000 (keeps context small). " +
+                "Set 0 for unlimited (use sparingly — large HTML pages can blow up the context window). " +
+                "Set any positive int to override the cap. body_length always reflects the true size; if " +
+                "the body was truncated, body_truncated_bytes reports how many bytes were dropped.",
+            "default", 5000
+        ));
+
         properties.put("use_cookie_jar", Map.of(
             "type", "boolean",
             "description", "Automatically include cookies from Burp's cookie jar for the target domain. " +
@@ -493,12 +502,9 @@ public class CustomHttpTool implements McpTool {
                     respDetails.set("set_cookies", sc);
                 }
 
-                // Include body (truncated if large)
-                String body = resp.bodyToString();
-                if (body.length() > 5000) {
-                    body = body.substring(0, 5000) + "\n... [truncated]";
-                }
-                respDetails.put("body", body);
+                // Include body (truncated by default to keep context small —
+                // override with max_body_bytes; 0 disables the cap).
+                putBodyWithCap(respDetails, resp.bodyToString(), arguments);
 
                 result.set("response", respDetails);
             } else {
@@ -601,9 +607,7 @@ public class CustomHttpTool implements McpTool {
                     respDetails.set("set_cookies", sc);
                 }
 
-                String body = new String(pr.body, StandardCharsets.ISO_8859_1);
-                if (body.length() > 5000) body = body.substring(0, 5000) + "\n... [truncated]";
-                respDetails.put("body", body);
+                putBodyWithCap(respDetails, new String(pr.body, StandardCharsets.ISO_8859_1), arguments);
             }
             result.set("response", respDetails);
 
@@ -1135,7 +1139,7 @@ public class CustomHttpTool implements McpTool {
                     r.set("headers", hdrs);
                     r.put("body_length", pr.body.length);
                     // Keep body as best-effort text for readability; raw_bytes has the truth.
-                    r.put("body", new String(pr.body, StandardCharsets.ISO_8859_1));
+                    putBodyWithCap(r, new String(pr.body, StandardCharsets.ISO_8859_1), arguments);
                 }
                 r.put("raw_bytes", Base64.getEncoder().encodeToString(pr.rawBytes));
                 respArr.add(r);
@@ -1940,6 +1944,31 @@ public class CustomHttpTool implements McpTool {
         } catch (Exception e) {
             api.logging().logToError("CustomHttpTool: Error applying cookies from jar: " + e.getMessage());
             return request;
+        }
+    }
+
+    /**
+     * Write the response body into the JSON, capping its length to keep context
+     * windows from blowing up on large pages. Caller can override the default 5000
+     * via {@code max_body_bytes} (0 disables the cap). The full size always shows
+     * up as {@code body_length}; truncated tail size is reported via
+     * {@code body_truncated_bytes} when the cap kicks in.
+     */
+    private void putBodyWithCap(ObjectNode out, String body, JsonNode arguments) {
+        int cap = 5000; // default
+        if (arguments != null && arguments.has("max_body_bytes")) {
+            JsonNode n = arguments.get("max_body_bytes");
+            if (n.canConvertToInt()) cap = n.asInt();
+            else if (n.isTextual()) {
+                try { cap = Integer.parseInt(n.asText().trim()); } catch (NumberFormatException ignored) {}
+            }
+        }
+        if (cap > 0 && body.length() > cap) {
+            int dropped = body.length() - cap;
+            out.put("body", body.substring(0, cap) + "\n... [truncated]");
+            out.put("body_truncated_bytes", dropped);
+        } else {
+            out.put("body", body);
         }
     }
 
