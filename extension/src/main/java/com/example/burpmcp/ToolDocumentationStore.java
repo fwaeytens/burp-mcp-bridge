@@ -1031,14 +1031,14 @@ public class ToolDocumentationStore {
                 ),
                 Map.of(
                     "title", "Execute shell command",
-                    "input", Map.of("action", "shell_execute", "command", List.of("nmap", "-sV", "example.com")),
-                    "output", Map.of("stdout", "command output", "exitCode", 0),
-                    "explanation", "Run external tools from within Burp's context. Use shell_execute_dangerous for string commands."
+                    "input", Map.of("action", "shell_execute", "commandArgs", List.of("nmap", "-sV", "example.com")),
+                    "output", Map.of("output", "command output", "mode", "safe"),
+                    "explanation", "Run external tools from Burp's context. shell_execute REQUIRES commandArgs[] (argv, no shell). Disabled by default — set BURP_MCP_SHELL_ENABLED=true to enable. Use shell_execute_dangerous with 'command' when you need shell features."
                 )
             ),
             List.of(
                 "Use encoding tools to craft payloads for burp_custom_http",
-                "shell_execute takes a command array (safe); shell_execute_dangerous takes a string (splits on whitespace)",
+                "Shell execution is OFF by default (BURP_MCP_SHELL_ENABLED=true to enable). shell_execute requires commandArgs[] (safe argv); shell_execute_dangerous takes a shell-interpreted 'command' string (pipes/redirects; injection risk)",
                 "json_path supports read/add/update/remove operations on JSON data"
             ));
 

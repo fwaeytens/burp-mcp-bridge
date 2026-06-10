@@ -250,14 +250,19 @@ class BurpMcpBridge {
       try {
         this.logDebug(`[${rid}] Calling tool: ${toolName}`);
 
-        // Auto-fix Content-Length for burp_custom_http requests
+        // Auto-fix Content-Length for burp_custom_http requests.
+        // Skip when byte-exactness is required: raw_request preserves bytes verbatim,
+        // and SEND_PIPELINED smuggling relies on a deliberately-wrong Content-Length.
         const args = { ...(request.params.arguments || {}) };
         if (toolName === 'burp_custom_http') {
-          if (typeof args.request === 'string') {
-            args.request = fixContentLength(args.request);
-          }
-          if (Array.isArray(args.requests)) {
-            args.requests = args.requests.map(r => typeof r === 'string' ? fixContentLength(r) : r);
+          const preserveBytes = args.raw_request === true || args.action === 'SEND_PIPELINED';
+          if (!preserveBytes) {
+            if (typeof args.request === 'string') {
+              args.request = fixContentLength(args.request);
+            }
+            if (Array.isArray(args.requests)) {
+              args.requests = args.requests.map(r => typeof r === 'string' ? fixContentLength(r) : r);
+            }
           }
         }
 

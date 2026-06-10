@@ -32,6 +32,7 @@ public class McpServer {
     private final BurpMcpConfig config;
     private final AsyncRequestHandler asyncHandler;
     private Server server;
+    private Thread shutdownHook;
     private final Map<String, McpTool> tools;
     private static final Set<String> DOCUMENTATION_TOOL_IDS = Set.of(
         "burp_help"
@@ -176,8 +177,10 @@ public class McpServer {
         // Log tool count
         logging.logToOutput("Loaded " + tools.size() + " tools with async processing enabled");
         
-        // Add shutdown hook as safety measure
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+        // Add shutdown hook as safety measure. Keep the reference so stop() can remove it
+        // on extension unload/reload — otherwise each reload leaks a hook (and the old
+        // McpServer instance it closes over) for the JVM's lifetime.
+        shutdownHook = new Thread(() -> {
             if (server != null && server.isRunning()) {
                 try {
                     logging.logToOutput("Shutdown hook: stopping MCP Server");
@@ -187,7 +190,8 @@ public class McpServer {
                     System.err.println("Error in shutdown hook: " + e.getMessage());
                 }
             }
-        }));
+        });
+        Runtime.getRuntime().addShutdownHook(shutdownHook);
     }
 
     public Map<String, McpTool> getTools() {
@@ -195,6 +199,13 @@ public class McpServer {
     }
 
     public void stop() {
+        // Remove the shutdown hook so a reload doesn't accumulate hooks referencing
+        // stale McpServer instances. Ignore if shutdown is already underway.
+        if (shutdownHook != null) {
+            try { Runtime.getRuntime().removeShutdownHook(shutdownHook); }
+            catch (IllegalStateException ignored) {}
+            shutdownHook = null;
+        }
         if (server != null) {
             try {
                 logging.logToOutput("Stopping MCP Server on port " + config.getServerPort() + "...");
@@ -251,6 +262,14 @@ public class McpServer {
                 response.setStatus(400);
                 objectMapper.writeValue(response.getOutputStream(),
                     createJsonRpcErrorResponse(null, -32700, "Invalid JSON payload: " + e.getMessage()));
+                return;
+            }
+
+            // readTree returns null for an empty body (no exception) — guard before deref.
+            if (requestNode == null) {
+                response.setStatus(400);
+                objectMapper.writeValue(response.getOutputStream(),
+                    createJsonRpcErrorResponse(null, -32700, "Empty JSON payload"));
                 return;
             }
 

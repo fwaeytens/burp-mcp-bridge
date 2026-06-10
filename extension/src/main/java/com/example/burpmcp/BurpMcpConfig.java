@@ -25,7 +25,10 @@ public class BurpMcpConfig {
     private static final boolean DEFAULT_ENABLE_RATE_LIMITING = false;
     private static final int DEFAULT_RATE_LIMIT_REQUESTS = 100; // per minute
     private static final boolean DEFAULT_ENABLE_AUDIT_LOGGING = true;
-    
+    // Shell execution (burp_utilities shell_execute*) runs arbitrary commands on the host —
+    // OFF by default; must be explicitly opted into.
+    private static final boolean DEFAULT_ENABLE_SHELL_EXECUTION = false;
+
     // Instance fields
     private int serverPort;
     private String serverHost;
@@ -38,6 +41,7 @@ public class BurpMcpConfig {
     private boolean enableRateLimiting;
     private int rateLimitRequestsPerMinute;
     private boolean enableAuditLogging;
+    private boolean enableShellExecution;
     private Set<String> allowedHosts;
     private LogLevel logLevel;
     private boolean enableMetrics;
@@ -64,6 +68,7 @@ public class BurpMcpConfig {
         this.enableRateLimiting = DEFAULT_ENABLE_RATE_LIMITING;
         this.rateLimitRequestsPerMinute = DEFAULT_RATE_LIMIT_REQUESTS;
         this.enableAuditLogging = DEFAULT_ENABLE_AUDIT_LOGGING;
+        this.enableShellExecution = DEFAULT_ENABLE_SHELL_EXECUTION;
         this.allowedHosts = new HashSet<>();
         this.logLevel = LogLevel.INFO;
         this.enableMetrics = true;
@@ -106,7 +111,8 @@ public class BurpMcpConfig {
         this.enableRateLimiting = getBooleanProperty("burp.mcp.ratelimit.enabled", "BURP_MCP_RATELIMIT_ENABLED", this.enableRateLimiting);
         this.rateLimitRequestsPerMinute = getIntProperty("burp.mcp.ratelimit.requests", "BURP_MCP_RATELIMIT_REQUESTS", this.rateLimitRequestsPerMinute);
         this.enableAuditLogging = getBooleanProperty("burp.mcp.audit.enabled", "BURP_MCP_AUDIT_ENABLED", this.enableAuditLogging);
-        
+        this.enableShellExecution = getBooleanProperty("burp.mcp.shell.enabled", "BURP_MCP_SHELL_ENABLED", this.enableShellExecution);
+
         // Tool-specific configuration
         this.maxProxyHistoryItems = getIntProperty("burp.mcp.proxy.maxitems", "BURP_MCP_PROXY_MAXITEMS", this.maxProxyHistoryItems);
         this.scanStatusPageSize = getIntProperty("burp.mcp.scan.pagesize", "BURP_MCP_SCAN_PAGESIZE", this.scanStatusPageSize);
@@ -206,6 +212,7 @@ public class BurpMcpConfig {
         sb.append("  Rate Limiting: ").append(enableRateLimiting).append("\n");
         sb.append("  Rate Limit: ").append(rateLimitRequestsPerMinute).append("/min\n");
         sb.append("  Audit Logging: ").append(enableAuditLogging).append("\n");
+        sb.append("  Shell Execution: ").append(enableShellExecution).append("\n");
         sb.append("  Log Level: ").append(logLevel).append("\n");
         sb.append("  Allowed Hosts: ").append(allowedHosts).append("\n");
         sb.append("  Max Proxy Items: ").append(maxProxyHistoryItems).append("\n");
@@ -246,6 +253,9 @@ public class BurpMcpConfig {
     
     public boolean isEnableAuditLogging() { return enableAuditLogging; }
     public void setEnableAuditLogging(boolean enableAuditLogging) { this.enableAuditLogging = enableAuditLogging; }
+
+    public boolean isEnableShellExecution() { return enableShellExecution; }
+    public void setEnableShellExecution(boolean enableShellExecution) { this.enableShellExecution = enableShellExecution; }
     
     public Set<String> getAllowedHosts() { return new HashSet<>(allowedHosts); }
     public void setAllowedHosts(Set<String> allowedHosts) { this.allowedHosts = new HashSet<>(allowedHosts); }

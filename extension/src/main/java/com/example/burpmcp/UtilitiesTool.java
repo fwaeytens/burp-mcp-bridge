@@ -53,7 +53,7 @@ public class UtilitiesTool implements McpTool {
         Map<String, Object> properties = new HashMap<>();
         
         properties.put("action", McpUtils.createEnumProperty("string",
-            "Utility action to perform. shell_execute: SAFE arg-list execution (use commandArgs[] not single command string). shell_execute_dangerous: shell-interpreted single string (allows pipes/redirects but enables injection — only use when shell features are required).",
+            "Utility action to perform. shell_execute: SAFE arg-list execution — REQUIRES commandArgs[] (a bare command string is rejected, never auto-downgraded to the shell path). shell_execute_dangerous: shell-interpreted single string (allows pipes/redirects but enables injection — only use when shell features are required). NOTE: both shell_execute* actions are DISABLED by default; enable with env BURP_MCP_SHELL_ENABLED=true (or -Dburp.mcp.shell.enabled=true) and reload the extension.",
             List.of("base64_encode", "base64_decode", "url_encode", "url_decode",
                     "html_encode", "html_decode", "hash", "random", "compress",
                     "decompress", "json_beautify", "json_path", "json_validate",
@@ -739,10 +739,19 @@ public class UtilitiesTool implements McpTool {
      * Execute shell commands using the Montoya ShellUtils API.
      *
      * @param arguments JSON arguments containing command and options
-     * @param dangerous If true, use dangerouslyExecute (splits on whitespace - injection risk)
+     * @param dangerous If true, use dangerouslyExecute (shell-interpreted single string - injection risk)
      * @return Execution result or error
      */
     private Object performShellExecute(JsonNode arguments, boolean dangerous) {
+        // Default-off gate: shell execution runs arbitrary commands on the host as the user
+        // running Burp, over an unauthenticated local API. Must be explicitly opted into.
+        if (!BurpMcpConfig.getInstance().isEnableShellExecution()) {
+            return McpUtils.createErrorResponse(
+                "Shell execution is disabled. It runs arbitrary commands on the host as the user running " +
+                "Burp and is OFF by default. To enable, set environment variable BURP_MCP_SHELL_ENABLED=true " +
+                "(or system property -Dburp.mcp.shell.enabled=true), then restart Burp / reload the extension.");
+        }
+
         String command = McpUtils.getStringParam(arguments, "command", "");
 
         // For safe execution, get command arguments as array
@@ -754,9 +763,9 @@ public class UtilitiesTool implements McpTool {
         // Validate input
         if (command.isEmpty() && commandArgs.isEmpty()) {
             return McpUtils.createErrorResponse(
-                "Either 'command' (for dangerous execution) or 'commandArgs' array (for safe execution) is required.\n\n" +
-                "**Safe execution (recommended):** Use 'commandArgs' as array: [\"ls\", \"-la\", \"/tmp\"]\n" +
-                "**Dangerous execution:** Use 'command' as string: \"ls -la /tmp\" (splits on whitespace - injection risk)");
+                "Provide 'commandArgs' (for safe shell_execute) or 'command' (for shell_execute_dangerous).\n\n" +
+                "**Safe (shell_execute):** Use 'commandArgs' as array: [\"ls\", \"-la\", \"/tmp\"] — argv, no shell interpretation\n" +
+                "**Dangerous (shell_execute_dangerous):** Use 'command' as string: \"ls -la /tmp\" (shell-interpreted - injection risk)");
         }
 
         // Get execution options
@@ -809,17 +818,24 @@ public class UtilitiesTool implements McpTool {
 
             long startTime = System.currentTimeMillis();
 
-            if (dangerous || commandArgs.isEmpty()) {
-                // Use dangerouslyExecute - splits on whitespace (injection risk!)
+            if (dangerous) {
+                // Shell-interpreted single string (pipes/redirects + injection risk).
                 if (command.isEmpty()) {
                     return McpUtils.createErrorResponse(
-                        "For dangerous execution, 'command' string is required.");
+                        "shell_execute_dangerous requires a 'command' string.");
                 }
-                executionMode = "⚠️ DANGEROUS (whitespace-split)";
+                executionMode = "⚠️ DANGEROUS (shell-interpreted)";
                 executedCommand = command;
                 output = shellUtils.dangerouslyExecute(options, command);
             } else {
-                // Use safe execute - arguments passed separately
+                // Safe argv execution. Require commandArgs[] so shell_execute can never
+                // silently fall through to the shell-interpreted path when only a bare
+                // 'command' string is supplied.
+                if (commandArgs.isEmpty()) {
+                    return McpUtils.createErrorResponse(
+                        "shell_execute requires a non-empty 'commandArgs' array (e.g. [\"ls\",\"-la\",\"/tmp\"]). " +
+                        "To run a shell-interpreted string with pipes/redirects, use shell_execute_dangerous with 'command'.");
+                }
                 executionMode = "✅ SAFE (argument array)";
                 executedCommand = String.join(" ", commandArgs);
                 output = shellUtils.execute(options, commandArgs.toArray(new String[0]));
@@ -830,7 +846,7 @@ public class UtilitiesTool implements McpTool {
             if (!McpUtils.isVerbose(arguments)) {
                 Map<String, Object> data = new HashMap<>();
                 data.put("operation", "shell_execute");
-                data.put("mode", (dangerous || commandArgs.isEmpty()) ? "dangerous" : "safe");
+                data.put("mode", dangerous ? "dangerous" : "safe");
                 data.put("command", executedCommand);
                 data.put("executionTimeMs", executionTime);
                 data.put("timeoutSeconds", timeout);

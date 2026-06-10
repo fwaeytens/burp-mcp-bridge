@@ -70,3 +70,7 @@ bridge/certs/
 
 # Claude local settings
 .claude/
+.codex
+
+# Playwright MCP scratch output
+.playwright-mcp/

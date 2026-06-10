@@ -15,16 +15,22 @@ import burp.api.montoya.collaborator.SmtpDetails;
 import com.fasterxml.jackson.databind.JsonNode;
 
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.net.InetAddress;
 
 public class CollaboratorTool implements McpTool {
     private final MontoyaApi api;
     private CollaboratorClient collaboratorClient;
     private boolean clientLogged = false;
+    // Per-secret accumulated interaction history (id -> Interaction), shared across the
+    // per-call tool instances. See pollAndAccumulate for why this is needed.
+    private static final Map<String, LinkedHashMap<String, Interaction>> interactionCacheBySecret =
+        new ConcurrentHashMap<>();
     private static final List<String> SUPPORTED_ACTIONS = List.of(
         "GENERATE_PAYLOAD",
         "CHECK_INTERACTIONS",
@@ -386,13 +392,37 @@ public class CollaboratorTool implements McpTool {
         return List.of(resultMap);
     }
     
+    /**
+     * Poll the Collaborator server and merge new interactions into a per-secret cache,
+     * returning the full accumulated history. {@code getAllInteractions()} is draining —
+     * each call only returns interactions seen since the last poll — and the tool is
+     * re-instantiated per MCP call, so calling it independently from STATUS,
+     * CHECK_INTERACTIONS and the filter path made each starve the others (the first poll
+     * drained, the rest saw nothing — the residual cause of mcp-lab-issues ISSUE #8).
+     * De-duplicating by interaction id makes every read see the whole history and is safe
+     * whether getAllInteractions drains or returns everything each time.
+     *
+     * NB: not yet verified against a live Collaborator session — see ISSUE #8.
+     */
+    private List<Interaction> pollAndAccumulate(CollaboratorClient client) {
+        String secret = client.getSecretKey().toString();
+        LinkedHashMap<String, Interaction> cache =
+            interactionCacheBySecret.computeIfAbsent(secret, k -> new LinkedHashMap<>());
+        synchronized (cache) {
+            for (Interaction ix : client.getAllInteractions()) {
+                cache.putIfAbsent(ix.id().toString(), ix);
+            }
+            return new ArrayList<>(cache.values());
+        }
+    }
+
     private Object checkInteractions(JsonNode arguments, StringBuilder result) {
         result.append("🔍 **COLLABORATOR INTERACTIONS**\n\n");
 
         String interactionType = arguments.has("interactionType") ? arguments.get("interactionType").asText() : "ALL";
 
         try {
-            List<Interaction> interactions = collaboratorClient.getAllInteractions();
+            List<Interaction> interactions = pollAndAccumulate(collaboratorClient);
 
             // Always log to Burp output
             for (Interaction ix : interactions) {
@@ -633,7 +663,7 @@ public class CollaboratorTool implements McpTool {
             return McpUtils.createSuccessResponse(result.toString());
         }
 
-        List<Interaction> interactions = collaboratorClient.getAllInteractions();
+        List<Interaction> interactions = pollAndAccumulate(collaboratorClient);
         Map<InteractionType, Integer> typeCounts = new HashMap<>();
         for (Interaction interaction : interactions) {
             typeCounts.put(interaction.type(), typeCounts.getOrDefault(interaction.type(), 0) + 1);
@@ -817,11 +847,18 @@ public class CollaboratorTool implements McpTool {
             String filterDesc;
 
             if (payloadId != null) {
+                // Drain everything into the shared cache, then filter the accumulated history
+                // in-memory with the same filter the server applies — so a prior unfiltered poll
+                // that already drained these interactions can't hide them from this view.
                 InteractionFilter filter = InteractionFilter.interactionPayloadFilter(payloadId);
-                interactions = collaboratorClient.getInteractions(filter);
+                CollaboratorServer server = collaboratorClient.server();
+                interactions = new ArrayList<>();
+                for (Interaction ix : pollAndAccumulate(collaboratorClient)) {
+                    if (filter.matches(server, ix)) interactions.add(ix);
+                }
                 filterDesc = "payloadId=" + payloadId;
             } else {
-                interactions = collaboratorClient.getAllInteractions();
+                interactions = pollAndAccumulate(collaboratorClient);
                 filterDesc = interactionType;
             }
 

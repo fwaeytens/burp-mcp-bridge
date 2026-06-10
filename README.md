@@ -1,6 +1,6 @@
 # Burp MCP Bridge
 
-[![Version](https://img.shields.io/badge/version-2.5.1-blue.svg)](https://github.com/fwaeytens/burp-mcp-bridge/releases)
+[![Version](https://img.shields.io/badge/version-2.6.0-blue.svg)](https://github.com/fwaeytens/burp-mcp-bridge/releases)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Java](https://img.shields.io/badge/java-17+-orange.svg)](https://www.oracle.com/java/)
 [![Burp Suite](https://img.shields.io/badge/Burp%20Suite-Professional%202026.4+-red.svg)](https://portswigger.net/burp)
@@ -22,7 +22,7 @@ Burp MCP Bridge connects AI assistants (like Claude) to Burp Suite Professional,
 - **Proof-of-Concept Support** - Include actual exploit payloads in issues
 - **AI-Optimized Interface** - Designed for LLM interaction and automation
 - **Async Operations** - Non-blocking execution for long-running tasks
-- **Shell Execution (v2.1.1)** - Execute system commands via Montoya 2025.12 ShellUtils API (shell_execute, shell_execute_dangerous)
+- **Shell Execution (v2.1.1)** - Execute system commands via Montoya 2025.12 ShellUtils API (shell_execute, shell_execute_dangerous). **Disabled by default** — set `BURP_MCP_SHELL_ENABLED=true` to opt in (runs arbitrary commands as the Burp user)
 - **HTTPS Default (v2.1.1)** - burp_custom_http now defaults to HTTPS for better security
 - **Production Ready** - Tested with Burp Suite Professional 2026.2
 
@@ -96,7 +96,7 @@ mvn clean package
 1. **Start Burp Suite Professional** (must be running first)
 2. Go to **Extensions** → **Extensions** tab
 3. Click **Add** → Select **Extension type: Java**
-4. Choose `extension/target/burp-mcp-bridge-2.5.1.jar`
+4. Choose `extension/target/burp-mcp-bridge-2.6.0.jar`
 5. ✅ **VERIFY**: Look for these messages in the output:
    - "MCP Server listening on http://127.0.0.1:8081"
    - "=== Available MCP Tools ==="
@@ -434,7 +434,7 @@ await use_mcp_tool("burp-mcp-bridge", "burp_add_issue", {
 2. **"Unknown tool" errors**
    - ✅ Reload the extension in Burp
    - ✅ Check extension output for errors
-   - ✅ Verify version 2.5.1 is loaded
+   - ✅ Verify version 2.6.0 is loaded
 
 3. **Claude can't connect**
    - ✅ Check `.mcp.json` is in project root
@@ -474,6 +474,7 @@ burp-mcp-bridge/
 | `BURP_MCP_SERVER_HOST` | `localhost` | Host for Burp extension HTTP server |
 | `BURP_MCP_REQUEST_TIMEOUT` | `30000` | Request timeout (ms) |
 | `BURP_MCP_DEBUG` | `false` | Enable debug logging |
+| `BURP_MCP_SHELL_ENABLED` | `false` | Enable `shell_execute`/`shell_execute_dangerous` (arbitrary host commands) — off by default |
 | `MCP_TRANSPORT_MODE` | `both` | MCP Bridge transport mode: stdio, http, or both |
 | `MCP_HTTP_PORT` | `3000` | HTTPS/HTTP port for MCP Bridge (when using http mode) |
 | `MCP_USE_HTTPS` | `true` | Enable HTTPS for MCP Bridge (set to false for HTTP) |
@@ -513,4 +514,4 @@ MIT License - See [LICENSE](LICENSE) file for details
 
 ---
 
-**Current Version**: 2.5.1 | **Burp Suite**: 2026.4+ | **Tools**: 22 | **Status**: Production Ready with AI-Powered Anomaly Detection
+**Current Version**: 2.6.0 | **Burp Suite**: 2026.4+ | **Tools**: 22 | **Status**: Production Ready with AI-Powered Anomaly Detection

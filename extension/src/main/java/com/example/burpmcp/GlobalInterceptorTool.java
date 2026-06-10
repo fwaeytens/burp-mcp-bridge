@@ -19,6 +19,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Pattern;
 import java.util.regex.Matcher;
@@ -49,6 +50,9 @@ public class GlobalInterceptorTool implements McpTool {
     private static final AtomicBoolean webSocketInterceptionEnabled = new AtomicBoolean(false);
     private static Registration httpHandlerRegistration = null;
     private static Registration webSocketRegistration = null;
+    // Guards all register/deregister mutations of the two Registration fields above, which
+    // are touched from both MCP execute threads (enable/disable/setMode) and indirectly.
+    private static final Object registrationLock = new Object();
     
     // Statistics with more detail
     private static final AtomicLong requestsIntercepted = new AtomicLong(0);
@@ -75,11 +79,13 @@ public class GlobalInterceptorTool implements McpTool {
     private static final BlockingQueue<PendingHttpMessage> pendingQueue = new LinkedBlockingQueue<>();
     private static final Map<String, CompletableFuture<ModificationInstructions>> responseMap = new ConcurrentHashMap<>();
     
-    // Rules with priority ordering
-    private static final TreeMap<Integer, ModificationRule> requestRules = new TreeMap<>();
-    private static final TreeMap<Integer, ModificationRule> responseRules = new TreeMap<>();
-    private static final TreeMap<Integer, WebSocketRule> webSocketRules = new TreeMap<>();
-    private static int nextRulePriority = 100;
+    // Rules with priority ordering. ConcurrentSkipListMap (not TreeMap) because Burp handler
+    // threads iterate these while MCP execute threads add/remove rules — a plain TreeMap would
+    // throw ConcurrentModificationException or corrupt the tree mid-traffic.
+    private static final ConcurrentSkipListMap<Integer, ModificationRule> requestRules = new ConcurrentSkipListMap<>();
+    private static final ConcurrentSkipListMap<Integer, ModificationRule> responseRules = new ConcurrentSkipListMap<>();
+    private static final ConcurrentSkipListMap<Integer, WebSocketRule> webSocketRules = new ConcurrentSkipListMap<>();
+    private static final AtomicInteger nextRulePriority = new AtomicInteger(100);
     
     // Global headers to add to all requests
     private static final Map<String, String> globalHeaders = new ConcurrentHashMap<>();
@@ -293,12 +299,19 @@ public class GlobalInterceptorTool implements McpTool {
             return McpUtils.createSuccessResponse("⚠️ Global interceptor already enabled");
         }
 
-        Http http = api.http();
-        httpHandlerRegistration = http.registerHttpHandler(new OptimizedHttpHandler());
+        synchronized (registrationLock) {
+            // Deregister any stale handler before reassigning so a racing enable can't leak one.
+            if (httpHandlerRegistration != null) {
+                httpHandlerRegistration.deregister();
+            }
+            httpHandlerRegistration = api.http().registerHttpHandler(new OptimizedHttpHandler());
 
-        if (webSocketInterceptionEnabled.get()) {
-            WebSockets webSockets = api.websockets();
-            webSocketRegistration = webSockets.registerWebSocketCreatedHandler(new GlobalWebSocketHandler());
+            if (webSocketInterceptionEnabled.get()) {
+                if (webSocketRegistration != null) {
+                    webSocketRegistration.deregister();
+                }
+                webSocketRegistration = api.websockets().registerWebSocketCreatedHandler(new GlobalWebSocketHandler());
+            }
         }
 
         interceptorEnabled.set(true);
@@ -334,13 +347,15 @@ public class GlobalInterceptorTool implements McpTool {
             if (!verbose) return McpUtils.createJsonResponse(Map.of("enabled", false, "alreadyDisabled", true));
             return McpUtils.createSuccessResponse("⚠️ Global interceptor already disabled");
         }
-        if (httpHandlerRegistration != null) {
-            httpHandlerRegistration.deregister();
-            httpHandlerRegistration = null;
-        }
-        if (webSocketRegistration != null) {
-            webSocketRegistration.deregister();
-            webSocketRegistration = null;
+        synchronized (registrationLock) {
+            if (httpHandlerRegistration != null) {
+                httpHandlerRegistration.deregister();
+                httpHandlerRegistration = null;
+            }
+            if (webSocketRegistration != null) {
+                webSocketRegistration.deregister();
+                webSocketRegistration = null;
+            }
         }
         interceptorEnabled.set(false);
         if (!verbose) return McpUtils.createJsonResponse(Map.of("enabled", false));
@@ -496,7 +511,7 @@ public class GlobalInterceptorTool implements McpTool {
         }
         
         if (priority == null) {
-            priority = nextRulePriority++;
+            priority = nextRulePriority.getAndIncrement();
         }
         
         ModificationRule modRule = new ModificationRule(ruleId, rule, priority);
@@ -515,7 +530,7 @@ public class GlobalInterceptorTool implements McpTool {
         }
         
         if (priority == null) {
-            priority = nextRulePriority++;
+            priority = nextRulePriority.getAndIncrement();
         }
         
         ModificationRule modRule = new ModificationRule(ruleId, rule, priority);
@@ -634,12 +649,16 @@ public class GlobalInterceptorTool implements McpTool {
             
             // Register/unregister WebSocket handler based on state change
             if (interceptorEnabled.get()) {
-                if (interceptWebSockets && !wasEnabled) {
-                    WebSockets webSockets = api.websockets();
-                    webSocketRegistration = webSockets.registerWebSocketCreatedHandler(new GlobalWebSocketHandler());
-                } else if (!interceptWebSockets && wasEnabled && webSocketRegistration != null) {
-                    webSocketRegistration.deregister();
-                    webSocketRegistration = null;
+                synchronized (registrationLock) {
+                    if (interceptWebSockets && !wasEnabled) {
+                        if (webSocketRegistration != null) {
+                            webSocketRegistration.deregister();
+                        }
+                        webSocketRegistration = api.websockets().registerWebSocketCreatedHandler(new GlobalWebSocketHandler());
+                    } else if (!interceptWebSockets && wasEnabled && webSocketRegistration != null) {
+                        webSocketRegistration.deregister();
+                        webSocketRegistration = null;
+                    }
                 }
             }
         }
@@ -1023,8 +1042,8 @@ public class GlobalInterceptorTool implements McpTool {
                 Boolean wsInt = (Boolean) settings.get("webSocketInterception");
                 if (wsInt != null) webSocketInterceptionEnabled.set(wsInt);
                 
-                Long rateLimit = ((Number) settings.get("rateLimitDelay")).longValue();
-                if (rateLimit != null) rateLimitDelay.set(rateLimit);
+                Object rateLimitObj = settings.get("rateLimitDelay");
+                if (rateLimitObj instanceof Number) rateLimitDelay.set(((Number) rateLimitObj).longValue());
                 
                 authType = (String) settings.get("authType");
                 authValue = (String) settings.get("authValue");
@@ -1043,7 +1062,7 @@ public class GlobalInterceptorTool implements McpTool {
         Map<String, Object> rule = (Map<String, Object>) args.get("rule");
         Integer priority = (Integer) args.get("priority");
         if (ruleId == null || rule == null) return McpUtils.createErrorResponse("rule_id and rule are required");
-        if (priority == null) priority = nextRulePriority++;
+        if (priority == null) priority = nextRulePriority.getAndIncrement();
 
         WebSocketRule wsRule = new WebSocketRule(ruleId, rule, priority);
         webSocketRules.put(priority, wsRule);

@@ -27,6 +27,7 @@ import java.util.regex.PatternSyntaxException;
 import java.time.Duration;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 
 public class ProxyHistoryTool implements McpTool {
@@ -512,12 +513,7 @@ public class ProxyHistoryTool implements McpTool {
                             try { cap = Integer.parseInt(n.asText().trim()); } catch (NumberFormatException ignored) {}
                         }
                     }
-                    if (cap > 0 && respBody.length() > cap) {
-                        resp.put("body", respBody.substring(0, cap));
-                        resp.put("bodyTruncatedBytes", respBody.length() - cap);
-                    } else {
-                        resp.put("body", respBody);
-                    }
+                    putCappedBody(resp, respBody, cap);
                 }
                 e.put("response", resp);
                 try {
@@ -672,12 +668,7 @@ public class ProxyHistoryTool implements McpTool {
                         try { iterCap = Integer.parseInt(n.asText().trim()); } catch (NumberFormatException ignored) {}
                     }
                 }
-                if (iterCap > 0 && iterBody.length() > iterCap) {
-                    resp.put("body", iterBody.substring(0, iterCap));
-                    resp.put("bodyTruncatedBytes", iterBody.length() - iterCap);
-                } else {
-                    resp.put("body", iterBody);
-                }
+                putCappedBody(resp, iterBody, iterCap);
                 e.put("response", resp);
             }
             jsonEntries.add(e);
@@ -1056,5 +1047,28 @@ public class ProxyHistoryTool implements McpTool {
             case "SERVER_ERROR": return StatusCodeClass.CLASS_5XX_SERVER_ERRORS;
             default: return null;
         }
+    }
+
+    /**
+     * Put the response body into {@code resp}, capped at {@code capBytes} UTF-8 bytes
+     * (capBytes &lt;= 0 means unlimited). The cap and the reported {@code bodyTruncatedBytes}
+     * are measured in real UTF-8 bytes — not UTF-16 chars — and truncation cuts on a
+     * character boundary so a multibyte char / surrogate pair is never split.
+     */
+    private static void putCappedBody(Map<String, Object> resp, String body, int capBytes) {
+        if (capBytes <= 0) {
+            resp.put("body", body);
+            return;
+        }
+        byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+        if (bytes.length <= capBytes) {
+            resp.put("body", body);
+            return;
+        }
+        // Back off any UTF-8 continuation byte (10xxxxxx) so we never split a code point.
+        int end = capBytes;
+        while (end > 0 && (bytes[end] & 0xC0) == 0x80) end--;
+        resp.put("body", new String(bytes, 0, end, StandardCharsets.UTF_8));
+        resp.put("bodyTruncatedBytes", bytes.length - end);
     }
 }

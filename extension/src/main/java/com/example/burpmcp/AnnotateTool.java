@@ -370,9 +370,14 @@ public class AnnotateTool implements McpTool {
         if (n == null || n.isNull()) return null;
         if (n.canConvertToInt()) return n.asInt();
         if (n.isTextual()) {
-            try { return Integer.parseInt(n.asText().trim()); } catch (NumberFormatException ignored) {}
+            String t = n.asText().trim();
+            if (t.isEmpty()) return null;
+            try { return Integer.parseInt(t); } catch (NumberFormatException ignored) {}
         }
-        return null;
+        // Present but not an integer (e.g. a typo or out-of-int-range value): fail loudly.
+        // Returning null here would silently drop the param and fall back to URL matching,
+        // which could annotate/clear the wrong entry.
+        throw new IllegalArgumentException("Parameter '" + key + "' must be an integer, got: " + n.asText());
     }
 
     /**
@@ -1076,9 +1081,9 @@ public class AnnotateTool implements McpTool {
                 exportData.put("exportTime", new Date().toString());
                 exportData.put("totalCount", annotations.size());
 
-                FileWriter writer = new FileWriter(filePath);
-                writer.write(objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(exportData));
-                writer.close();
+                try (FileWriter writer = new FileWriter(filePath)) {
+                    writer.write(objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(exportData));
+                }
 
                 data.put("success", true);
                 data.put("exportedCount", annotations.size());
@@ -1144,9 +1149,9 @@ public class AnnotateTool implements McpTool {
             exportData.put("totalCount", annotations.size());
             
             // Write to file
-            FileWriter writer = new FileWriter(filePath);
-            writer.write(objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(exportData));
-            writer.close();
+            try (FileWriter writer = new FileWriter(filePath)) {
+                writer.write(objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(exportData));
+            }
             
             result.append("✅ Exported ").append(annotations.size()).append(" annotations to: ").append(filePath).append("\n");
             result.append("\nExport includes:\n");
@@ -2003,7 +2008,9 @@ public class AnnotateTool implements McpTool {
     }
     
     private boolean shouldClear(String url, String urlFilter, String pattern, Annotations annotations) {
-        if (urlFilter != null && url.equals(urlFilter)) {
+        // Use the same matching as annotate (equals OR contains) so the same url arg that
+        // annotated an entry will also clear it — exact-equals here was asymmetric.
+        if (urlFilter != null && urlMatches(url, urlFilter)) {
             return true;
         }
         if (pattern != null && url.contains(pattern)) {

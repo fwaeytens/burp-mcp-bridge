@@ -20,6 +20,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -1357,21 +1358,47 @@ public class ScannerTool implements McpTool {
         return null;
     }
 
+    /**
+     * Convert a UTF-16 char index into a UTF-8 byte offset within {@code s}. Burp
+     * insertion-point {@link Range}s are byte offsets into the request, while
+     * {@code String.indexOf}/{@code length} count chars — they diverge for any
+     * multibyte (non-ASCII) content, so every char index must be converted before
+     * being handed to {@code Range.range}.
+     */
+    private static int charIndexToByteOffset(String s, int charIndex) {
+        return s.substring(0, charIndex).getBytes(StandardCharsets.UTF_8).length;
+    }
+
     private List<Range> resolveInsertionPoints(String requestStr, JsonNode arguments, StringBuilder result) {
         List<Range> ranges = new ArrayList<>();
 
-        // 1. Explicit byte offset ranges
+        // Canonicalize EXACTLY as buildScanRequest does (CRLF + absolute->origin-form request
+        // line) so byte offsets line up with the request Burp actually receives — otherwise an
+        // absolute-form request line shifts every later offset by the removed scheme/authority.
+        String normalized = canonicalizeRequest(requestStr);
+        int reqByteLen = normalized.getBytes(StandardCharsets.UTF_8).length;
+
+        // 1. Explicit byte offset ranges — validate against the request byte length
+        //    rather than passing raw offsets into Range.range (which throws deep in Burp).
         if (arguments.has("insertionPoints")) {
             JsonNode pointsNode = arguments.get("insertionPoints");
             for (JsonNode point : pointsNode) {
-                int start = point.get("start").asInt();
-                int end = point.get("end").asInt();
+                JsonNode startNode = point.get("start");
+                JsonNode endNode = point.get("end");
+                if (startNode == null || endNode == null) {
+                    result.append("⚠️ Insertion point missing start/end; skipped\n");
+                    continue;
+                }
+                int start = startNode.asInt();
+                int end = endNode.asInt();
+                if (start < 0 || end < start || end > reqByteLen) {
+                    result.append("⚠️ Insertion point ").append(start).append("-").append(end)
+                          .append(" out of bounds (request is ").append(reqByteLen).append(" bytes); skipped\n");
+                    continue;
+                }
                 ranges.add(Range.range(start, end));
             }
         }
-
-        // Normalize request for searching (same normalization as buildScanRequest)
-        String normalized = requestStr.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\r\n");
 
         // 2. Find insertion points by value strings
         JsonNode valuesNode = getAsArray(arguments, "insertionPointValues");
@@ -1380,9 +1407,11 @@ public class ScannerTool implements McpTool {
                 String value = valueNode.asText();
                 int idx = normalized.indexOf(value);
                 if (idx >= 0) {
-                    ranges.add(Range.range(idx, idx + value.length()));
+                    int bStart = charIndexToByteOffset(normalized, idx);
+                    int bEnd = charIndexToByteOffset(normalized, idx + value.length());
+                    ranges.add(Range.range(bStart, bEnd));
                     result.append("📍 Insertion point for value \"").append(value)
-                          .append("\" at bytes ").append(idx).append("-").append(idx + value.length()).append("\n");
+                          .append("\" at bytes ").append(bStart).append("-").append(bEnd).append("\n");
                 } else {
                     result.append("⚠️ Value \"").append(value).append("\" not found in request\n");
                 }
@@ -1409,11 +1438,13 @@ public class ScannerTool implements McpTool {
                         valueEnd++;
                     }
                     if (valueEnd > valueStart) {
-                        ranges.add(Range.range(valueStart, valueEnd));
+                        int bStart = charIndexToByteOffset(normalized, valueStart);
+                        int bEnd = charIndexToByteOffset(normalized, valueEnd);
+                        ranges.add(Range.range(bStart, bEnd));
                         String paramValue = normalized.substring(valueStart, valueEnd);
                         result.append("📍 Insertion point for param \"").append(paramName)
                               .append("\" = \"").append(paramValue)
-                              .append("\" at bytes ").append(valueStart).append("-").append(valueEnd).append("\n");
+                              .append("\" at bytes ").append(bStart).append("-").append(bEnd).append("\n");
                         found = true;
                     }
                     idx = normalized.indexOf(queryPattern, valueEnd);
@@ -1429,11 +1460,13 @@ public class ScannerTool implements McpTool {
                             int valueStart = idx + jp.length();
                             int valueEnd = normalized.indexOf("\"", valueStart);
                             if (valueEnd > valueStart) {
-                                ranges.add(Range.range(valueStart, valueEnd));
+                                int bStart = charIndexToByteOffset(normalized, valueStart);
+                                int bEnd = charIndexToByteOffset(normalized, valueEnd);
+                                ranges.add(Range.range(bStart, bEnd));
                                 String paramValue = normalized.substring(valueStart, valueEnd);
                                 result.append("📍 Insertion point for JSON param \"").append(paramName)
                                       .append("\" = \"").append(paramValue)
-                                      .append("\" at bytes ").append(valueStart).append("-").append(valueEnd).append("\n");
+                                      .append("\" at bytes ").append(bStart).append("-").append(bEnd).append("\n");
                                 found = true;
                                 break;
                             }
@@ -1451,17 +1484,17 @@ public class ScannerTool implements McpTool {
     }
 
     /**
-     * Build an HttpRequest with a proper HttpService from a raw request string.
-     * Parses host/port from the Host header if not provided as arguments.
-     * Normalizes absolute-form URLs to origin-form.
-     * Requires useHttps to be set explicitly.
+     * Produce the canonical request string Burp will actually receive: CRLF-normalized
+     * and with an absolute-form request line ("GET https://host/path ...") rewritten to
+     * origin-form ("GET /path ..."). Insertion-point offsets MUST be computed against this
+     * exact string, since buildScanRequest hands the same canonical string to HttpRequest —
+     * computing them against the pre-rewrite string shifts every offset after the request
+     * line by the removed scheme/authority.
      */
-    private HttpRequest buildScanRequest(String requestStr, JsonNode arguments) {
+    private static String canonicalizeRequest(String requestStr) {
         // Normalize line endings to CRLF
         requestStr = requestStr.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\r\n");
-
         String[] lines = requestStr.split("\r\n", -1);
-
         // Normalize absolute-form URL to origin-form (e.g. GET https://host/path -> GET /path)
         if (lines.length > 0) {
             String[] parts = lines[0].split(" ", 3);
@@ -1477,6 +1510,20 @@ public class ScannerTool implements McpTool {
                 }
             }
         }
+        return String.join("\r\n", lines);
+    }
+
+    /**
+     * Build an HttpRequest with a proper HttpService from a raw request string.
+     * Parses host/port from the Host header if not provided as arguments.
+     * Normalizes absolute-form URLs to origin-form.
+     * Requires useHttps to be set explicitly.
+     */
+    private HttpRequest buildScanRequest(String requestStr, JsonNode arguments) {
+        // Canonicalize once — resolveInsertionPoints computes offsets against this same string.
+        requestStr = canonicalizeRequest(requestStr);
+
+        String[] lines = requestStr.split("\r\n", -1);
 
         // Extract Host header
         String hostHeader = null;
@@ -1528,7 +1575,7 @@ public class ScannerTool implements McpTool {
             port = secure ? 443 : 80;
         }
 
-        requestStr = String.join("\r\n", lines);
+        // requestStr is already canonical (lines is not mutated after canonicalizeRequest).
         HttpService service = HttpService.httpService(host, port, secure);
         return HttpRequest.httpRequest(service, requestStr);
     }

@@ -827,9 +827,12 @@ public class ResponseAnalysisTool implements McpTool {
         if (!McpUtils.isVerbose(arguments)) {
             Map<String, Object> data = new HashMap<>();
             data.put("operation", "all");
-            data.put("keywords", analyzeKeywords(arguments));
-            data.put("variations", analyzeVariations(arguments));
-            data.put("reflection", analyzeReflection(arguments));
+            // The sub-analyses each return a full MCP envelope ({content, structuredContent});
+            // embed only their raw data so the combined result is flat, valid JSON rather
+            // than doubly-wrapped, re-stringified envelopes.
+            data.put("keywords", unwrapData(analyzeKeywords(arguments)));
+            data.put("variations", unwrapData(analyzeVariations(arguments)));
+            data.put("reflection", unwrapData(analyzeReflection(arguments)));
             return McpUtils.createJsonResponse(data);
         }
 
@@ -851,6 +854,18 @@ public class ResponseAnalysisTool implements McpTool {
         return McpUtils.createSuccessResponse(result.toString());
     }
     
+    /**
+     * Unwraps the raw data map from an MCP JSON envelope produced by
+     * {@link McpUtils#createJsonResponse}. Error results (a bare content list) or any
+     * other shape are returned unchanged so the combined output still carries them.
+     */
+    private Object unwrapData(Object result) {
+        if (result instanceof Map<?, ?> map && map.containsKey("structuredContent")) {
+            return map.get("structuredContent");
+        }
+        return result;
+    }
+
     @SuppressWarnings("unchecked")
     private String extractTextFromResult(Object result) {
         if (result instanceof List) {

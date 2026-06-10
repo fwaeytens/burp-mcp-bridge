@@ -1489,6 +1489,14 @@ public class CustomHttpTool implements McpTool {
                     }
                     break;
                 }
+                // Guard against a hostile/looping chunked stream BEFORE readN pre-allocates:
+                // parseInt(...,16) can yield a negative (overflow), and the cumulative
+                // (body + this chunk) check bounds the total body at 50 MB so a sequence of
+                // individually-sub-cap chunks can't grow the accumulated body past the limit.
+                if (size < 0 || (long) body.size() + size > 50_000_000) {
+                    pr.parseError = "chunk size out of bounds: " + sizeStr;
+                    break;
+                }
                 byte[] chunk = readN(in, size, raw);
                 if (chunk == null) break;
                 body.write(chunk);
@@ -2053,7 +2061,25 @@ public class CustomHttpTool implements McpTool {
             String aval = aeq >= 0 ? attr.substring(aeq + 1).trim() : "";
             switch (aname) {
                 case "domain":
-                    if (!aval.isEmpty()) out.put("domain", aval.startsWith(".") ? aval.substring(1) : aval);
+                    if (!aval.isEmpty()) {
+                        String cookieDomain = (aval.startsWith(".") ? aval.substring(1) : aval).toLowerCase();
+                        String reqHost = fallbackDomain == null ? "" : fallbackDomain.toLowerCase();
+                        // Require the request host to domain-match the explicit Domain (equal or
+                        // a subdomain) and reject bare single-label TLDs (e.g. Domain=com). This
+                        // blocks the main cookie-injection vector (an unrelated cross-domain
+                        // Domain). NOTE: it does NOT consult a Public Suffix List, so a host like
+                        // foo.co.uk can still scope a cookie to the public suffix co.uk — a full
+                        // browser-grade check would need the PSL. See TODO(cookie-psl).
+                        boolean domainMatch = cookieDomain.contains(".")
+                            && (reqHost.equals(cookieDomain) || reqHost.endsWith("." + cookieDomain));
+                        if (domainMatch) {
+                            out.put("domain", cookieDomain);
+                        } else {
+                            api.logging().logToError("CustomHttpTool: rejected Set-Cookie '" + out.get("name")
+                                + "' with Domain=" + aval + " (does not match request host " + reqHost + ")");
+                            return null;
+                        }
+                    }
                     break;
                 case "path":
                     if (!aval.isEmpty()) out.put("path", aval);

@@ -1,5 +1,5 @@
 {
-  "version": "2.5.1",
+  "version": "2.6.0",
   "mcpVersion": "2025-06-18",
   "toolCount": 22,
   "compatibility": {
@@ -1479,7 +1479,7 @@
             "type": "string",
             "enum": ["base64_encode", "base64_decode", "url_encode", "url_decode", "html_encode", "html_decode", "hash", "random", "compress", "decompress", "json_beautify", "json_path", "json_validate", "hex_to_ascii", "ascii_to_hex", "number_convert", "byte_search", "shell_execute", "shell_execute_dangerous"],
             "default": "base64_encode",
-            "description": "Utility action"
+            "description": "Utility action. shell_execute: safe argv execution — REQUIRES commandArgs[] (a bare command string is rejected, never auto-downgraded to the shell path). shell_execute_dangerous: shell-interpreted single string via 'command' (pipes/redirects + injection risk). Both shell_execute* actions are DISABLED by default — enable with env BURP_MCP_SHELL_ENABLED=true (or -Dburp.mcp.shell.enabled=true) and reload the extension."
           },
           "input": {
             "type": "string",
@@ -1504,12 +1504,12 @@
           },
           "command": {
             "type": "string",
-            "description": "Shell command to execute (for shell_execute/shell_execute_dangerous)"
+            "description": "Shell-interpreted command string — for shell_execute_dangerous ONLY (allows pipes/redirects; injection risk). Ignored/rejected by safe shell_execute."
           },
           "commandArgs": {
             "type": "array",
             "items": {"type": "string"},
-            "description": "Command arguments as separate strings (safer than single string)"
+            "description": "Command + arguments as separate strings, e.g. [\"ls\",\"-la\",\"/tmp\"]. REQUIRED for safe shell_execute (no shell interpretation)."
           },
           "timeout": {
             "type": "integer",

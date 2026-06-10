@@ -55,6 +55,9 @@ public class ProxyInterceptorTool implements McpTool {
     private static Registration requestHandlerRegistration;
     private static Registration responseHandlerRegistration;
     private static Registration webSocketHandlerRegistration;
+    // Guards register/deregister of the three Registration fields above so a concurrent
+    // enable/disable can't interleave and leak or double-register a handler.
+    private static final Object registrationLock = new Object();
     
     // Configuration
     private static final boolean USE_TIMEOUT = true; // Protect Burp proxy threads from hanging
@@ -512,17 +515,21 @@ public class ProxyInterceptorTool implements McpTool {
     }
     
     private Object enableInterceptor(boolean verbose) {
-        if (interceptorEnabled.get()) {
-            if (!verbose) return McpUtils.createJsonResponse(Map.of("enabled", true, "alreadyEnabled", true));
-            return McpUtils.createSuccessResponse("⚠️ Proxy interceptor already enabled");
-        }
         if (!handlersRegistered) {
             return McpUtils.createErrorResponse("Handlers not initialized. Please restart the extension.");
         }
-        requestHandlerRegistration = api.proxy().registerRequestHandler(requestHandler);
-        responseHandlerRegistration = api.proxy().registerResponseHandler(responseHandler);
-        webSocketHandlerRegistration = api.proxy().registerWebSocketCreationHandler(webSocketHandler);
-        interceptorEnabled.set(true);
+        // Check-and-set inside the lock so two concurrent enables can't both pass the guard
+        // and double-register handlers (leaking the first set).
+        synchronized (registrationLock) {
+            if (interceptorEnabled.get()) {
+                if (!verbose) return McpUtils.createJsonResponse(Map.of("enabled", true, "alreadyEnabled", true));
+                return McpUtils.createSuccessResponse("⚠️ Proxy interceptor already enabled");
+            }
+            requestHandlerRegistration = api.proxy().registerRequestHandler(requestHandler);
+            responseHandlerRegistration = api.proxy().registerResponseHandler(responseHandler);
+            webSocketHandlerRegistration = api.proxy().registerWebSocketCreationHandler(webSocketHandler);
+            interceptorEnabled.set(true);
+        }
 
         if (!verbose) return McpUtils.createJsonResponse(Map.of("enabled", true, "alreadyEnabled", false));
         return McpUtils.createSuccessResponse(
@@ -532,28 +539,48 @@ public class ProxyInterceptorTool implements McpTool {
     }
 
     private Object disableInterceptor(boolean verbose) {
-        if (!interceptorEnabled.get()) {
-            if (!verbose) return McpUtils.createJsonResponse(Map.of("enabled", false, "alreadyDisabled", true));
-            return McpUtils.createSuccessResponse("⚠️ Proxy interceptor already disabled");
+        // Check-and-clear inside the lock so enable/disable can't interleave on the flag
+        // and registration fields.
+        synchronized (registrationLock) {
+            if (!interceptorEnabled.get()) {
+                if (!verbose) return McpUtils.createJsonResponse(Map.of("enabled", false, "alreadyDisabled", true));
+                return McpUtils.createSuccessResponse("⚠️ Proxy interceptor already disabled");
+            }
+            interceptorEnabled.set(false);
+            if (requestHandlerRegistration != null && requestHandlerRegistration.isRegistered()) {
+                requestHandlerRegistration.deregister();
+                requestHandlerRegistration = null;
+            }
+            if (responseHandlerRegistration != null && responseHandlerRegistration.isRegistered()) {
+                responseHandlerRegistration.deregister();
+                responseHandlerRegistration = null;
+            }
+            if (webSocketHandlerRegistration != null && webSocketHandlerRegistration.isRegistered()) {
+                webSocketHandlerRegistration.deregister();
+                webSocketHandlerRegistration = null;
+            }
+
+            // Queue/future cleanup stays INSIDE the lock: deregister only stops new
+            // interceptions, but a concurrent enable that re-registers handlers could start
+            // queueing fresh requests/responses before this cleanup runs and have them wiped.
+            // Holding the lock blocks enable until cleanup is done.
+            pendingQueue.clear();
+            for (CompletableFuture<ModificationResponse> future : responseMap.values()) {
+                future.cancel(true);
+            }
+            responseMap.clear();
+
+            // Response side — mirror the request-side cleanup. Without this, response handler
+            // threads blocked in future.get() stay stuck until the 30s timeout and these
+            // collections leak entries across a disable/re-enable cycle. cancel(true) unblocks
+            // them immediately; the handler's catch forwards the original (unmodified) response.
+            pendingResponseQueue.clear();
+            for (CompletableFuture<ModificationResponse> future : responseDecisionMap.values()) {
+                future.cancel(true);
+            }
+            responseDecisionMap.clear();
+            pendingWebSocketQueue.clear();
         }
-        interceptorEnabled.set(false);
-        if (requestHandlerRegistration != null && requestHandlerRegistration.isRegistered()) {
-            requestHandlerRegistration.deregister();
-            requestHandlerRegistration = null;
-        }
-        if (responseHandlerRegistration != null && responseHandlerRegistration.isRegistered()) {
-            responseHandlerRegistration.deregister();
-            responseHandlerRegistration = null;
-        }
-        if (webSocketHandlerRegistration != null && webSocketHandlerRegistration.isRegistered()) {
-            webSocketHandlerRegistration.deregister();
-            webSocketHandlerRegistration = null;
-        }
-        pendingQueue.clear();
-        for (CompletableFuture<ModificationResponse> future : responseMap.values()) {
-            future.cancel(true);
-        }
-        responseMap.clear();
 
         if (!verbose) return McpUtils.createJsonResponse(Map.of("enabled", false));
         return McpUtils.createSuccessResponse("❌ Proxy interceptor disabled and handlers deregistered");

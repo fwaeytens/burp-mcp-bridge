@@ -7,9 +7,9 @@ package com.example.burpmcp;
 public class Version {
     
     // Version components
-    public static final String VERSION = "2.5.1";
-    public static final String BUILD_DATE = "2026-05-14";
-    public static final String RELEASE_NAME = "cookie jar carry-over + annotate-by-entryId/method/notesMode";
+    public static final String VERSION = "2.6.0";
+    public static final String BUILD_DATE = "2026-06-10";
+    public static final String RELEASE_NAME = "response-analyzer all-action JSON fix + raw/pipelined Content-Length preservation";
 
     // Feature tracking
     public static final int TOOL_COUNT = 22; // Total number of registered tools
@@ -54,7 +54,14 @@ public class Version {
      * Get detailed changelog for this version.
      */
     public static String getChangelog() {
-        return "## Version 2.5.1 - cookie jar carry-over, body-cap override, persistent Collaborator client, annotation precision (2026-05-14)\n\n" +
+        return "## Version 2.6.0 - response-analyzer JSON fix, raw/pipelined Content-Length preservation, robustness (2026-06-10)\n\n" +
+               "### 🐛 burp_response_analyzer: `all` action now returns flat JSON\n" +
+               "- ✅ The default `all` action embedded each sub-analysis as a full MCP envelope, producing doubly-wrapped, re-stringified JSON. It now embeds the raw data so the combined result is flat, valid JSON.\n\n" +
+               "### 🧬 burp_custom_http: Content-Length preserved for byte-exact work\n" +
+               "- ✅ The Node bridge no longer rewrites Content-Length when `raw_request=true` or `action=SEND_PIPELINED` — request-smuggling payloads (CL.TE/TE.CL/CL.0) and raw byte tests keep their deliberately-crafted framing.\n\n" +
+               "### 🛡 Robustness\n" +
+               "- ✅ McpServer returns a clean JSON-RPC parse error (-32700) for an empty request body instead of throwing an NPE inside the error handler.\n\n" +
+               "## Version 2.5.1 - cookie jar carry-over, body-cap override, persistent Collaborator client, annotation precision (2026-05-14)\n\n" +
                "### 🍪 burp_custom_http: Set-Cookie auto-applied to Cookie Jar\n" +
                "- ✅ Every Set-Cookie value from a response is written into Burp's Cookie Jar via api.http().cookieJar().setCookie(...) and surfaced as a `set_cookies[]` array in the response JSON. The next burp_custom_http call picks them up automatically.\n" +
                "- ✅ Cookie-jar reads dedupe by name (LinkedHashMap, most-recent-wins) — no more `Cookie: session=A; session=B` when the jar accumulates same-name cookies.\n" +
