@@ -7,9 +7,9 @@ package com.example.burpmcp;
 public class Version {
     
     // Version components
-    public static final String VERSION = "2.6.0";
-    public static final String BUILD_DATE = "2026-06-10";
-    public static final String RELEASE_NAME = "response-analyzer all-action JSON fix + raw/pipelined Content-Length preservation";
+    public static final String VERSION = "2.6.1";
+    public static final String BUILD_DATE = "2026-06-11";
+    public static final String RELEASE_NAME = "isError on validation failures + action_requirements + interceptor hold-filter & verified agent docs";
 
     // Feature tracking
     public static final int TOOL_COUNT = 22; // Total number of registered tools
@@ -54,7 +54,18 @@ public class Version {
      * Get detailed changelog for this version.
      */
     public static String getChangelog() {
-        return "## Version 2.6.0 - response-analyzer JSON fix, raw/pipelined Content-Length preservation, robustness (2026-06-10)\n\n" +
+        return "## Version 2.6.1 - MCP isError on validation failures, action_requirements, interceptor hold-filter + verified agent docs (2026-06-11)\n\n" +
+               "### 🚦 Validation errors now set MCP isError:true\n" +
+               "- ✅ Tool argument-validation failures (McpUtils, ScannerTool, ScopeTool error helpers) return `{content, isError:true}` instead of plain text with a ❌ prefix. Spec-compliant clients now detect failures via the flag, not emoji-sniffing.\n\n" +
+               "### 📋 burp_help: action_requirements populated\n" +
+               "- ✅ Per-action required parameters are now surfaced for 8 multi-action tools (burp_scanner, burp_custom_http, burp_collaborator, burp_session_management, burp_annotate, burp_organizer, burp_repeater, burp_comparer). Previously always `{}` because the JSON Schema dropped allOf/if-then for Claude API compatibility; now curated from each tool's runtime validation.\n\n" +
+               "### 🎯 burp_proxy_interceptor: opt-in hold filter\n" +
+               "- ✅ `enable` accepts `filter_path` (URL substring, or regex via `filter_regex`), `filter_method`, and `filter_host`. Only matching requests are held; everything else passes through, so the browser stays usable instead of hanging on every request. No filter = holds all (backward compatible).\n" +
+               "- ✅ Active filter reported in `enable`/`get_stats`; cleared on `disable`. Bad regex fails the enable call with a clear error.\n\n" +
+               "### 📖 Interceptor docs reflect the verified agent workflow (Playwright through Burp)\n" +
+               "- ✅ burp_global_interceptor reframed as the automatic, non-blocking rule engine (enable → set_auth/add_header/add_request_rule; transforms-and-forwards inline). burp_proxy_interceptor documents the non-blocking-trigger pattern that avoids the deadlock (un-awaited fetch via browser_evaluate → get_queue → modify_request → disable).\n" +
+               "- ✅ burp_help examples for both interceptors rewritten as ordered, parameter-accurate steps; verified end-to-end by solving the PortSwigger 'Excessive trust in client-side controls' lab. Server initialize instructions + CLAUDE.md document the Playwright↔Burp topology.\n\n" +
+               "## Version 2.6.0 - response-analyzer JSON fix, raw/pipelined Content-Length preservation, robustness (2026-06-10)\n\n" +
                "### 🐛 burp_response_analyzer: `all` action now returns flat JSON\n" +
                "- ✅ The default `all` action embedded each sub-analysis as a full MCP envelope, producing doubly-wrapped, re-stringified JSON. It now embeds the raw data so the combined result is flat, valid JSON.\n\n" +
                "### 🧬 burp_custom_http: Content-Length preserved for byte-exact work\n" +

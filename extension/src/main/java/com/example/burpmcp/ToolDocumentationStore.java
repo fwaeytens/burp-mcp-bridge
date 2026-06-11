@@ -22,6 +22,75 @@ public class ToolDocumentationStore {
         populateCuratedMetadata();
         // Then enhance with examples, related tools, and best practices
         populateEnhancedMetadata();
+        // Finally attach per-action required-parameter maps. These cannot be derived
+        // from the JSON Schema (allOf/if-then was stripped for Claude API compatibility),
+        // so they are curated here from each tool's runtime validation.
+        populateActionRequirements();
+    }
+
+    /**
+     * Per-action required parameters, curated to match each tool's runtime validation.
+     * Surfaced by burp_help as {@code action_requirements} so an agent can see which
+     * parameters each action needs before calling a tool.
+     */
+    private void populateActionRequirements() {
+        Map<String, Map<String, List<String>>> byTool = new LinkedHashMap<>();
+
+        byTool.put("burp_scanner", Map.of(
+            "START_SCAN", List.of("urls"),
+            "CRAWL_ONLY", List.of("urls"),
+            "GET_STATUS", List.of("scanId"),
+            "GET_ISSUES", List.of("scanId"),
+            "CANCEL_SCAN", List.of("scanId"),
+            "ADD_TO_SCAN", List.of("scanId"),
+            "GENERATE_REPORT", List.of("scanId"),
+            "IMPORT_BCHECK", List.of("definition"),
+            "SCAN_SPECIFIC_REQUEST", List.of("request", "useHttps")));
+
+        byTool.put("burp_custom_http", Map.of(
+            "SEND_REQUEST", List.of("request"),
+            "SEND_PARALLEL", List.of("requests"),
+            "SEND_PIPELINED", List.of("requests"),
+            "TOGGLE_REQUEST_METHOD", List.of("request|url")));
+
+        byTool.put("burp_collaborator", Map.of(
+            "RESTORE_CLIENT", List.of("secretKey")));
+
+        byTool.put("burp_session_management", Map.of(
+            "SET_TOKEN", List.of("tokenName", "tokenValue"),
+            "TEST_SESSION", List.of("url"),
+            "COOKIE_JAR_SET", List.of("name", "value", "domain"),
+            "COOKIE_JAR_DELETE", List.of("name", "domain"),
+            "ANALYZE_SESSION_VALIDITY", List.of("url")));
+
+        byTool.put("burp_annotate", Map.of(
+            "ANNOTATE_PROXY", List.of("entryId|url"),
+            "ANNOTATE_TARGET", List.of("entryId|url"),
+            "ANNOTATE_ORGANIZER", List.of("url"),
+            "ANNOTATE_REPEATER", List.of("url"),
+            "ANNOTATE_INTRUDER", List.of("url"),
+            "ANNOTATE_BY_PATTERN", List.of("pattern")));
+
+        byTool.put("burp_organizer", Map.of(
+            "GET_ITEM_BY_ID", List.of("itemId"),
+            "GET_ITEM_STATUS", List.of("itemId")));
+
+        byTool.put("burp_repeater", Map.of(
+            "SEND_TO_REPEATER", List.of("url"),
+            "SEND_FROM_PROXY", List.of("proxyUrl")));
+
+        byTool.put("burp_comparer", Map.of(
+            "COMPARE_RESPONSES", List.of("url1", "url2"),
+            "COMPARE_REQUESTS", List.of("url1", "url2"),
+            "COMPARE_TEXT", List.of("text1", "text2"),
+            "COMPARE_PROXY_ENTRIES", List.of("url1", "url2")));
+
+        byTool.forEach((toolName, reqs) -> {
+            ToolDocumentation doc = documentation.get(toolName);
+            if (doc != null) {
+                doc.setActionRequirements(reqs);
+            }
+        });
     }
     
     public static synchronized ToolDocumentationStore getInstance() {
@@ -877,30 +946,37 @@ public class ToolDocumentationStore {
             List.of("burp_proxy_interceptor", "burp_custom_http", "burp_scanner"),
             List.of(
                 Map.of(
-                    "title", "Add auth header to all tools",
-                    "input", Map.of("action", "add_request_rule", "rule_id", "auth_rule",
-                        "rule", Map.of("name", "Add Bearer Token",
-                            "add_headers", Map.of("Authorization", "Bearer eyJ..."))),
+                    "title", "Step 1 — Enable (rules apply automatically, no queue, no blocking)",
+                    "input", Map.of("action", "enable"),
+                    "output", Map.of("enabled", true, "requestRules", 0),
+                    "explanation", "Turns on inline transform-and-forward for traffic from ALL tools + the Playwright browser. Unlike burp_proxy_interceptor it never holds traffic, so normal browser_click/navigate works."
+                ),
+                Map.of(
+                    "title", "Inject a bearer token across ALL traffic (set_auth)",
+                    "input", Map.of("action", "set_auth", "auth_type", "bearer", "auth_value", "eyJ..."),
+                    "output", Map.of("success", true, "authHeader", "Authorization"),
+                    "explanation", "auth_type: bearer|basic|api_key|custom. bearer/basic build the Authorization header; api_key/custom take an optional header_name. Applies to browser + Scanner + Repeater + custom_http-via-proxy."
+                ),
+                Map.of(
+                    "title", "Match/replace in the request BODY (verified — solves price tampering)",
+                    "input", Map.of("action", "add_request_rule", "rule_id", "lower_price",
+                        "rule", Map.of("url_pattern", "/cart", "body_search", "price=133700", "body_replace", "price=1")),
+                    "output", Map.of("type", "request", "success", true, "ruleId", "lower_price"),
+                    "explanation", "rule keys: url_pattern (substring; regex if use_regex on the rule), body_search/body_replace, add_headers {name:value}, remove_headers [names], change_method, change_path. Then a normal browser add-to-cart is rewritten inline."
+                ),
+                Map.of(
+                    "title", "Add a static header to all tools (add_header)",
+                    "input", Map.of("action", "add_header", "header_name", "X-Forwarded-For", "header_value", "127.0.0.1"),
                     "output", Map.of("success", true),
-                    "explanation", "Injects Authorization header into ALL Burp tools (Scanner, Intruder, Repeater, etc.)"
-                ),
-                Map.of(
-                    "title", "Enable automatic mode",
-                    "input", Map.of("action", "set_mode", "mode", Map.of("type", "AUTOMATIC")),
-                    "output", Map.of("intercepting", true),
-                    "explanation", "Rules are applied automatically to all requests without manual intervention"
-                ),
-                Map.of(
-                    "title", "List active rules",
-                    "input", Map.of("action", "list_rules"),
-                    "output", Map.of("rules", "array of active interception rules"),
-                    "explanation", "Shows all configured request/response modification rules"
+                    "explanation", "Simpler than a rule for a fixed header (e.g. WAF-bypass headers). Inspect/clean up with list_rules, list_headers, remove_rule, remove_header."
                 )
             ),
             List.of(
-                "Use this to add authentication to Scanner - it cannot authenticate on its own",
-                "Use set_mode with type AUTOMATIC for hands-off header injection",
-                "Add WAF bypass headers (X-Forwarded-For, X-Original-URL) globally for all tools"
+                "VERIFIED: a /cart body match/replace rule rewrote quantity/price inline during a normal Playwright click — no queue, no deadlock.",
+                "Enable first, then add rules (set_auth/add_header/add_request_rule); they apply automatically to all subsequent traffic.",
+                "Set rules BEFORE driving the Playwright browser (proxied through Burp) so navigated pages are transformed transparently.",
+                "Use set_tool_filter to scope which tools a rule applies to; use this to add auth to Scanner — it cannot authenticate on its own.",
+                "Prefer this over burp_proxy_interceptor for inject/rewrite jobs; use the proxy interceptor only when you need a true per-request breakpoint."
             ));
 
         // burp_annotate with examples
@@ -1169,29 +1245,44 @@ public class ToolDocumentationStore {
             List.of("burp_global_interceptor", "burp_custom_http"),
             List.of(
                 Map.of(
-                    "title", "Enable request interception",
-                    "input", Map.of("action", "enable"),
-                    "output", Map.of("enabled", true),
-                    "explanation", "Start intercepting proxy requests for MCP-based inspection and modification"
+                    "title", "Step 1 — Enable with a SCOPED hold filter (so the page stays usable)",
+                    "input", Map.of("action", "enable", "filter_path", "/cart", "filter_method", "POST"),
+                    "output", Map.of("enabled", true, "holdFilter", "method=POST url~/cart"),
+                    "explanation", "Only POST requests whose URL contains /cart are held; all other requests (images, JS, navigation) pass through. Without a filter, EVERY request is held."
                 ),
                 Map.of(
-                    "title", "Get pending requests",
+                    "title", "Step 2 — Trigger the request NON-BLOCKING (critical — avoids deadlock)",
+                    "input", Map.of("note", "this is a Playwright call, not a burp tool",
+                        "tool", "mcp__playwright__browser_evaluate",
+                        "function", "() => { fetch('/cart', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'productId=1&redir=PRODUCT&quantity=1&price=133700'}); return 'dispatched'; }"),
+                    "output", Map.of("result", "dispatched"),
+                    "explanation", "Fire-and-forget (un-awaited) fetch returns immediately so the agent stays free to poll. A blocking browser_click/browser_navigate would deadlock — the caller waits on the held request and can never reach get_queue."
+                ),
+                Map.of(
+                    "title", "Step 3 — Read the held request",
                     "input", Map.of("action", "get_queue"),
-                    "output", Map.of("requests", "list of intercepted requests awaiting decision"),
-                    "explanation", "View requests held by the interceptor, waiting for forward/drop/modify"
+                    "output", Map.of("queueSize", 1, "queue", List.of(Map.of("requestId", "dabadf02-...", "method", "POST", "url", ".../cart"))),
+                    "explanation", "Returns held requests and their request_id (needed to modify/forward). Each is auto-forwarded unmodified after 30s, so act promptly."
                 ),
                 Map.of(
-                    "title", "Modify and forward a request",
-                    "input", Map.of("action", "modify_request", "request_id", "req_1",
-                        "modifications", Map.of("add_headers", Map.of("X-Custom", "injected"), "replace_body", "modified=true")),
+                    "title", "Step 4 — Modify the body and forward",
+                    "input", Map.of("action", "modify_request", "request_id", "dabadf02-...",
+                        "modifications", Map.of("replace_body", "productId=1&redir=PRODUCT&quantity=1&price=1")),
                     "output", Map.of("success", true),
-                    "explanation", "Modify an intercepted request before forwarding it to the server"
+                    "explanation", "modify_request applies the change AND forwards in one call. modifications keys: replace_body, add_headers {name:value}, remove_headers [names], method, path. (Use forward_request to send unmodified, drop_request to drop.)"
+                ),
+                Map.of(
+                    "title", "Step 5 — Disable when done",
+                    "input", Map.of("action", "disable"),
+                    "output", Map.of("enabled", false),
+                    "explanation", "Always disable afterwards (also clears the filter), otherwise the next held request will hang the browser."
                 )
             ),
             List.of(
-                "Enable interception, browse in Burp's browser, then use get_queue to see requests",
-                "Use modify_request to change headers or body before forwarding",
-                "For global interception across all tools (Scanner, etc.), use burp_global_interceptor instead"
+                "VERIFIED end-to-end: this 5-step pattern solved the PortSwigger 'Excessive trust in client-side controls' lab (rewrote price=133700 -> price=1).",
+                "ALWAYS scope the hold with filter_path/filter_method/filter_host on enable — an unfiltered enable holds every request and hangs the browser.",
+                "ALWAYS trigger held traffic non-blocking (un-awaited fetch via browser_evaluate, or a background curl through 127.0.0.1:8080). Never trigger it with a blocking browser_click/navigate.",
+                "For AUTOMATIC match/replace with no queue/blocking, use burp_global_interceptor instead — better for inject-auth/rewrite-everything jobs."
             ));
 
         // burp_add_issue with examples

@@ -645,6 +645,10 @@ public class ScopeTool implements McpTool {
         Map<String, Object> errorResult = new HashMap<>();
         errorResult.put("type", "text");
         errorResult.put("text", "❌ Error: " + message);
-        return List.of(errorResult);
+        // Wrap with isError:true so MCP clients detect the failure via the spec flag.
+        Map<String, Object> response = new HashMap<>();
+        response.put("content", List.of(errorResult));
+        response.put("isError", true);
+        return response;
     }
 }

@@ -62,6 +62,14 @@ public class ProxyInterceptorTool implements McpTool {
     // Configuration
     private static final boolean USE_TIMEOUT = true; // Protect Burp proxy threads from hanging
     private static final long MODIFICATION_TIMEOUT_MS = 30000; // 30 second timeout
+
+    // Optional hold filter set on enable(). When any is non-null, ONLY requests matching
+    // ALL set criteria are held; everything else passes through untouched. This keeps the
+    // browser usable (only the targeted request is held) instead of hanging on every resource.
+    private static volatile String filterPath = null;    // substring of URL, or regex when filterRegex
+    private static volatile String filterMethod = null;  // exact HTTP method (case-insensitive)
+    private static volatile String filterHost = null;    // substring of host
+    private static volatile boolean filterRegex = false; // treat filterPath as a regex (matched against full URL)
     
     private final MontoyaApi api;
     private final ObjectMapper objectMapper;
@@ -100,7 +108,12 @@ public class ProxyInterceptorTool implements McpTool {
                 if (!interceptorEnabled.get()) {
                     return ProxyRequestToBeSentAction.continueWith(interceptedRequest);
                 }
-                
+
+                // Hold filter: when set, only matching requests are held; others pass through.
+                if (!matchesHoldFilter(interceptedRequest)) {
+                    return ProxyRequestToBeSentAction.continueWith(interceptedRequest);
+                }
+
                 interceptedCount.incrementAndGet();
                 
                 // Create a unique ID for this request
@@ -402,9 +415,17 @@ public class ProxyInterceptorTool implements McpTool {
         Map<String, Object> tool = new HashMap<>();
         tool.put("name", "burp_proxy_interceptor");
         tool.put("title", "Proxy Interceptor (Browser Only)");
-        tool.put("description", "BROWSER-PROXY traffic only (intercepts requests passing through Burp's proxy listener). For ALL Burp tools (Scanner, Intruder, Repeater, etc.), use burp_global_interceptor. For WebSocket frames, use burp_websocket_interceptor. " +
-                "Real-time proxy request interception and modification with event-driven control. " +
-                "Use this to intercept requests as they pass through Burp Proxy, inspect them, and decide to forward, drop, or modify. " +
+        tool.put("description", "MANUAL hold/modify/forward of BROWSER-PROXY traffic (requests through Burp's proxy listener — by default the agent's own Playwright browser traffic). " +
+                "For automatic match/replace rules across ALL Burp tools, use burp_global_interceptor instead. For WebSocket frames, use burp_websocket_interceptor. " +
+                "⚠️ Once 'enable' is on, every matching proxy request is held for up to 30s each, then auto-forwarded unmodified. " +
+                "SCOPE THE HOLD: pass filter_path (URL substring, or regex with filter_regex=true), filter_method, and/or filter_host to 'enable' so ONLY the request you want is held and the rest of the page loads normally. With no filter, ALL requests are held. " +
+                "⚠️ CRITICAL — TRIGGER HELD TRAFFIC NON-BLOCKING, or you deadlock: the agent cannot poll get_queue while it is blocked inside a synchronous browser_navigate/browser_click (the page waits on the held request). " +
+                "PROVEN AGENT PATTERN (verified solving a PortSwigger lab): " +
+                "(1) enable with a filter so the page stays usable, e.g. {action:'enable', filter_path:'/cart', filter_method:'POST'}; " +
+                "(2) trigger the request fire-and-forget so the agent stays free — e.g. Playwright browser_evaluate running an UN-AWAITED fetch('/path',{method:'POST',body:...}), or a background curl through 127.0.0.1:8080; " +
+                "(3) get_queue to read the held request and its request_id; " +
+                "(4) modify_request (request_id + modifications{replace_body|add_headers|remove_headers|method|path}) which applies changes AND forwards, or forward_request / drop_request; " +
+                "(5) disable (else the next navigation hangs). Keep the page otherwise idle so only your triggered request is held. " +
                 "Actions: enable/disable (MCP interception), master_intercept_on/off (Burp UI button), " +
                 "get_queue/modify_request/forward_request/drop_request (request flow), " +
                 "get_response_queue/modify_response/forward_response/drop_response (response flow), " +
@@ -451,9 +472,30 @@ public class ProxyInterceptorTool implements McpTool {
         optionsProp.put("description", "Options object. Keys: drop (boolean — drop instead of forward), intercept_ui (boolean — also show in Burp UI), highlight_color (color name), description (string).");
         properties.put("options", optionsProp);
 
+        // Optional hold filter (used with action=enable). When any is set, ONLY requests
+        // matching ALL set criteria are held; everything else passes through untouched —
+        // so the browser stays usable and only the request you care about is held.
+        Map<String, Object> filterPathProp = new HashMap<>();
+        filterPathProp.put("type", "string");
+        filterPathProp.put("description", "enable only: hold requests whose URL contains this substring (e.g. \"/cart\"). With filter_regex=true, treated as a regex matched against the full URL.");
+        properties.put("filter_path", filterPathProp);
+
+        Map<String, Object> filterMethodProp = new HashMap<>();
+        filterMethodProp.put("type", "string");
+        filterMethodProp.put("description", "enable only: hold only requests with this HTTP method (e.g. \"POST\"). Case-insensitive.");
+        properties.put("filter_method", filterMethodProp);
+
+        Map<String, Object> filterHostProp = new HashMap<>();
+        filterHostProp.put("type", "string");
+        filterHostProp.put("description", "enable only: hold only requests whose host contains this substring.");
+        properties.put("filter_host", filterHostProp);
+
+        properties.put("filter_regex", McpUtils.createProperty("boolean",
+            "enable only: treat filter_path as a regex (matched against the full URL) instead of a substring. Default false.", false));
+
         properties.put("verbose", McpUtils.createProperty("boolean",
             "If true, returns formatted markdown with sections and emoji. Default: compact JSON for token efficiency.", false));
-        
+
         inputSchema.put("type", "object");
         inputSchema.put("properties", properties);
         inputSchema.put("required", Arrays.asList("action"));
@@ -473,7 +515,7 @@ public class ProxyInterceptorTool implements McpTool {
         try {
             switch (action.toLowerCase()) {
                 case "enable":
-                    return enableInterceptor(verbose);
+                    return enableInterceptor(args, verbose);
                 case "disable":
                     return disableInterceptor(verbose);
                 case "get_queue":
@@ -514,10 +556,26 @@ public class ProxyInterceptorTool implements McpTool {
         }
     }
     
-    private Object enableInterceptor(boolean verbose) {
+    private Object enableInterceptor(Map<String, Object> args, boolean verbose) {
         if (!handlersRegistered) {
             return McpUtils.createErrorResponse("Handlers not initialized. Please restart the extension.");
         }
+
+        // Read optional hold filter. When any criterion is set, only matching requests are held.
+        String fPath = trimToNull(args.get("filter_path"));
+        String fMethod = trimToNull(args.get("filter_method"));
+        String fHost = trimToNull(args.get("filter_host"));
+        boolean fRegex = Boolean.TRUE.equals(args.get("filter_regex"));
+        // Validate regex early so a bad pattern fails the enable call rather than silently
+        // holding nothing (or everything) at request time.
+        if (fRegex && fPath != null) {
+            try {
+                java.util.regex.Pattern.compile(fPath);
+            } catch (java.util.regex.PatternSyntaxException e) {
+                return McpUtils.createErrorResponse("Invalid filter_path regex: " + e.getMessage());
+            }
+        }
+
         // Check-and-set inside the lock so two concurrent enables can't both pass the guard
         // and double-register handlers (leaking the first set).
         synchronized (registrationLock) {
@@ -525,17 +583,77 @@ public class ProxyInterceptorTool implements McpTool {
                 if (!verbose) return McpUtils.createJsonResponse(Map.of("enabled", true, "alreadyEnabled", true));
                 return McpUtils.createSuccessResponse("⚠️ Proxy interceptor already enabled");
             }
+            filterPath = fPath;
+            filterMethod = fMethod;
+            filterHost = fHost;
+            filterRegex = fRegex;
             requestHandlerRegistration = api.proxy().registerRequestHandler(requestHandler);
             responseHandlerRegistration = api.proxy().registerResponseHandler(responseHandler);
             webSocketHandlerRegistration = api.proxy().registerWebSocketCreationHandler(webSocketHandler);
             interceptorEnabled.set(true);
         }
 
-        if (!verbose) return McpUtils.createJsonResponse(Map.of("enabled", true, "alreadyEnabled", false));
+        boolean filtered = fPath != null || fMethod != null || fHost != null;
+        if (!verbose) {
+            Map<String, Object> resp = new HashMap<>();
+            resp.put("enabled", true);
+            resp.put("alreadyEnabled", false);
+            resp.put("holdFilter", describeFilter());
+            return McpUtils.createJsonResponse(resp);
+        }
         return McpUtils.createSuccessResponse(
             "✅ **Proxy Interceptor Enabled**\n\nEvent-driven interception is now active.\n" +
-            "⚠️ All requests will be held until you call forward_request/modify_request/drop_request.\n" +
+            (filtered
+                ? "🎯 Hold filter active: " + describeFilter() + " — only matching requests are held; others pass through.\n"
+                : "⚠️ NO filter set: ALL requests are held until you forward/modify/drop them. " +
+                  "Tip: pass filter_path/filter_method/filter_host to hold only the request you care about.\n") +
             "Use get_queue to see pending requests.");
+    }
+
+    /** Returns true when the request should be held: no filter set, or all set criteria match. */
+    private static boolean matchesHoldFilter(HttpRequest request) {
+        String path = filterPath, method = filterMethod, host = filterHost;
+        boolean regex = filterRegex;
+        if (path == null && method == null && host == null) {
+            return true; // backward-compatible: hold everything
+        }
+        if (method != null && !method.equalsIgnoreCase(request.method())) {
+            return false;
+        }
+        if (host != null) {
+            String h = request.httpService() != null ? request.httpService().host() : "";
+            if (h == null || !h.contains(host)) {
+                return false;
+            }
+        }
+        if (path != null) {
+            String url = request.url();
+            if (regex) {
+                if (url == null || !java.util.regex.Pattern.compile(path).matcher(url).find()) {
+                    return false;
+                }
+            } else if (url == null || !url.contains(path)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static String describeFilter() {
+        if (filterPath == null && filterMethod == null && filterHost == null) {
+            return "none (holding all requests)";
+        }
+        StringBuilder sb = new StringBuilder();
+        if (filterMethod != null) sb.append("method=").append(filterMethod).append(' ');
+        if (filterHost != null) sb.append("host~").append(filterHost).append(' ');
+        if (filterPath != null) sb.append(filterRegex ? "url=~/" : "url~").append(filterPath).append(filterRegex ? "/" : "");
+        return sb.toString().trim();
+    }
+
+    private static String trimToNull(Object o) {
+        if (!(o instanceof String s)) return null;
+        String t = s.trim();
+        return t.isEmpty() ? null : t;
     }
 
     private Object disableInterceptor(boolean verbose) {
@@ -580,6 +698,12 @@ public class ProxyInterceptorTool implements McpTool {
             }
             responseDecisionMap.clear();
             pendingWebSocketQueue.clear();
+
+            // Clear the hold filter so a later filterless enable() reverts to holding all.
+            filterPath = null;
+            filterMethod = null;
+            filterHost = null;
+            filterRegex = false;
         }
 
         if (!verbose) return McpUtils.createJsonResponse(Map.of("enabled", false));
@@ -766,6 +890,7 @@ public class ProxyInterceptorTool implements McpTool {
         if (!verbose) {
             Map<String, Object> data = new HashMap<>();
             data.put("enabled", interceptorEnabled.get());
+            data.put("holdFilter", describeFilter());
             data.put("intercepted", intercepted);
             data.put("modified", modified);
             data.put("timeouts", timeouts);

@@ -1590,15 +1590,18 @@ public class ScannerTool implements McpTool {
         return content;
     }
     
-    private List<Map<String, Object>> createErrorResponse(String error) {
-        // Return the content array directly, not wrapped in a Map
+    private Object createErrorResponse(String error) {
+        // Wrap in a Map carrying isError:true so MCP clients see the spec flag,
+        // not just the ❌ text prefix. The server unwraps content + isError.
         List<Map<String, Object>> content = new ArrayList<>();
         Map<String, Object> textContent = new HashMap<>();
         textContent.put("type", "text");
         textContent.put("text", "❌ Error: " + error);
         content.add(textContent);
-        // Note: isError flag is lost here, but MCP can detect errors from the ❌ prefix
-        return content;
+        Map<String, Object> response = new HashMap<>();
+        response.put("content", content);
+        response.put("isError", true);
+        return response;
     }
 
     private Object crawlOnly(JsonNode arguments, Scanner scanner) {

@@ -115,11 +115,15 @@ public class GlobalInterceptorTool implements McpTool {
         Map<String, Object> tool = new HashMap<>();
         tool.put("name", "burp_global_interceptor");
         tool.put("title", "Global Interceptor (All Burp Tools)");
-        tool.put("description", "ALL Burp tools (Scanner, Intruder, Repeater, Proxy) — global rules apply everywhere. For browser-proxy ONLY, use burp_proxy_interceptor. For WebSocket frames, use burp_websocket_interceptor. " +
-                "Global HTTP and WebSocket interceptor for ALL Burp tools (Scanner, Intruder, Repeater, etc.). " +
-                "Use this for global authentication injection, header modification across all tools, response manipulation, and WebSocket message interception. " +
-                "Supports rule-based automatic mode or event-driven manual control. " +
-                "Common use cases: add auth to Scanner, inject headers in WebSocket handshakes, WAF bypass testing.");
+        tool.put("description", "SET-AND-FORGET RULE ENGINE for traffic from ALL Burp tools AND the Playwright browser (which is proxied through Burp by default). " +
+                "This tool NEVER holds/queues traffic — it transforms matching requests/responses inline and forwards immediately, so it is fully automatic and cannot deadlock an agent. " +
+                "USAGE: enable, then add rules — set_auth (auth_type=bearer|basic|api_key|custom + auth_value, optional header_name), add_header, " +
+                "add_request_rule / add_response_rule (match/replace). Rules then apply to all subsequent traffic across Scanner, Intruder, Repeater, " +
+                "custom_http-via-proxy, and the Playwright browser. Set rules FIRST, then drive the browser or start a scan. " +
+                "Because the Playwright browser routes through Burp, these rules transparently modify pages the agent navigates — the clean way to manipulate browser traffic " +
+                "(unlike burp_proxy_interceptor's manual breakpoint queue, which blocks). " +
+                "Scope with set_tool_filter. For browser-proxy-only manual interception use burp_proxy_interceptor; for WebSocket frames use burp_websocket_interceptor. " +
+                "Common use cases: inject auth before a scan or browser session, WAF-bypass header injection, response rewriting, WebSocket handshake headers.");
 
         // MCP 2025-06-18 annotations
         Map<String, Object> annotations = new HashMap<>();
@@ -131,7 +135,7 @@ public class GlobalInterceptorTool implements McpTool {
         tool.put("annotations", annotations);
 
         Map<String, Object> meta = new HashMap<>();
-        meta.put("anthropic/searchHint", "match replace rules auto-modify traffic");
+        meta.put("anthropic/searchHint", "inject auth header match replace rules auto-modify browser playwright scanner traffic");
         tool.put("_meta", meta);
 
         Map<String, Object> inputSchema = new HashMap<>();

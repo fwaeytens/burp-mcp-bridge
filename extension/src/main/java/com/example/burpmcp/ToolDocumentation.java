@@ -19,7 +19,11 @@ public class ToolDocumentation {
     private final List<String> capabilities;
     private final List<String> inputTypes;
     private final List<String> outputTypes;
-    
+    // Per-action required parameters, e.g. {"START_SCAN": ["urls"], "GET_STATUS": ["scanId"]}.
+    // Kept as an explicit field because the JSON Schema no longer carries allOf/if-then
+    // blocks (stripped for Claude API compatibility), so it cannot be derived from the schema.
+    private final Map<String, List<String>> actionRequirements;
+
     private ToolDocumentation(Builder builder) {
         this.name = builder.name;
         this.category = builder.category;
@@ -34,6 +38,7 @@ public class ToolDocumentation {
         this.capabilities = builder.capabilities;
         this.inputTypes = builder.inputTypes;
         this.outputTypes = builder.outputTypes;
+        this.actionRequirements = builder.actionRequirements;
     }
     
     // Getters
@@ -50,6 +55,7 @@ public class ToolDocumentation {
     public List<String> getCapabilities() { return new ArrayList<>(capabilities); }
     public List<String> getInputTypes() { return new ArrayList<>(inputTypes); }
     public List<String> getOutputTypes() { return new ArrayList<>(outputTypes); }
+    public Map<String, List<String>> getActionRequirements() { return new LinkedHashMap<>(actionRequirements); }
 
     public void setDescription(String description) {
         if (description != null && !description.isBlank()) {
@@ -61,6 +67,14 @@ public class ToolDocumentation {
         parameters.clear();
         if (newParameters != null) {
             parameters.addAll(newParameters);
+        }
+    }
+
+    public void setActionRequirements(Map<String, List<String>> requirements) {
+        actionRequirements.clear();
+        if (requirements != null) {
+            requirements.forEach((action, params) ->
+                actionRequirements.put(action, params == null ? new ArrayList<>() : new ArrayList<>(params)));
         }
     }
 
@@ -85,7 +99,8 @@ public class ToolDocumentation {
         private List<String> capabilities = new ArrayList<>();
         private List<String> inputTypes = new ArrayList<>();
         private List<String> outputTypes = new ArrayList<>();
-        
+        private Map<String, List<String>> actionRequirements = new LinkedHashMap<>();
+
         public Builder(String name) {
             this.name = name;
         }
@@ -206,7 +221,15 @@ public class ToolDocumentation {
             outputTypes.addAll(Arrays.asList(types));
             return this;
         }
-        
+
+        /** Map of action -> list of parameters required when that action is used. */
+        public Builder actionRequirements(Map<String, List<String>> requirements) {
+            if (requirements != null) {
+                this.actionRequirements = new LinkedHashMap<>(requirements);
+            }
+            return this;
+        }
+
         public ToolDocumentation build() {
             return new ToolDocumentation(this);
         }

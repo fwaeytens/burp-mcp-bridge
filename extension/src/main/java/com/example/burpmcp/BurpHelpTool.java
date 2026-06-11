@@ -374,6 +374,14 @@ public class BurpHelpTool implements McpTool {
 
     @SuppressWarnings("unchecked")
     private Map<String, List<String>> getActionRequirements(ToolDocumentation doc) {
+        // Prefer the explicitly-curated per-action requirements. These can't be derived
+        // from the JSON Schema because allOf/if-then was stripped for Claude API compatibility.
+        Map<String, List<String>> curated = doc.getActionRequirements();
+        if (curated != null && !curated.isEmpty()) {
+            return curated;
+        }
+
+        // Fallback: derive from any param carrying a required_when hint (legacy path).
         Map<String, List<String>> actionRequirements = new LinkedHashMap<>();
 
         for (Map<String, Object> param : doc.getParameters()) {

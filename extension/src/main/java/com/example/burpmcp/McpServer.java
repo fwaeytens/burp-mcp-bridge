@@ -353,6 +353,13 @@ public class McpServer {
                     "Use insertionPointParams to scan specific parameters by name (like Burp UI's 'Scan selected insertion point').\n\n" +
                     "8. VISIBILITY: burp_custom_http requests appear in the Target tab (Site Map), NOT in Proxy History. " +
                     "Proxy History only contains traffic that flowed through the proxy (browser requests).\n\n" +
+                    "9. BROWSER = PLAYWRIGHT THROUGH BURP: The Playwright browser is proxied through Burp by default, so pages the agent " +
+                    "navigates show up in burp_proxy_history and the Site Map, and can be transformed by Burp rules. " +
+                    "For AUTOMATIC modification, set burp_global_interceptor rules FIRST (enable, then set_auth/add_header/add_request_rule), THEN navigate — " +
+                    "it transforms-and-forwards inline (no queue, no polling, no deadlock; works with normal browser_click). " +
+                    "For MANUAL hold/modify/forward with burp_proxy_interceptor, you MUST trigger the held request NON-BLOCKING — " +
+                    "fire-and-forget via browser_evaluate running an un-awaited fetch(), then get_queue -> modify_request -> disable. " +
+                    "Do NOT trigger held traffic with a blocking browser_click/browser_navigate: the agent gets stuck in that call and cannot poll/forward (deadlock).\n\n" +
                     "Tool quick reference:\n" +
                     "- Send/modify HTTP requests -> burp_custom_http\n" +
                     "- Scan for vulnerabilities -> burp_scanner\n" +
@@ -361,6 +368,7 @@ public class McpServer {
                     "Use GENERATE_PAYLOAD to get a unique *.burpcollaborator.net domain, " +
                     "inject it into requests (SSRF, blind XXE, blind SQLi, email header injection), " +
                     "then CHECK_INTERACTIONS to check if the target made DNS/HTTP requests to it.\n" +
+                    "- Inject auth/headers or match-replace across browser + all Burp tools -> burp_global_interceptor (AUTOMATIC rules)\n" +
                     "- Manage target scope -> burp_scope"
                 );
                 break;

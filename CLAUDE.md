@@ -1,4 +1,4 @@
-# Burp MCP Bridge - Agent Context File (v2.6.0)
+# Burp MCP Bridge - Agent Context File (v2.6.1)
 
 ## 🚀 MANDATORY: Always Start With Documentation Discovery
 
@@ -129,6 +129,54 @@ await use_mcp_tool("burp-mcp-bridge", "burp_custom_http", {
 
 **Proxy endpoint:** defaults to `127.0.0.1:8080`. Override with `proxy_host` / `proxy_port` if you've moved Burp's listener.
 
+### Browser Traffic — Playwright Runs Through Burp (default topology)
+
+**Assume the Playwright browser is proxied through Burp** (`127.0.0.1:8080`, Burp CA trusted). This is the default setup. Consequences:
+
+- Pages you navigate with Playwright flow through Burp → they appear in `burp_proxy_history` and the Site Map, and they're scannable / steerable.
+- This is what makes the interceptor tools useful: they act on the agent's *own* browser traffic.
+
+**To manipulate browser traffic, use `burp_global_interceptor` rules — set rules FIRST, then navigate.** This tool never holds traffic; it transforms matching requests inline and forwards immediately (no polling, no deadlock):
+
+```javascript
+// 1. Enable, then add a global rule (applies to browser + Scanner + Repeater + custom_http-via-proxy)
+await use_mcp_tool("burp-mcp-bridge", "burp_global_interceptor", { "action": "enable" });
+await use_mcp_tool("burp-mcp-bridge", "burp_global_interceptor", {
+  "action": "set_auth", "auth_type": "bearer", "auth_value": "eyJ..."   // → Authorization: Bearer eyJ...
+});
+// auth_type: bearer | basic | api_key | custom (api_key/custom take optional header_name)
+// or add_header / add_request_rule (match/replace) for arbitrary transforms
+
+// 2. THEN drive the browser — the rule applies transparently.
+await mcp__playwright__browser_navigate({ "url": "https://lab/account" });
+```
+
+**Manual interception with `burp_proxy_interceptor` — trigger NON-BLOCKING or you deadlock.** The agent cannot poll `get_queue` while it is blocked inside a synchronous `browser_navigate`/`browser_click`. The fix is to (a) scope the hold with a filter so the page stays usable, and (b) trigger the request fire-and-forget so the agent stays free. This pattern is **verified** (it solved the "Excessive trust in client-side controls" lab — intercepted the add-to-cart POST and rewrote `price=133700`→`price=1`):
+
+```javascript
+// 1. Arm the interceptor with a hold FILTER so only the target request is held (rest of page loads normally)
+await use_mcp_tool("burp-mcp-bridge", "burp_proxy_interceptor", {
+  "action": "enable", "filter_path": "/cart", "filter_method": "POST"   // filter_host / filter_regex also available
+});
+
+// 2. Trigger the request FIRE-AND-FORGET (un-awaited fetch) — returns immediately, request is held
+await mcp__playwright__browser_evaluate({ "function":
+  "() => { fetch('/cart', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'productId=1&redir=PRODUCT&quantity=1&price=133700'}); return 'dispatched'; }"
+});
+
+// 3. Read the held request, 4. modify+forward it
+await use_mcp_tool("burp-mcp-bridge", "burp_proxy_interceptor", { "action": "get_queue" });   // → request_id
+await use_mcp_tool("burp-mcp-bridge", "burp_proxy_interceptor", {
+  "action": "modify_request", "request_id": "<id>",
+  "modifications": { "replace_body": "productId=1&redir=PRODUCT&quantity=1&price=1" }   // applies AND forwards
+});
+
+// 5. Disable, or the next navigation hangs
+await use_mcp_tool("burp-mcp-bridge", "burp_proxy_interceptor", { "action": "disable" });
+```
+
+**Do NOT trigger held traffic with a blocking call** (`browser_click`/`browser_navigate`, or a foreground `burp_custom_http` via proxy) — the caller blocks on the held request and you can never reach `get_queue`. For one-off edits where you don't need a true breakpoint, prefer the automatic global rule above or replay with `burp_custom_http`.
+
 ### Scanning with Targeted Parameters (Scan Selected Insertion Points)
 ```javascript
 // By parameter name (PREFERRED - auto-finds byte offsets)
@@ -246,7 +294,7 @@ await use_mcp_tool("burp-mcp-bridge", "burp_help", {
 
 ## 🛠️ Project Info
 
-- **Version**: 2.6.0
+- **Version**: 2.6.1
 - **Total Tools**: 22 (1 help + 21 security)
 - **Port**: 8081 (Burp extension HTTP server)
 - **Transport**: Dual mode (stdio + HTTP/SSE)

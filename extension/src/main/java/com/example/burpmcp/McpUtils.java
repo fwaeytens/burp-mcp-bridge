@@ -67,12 +67,18 @@ public class McpUtils {
 
     /**
      * Creates a standardized error response for MCP tools.
+     * Returns a wrapper Map carrying {@code isError: true} so MCP clients can
+     * detect the failure via the spec flag (not just the ❌ text prefix). The
+     * server's applyToolResult unwraps {@code content} + {@code isError}.
      */
     public static Object createErrorResponse(String message) {
         Map<String, Object> errorResult = new HashMap<>();
         errorResult.put("type", "text");
         errorResult.put("text", "❌ " + message);
-        return List.of(errorResult);
+        Map<String, Object> response = new HashMap<>();
+        response.put("content", List.of(errorResult));
+        response.put("isError", true);
+        return response;
     }
     
     /**
