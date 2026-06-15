@@ -14,6 +14,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
@@ -23,6 +29,20 @@ public class WebSocketTool implements McpTool {
     private static final AtomicInteger connectionCounter = new AtomicInteger(0);
     private static final Map<String, ExtensionWebSocket> activeConnections = new ConcurrentHashMap<>();
     private static final Map<String, List<Map<String, Object>>> messageHistory = new ConcurrentHashMap<>();
+
+    // Dedicated daemon executor for the potentially-blocking Montoya WebSocket send.
+    // sendTextMessage()/sendBinaryMessage() can block indefinitely on a stalled
+    // connection, and the MCP worker that calls it cannot be interrupted
+    // (CompletableFuture.cancel() ignores the interrupt flag). Running the send here with
+    // a hard timeout guarantees the MCP worker is released within WS_SEND_TIMEOUT_MS, so
+    // a hung send can never drain the worker pool and wedge the whole bridge. A genuinely
+    // stuck send leaks at most one ephemeral daemon thread (cached, reused once it frees).
+    private static final ExecutorService WS_SEND_EXECUTOR = Executors.newCachedThreadPool(r -> {
+        Thread t = new Thread(r, "burp-mcp-ws-send");
+        t.setDaemon(true);
+        return t;
+    });
+    private static final long WS_SEND_TIMEOUT_MS = 10_000;
     
     public WebSocketTool(MontoyaApi api) {
         this.api = api;
@@ -249,23 +269,46 @@ public class WebSocketTool implements McpTool {
             return McpUtils.createErrorResponse("Connection not found: " + connectionId);
         }
         
+        final boolean binary = "binary".equals(messageType);
+        final byte[] binaryBytes;
         try {
-            if ("binary".equals(messageType)) {
-                byte[] bytes = Base64.getDecoder().decode(message);
-                webSocket.sendBinaryMessage(ByteArray.byteArray(bytes));
-                recordMessage(connectionId, "binary", message, "CLIENT_TO_SERVER");
+            binaryBytes = binary ? Base64.getDecoder().decode(message) : null;
+        } catch (IllegalArgumentException e) {
+            return McpUtils.createErrorResponse("Failed to send message: invalid base64 binary payload (" + e.getMessage() + ")");
+        }
+
+        // Run the blocking Montoya send on a dedicated executor with a hard timeout so a
+        // stalled connection cannot wedge the MCP worker pool (see WS_SEND_EXECUTOR above).
+        Future<?> sendFuture = WS_SEND_EXECUTOR.submit(() -> {
+            if (binary) {
+                webSocket.sendBinaryMessage(ByteArray.byteArray(binaryBytes));
             } else {
                 webSocket.sendTextMessage(message);
-                recordMessage(connectionId, "text", message, "CLIENT_TO_SERVER");
             }
-            
+        });
+
+        try {
+            sendFuture.get(WS_SEND_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            recordMessage(connectionId, binary ? "binary" : "text", message, "CLIENT_TO_SERVER");
+
             if (!McpUtils.isVerbose(arguments)) {
                 return McpUtils.createJsonResponse(Map.of("success", true, "connectionId", connectionId, "messageType", messageType));
             }
             return McpUtils.createSuccessResponse("Message sent successfully to " + connectionId);
 
-        } catch (Exception e) {
-            return McpUtils.createErrorResponse("Failed to send message: " + e.getMessage());
+        } catch (TimeoutException te) {
+            sendFuture.cancel(true); // best-effort; the daemon send thread is abandoned, the MCP worker is freed
+            return McpUtils.createErrorResponse("WebSocket send did not complete within " + WS_SEND_TIMEOUT_MS +
+                "ms — connection " + connectionId + " appears stalled. The MCP worker was released so the bridge stays " +
+                "responsive (a slow chat/LLM endpoint often never returns on the send anyway — read its results from the " +
+                "application's own logs/endpoint instead).");
+        } catch (ExecutionException ee) {
+            Throwable cause = ee.getCause() != null ? ee.getCause() : ee;
+            return McpUtils.createErrorResponse("Failed to send message: " + cause.getMessage());
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            sendFuture.cancel(true);
+            return McpUtils.createErrorResponse("Interrupted while sending WebSocket message to " + connectionId);
         }
     }
     

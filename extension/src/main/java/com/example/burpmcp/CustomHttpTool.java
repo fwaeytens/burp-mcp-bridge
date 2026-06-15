@@ -952,10 +952,13 @@ public class CustomHttpTool implements McpTool {
                 "Burp's proxy may re-frame these requests on separate upstream connections, breaking smuggling semantics.");
         }
 
-        // Build the concatenated byte stream (CRLF normalized).
+        // Build the concatenated byte stream. Normalize header line endings only — the
+        // body travels verbatim so smuggled framing / binary bodies stay byte-exact
+        // (full-request normalization would rewrite every 0x0A in the body to 0x0D 0x0A
+        // and break the desync's Content-Length).
         List<byte[]> reqBytes = new ArrayList<>(n);
         for (int i = 0; i < n; i++) {
-            String raw = normalizeRequestLineEndings(reqArr.get(i).asText());
+            String raw = normalizeHeadersOnly(reqArr.get(i).asText());
             reqBytes.add(raw.getBytes(StandardCharsets.ISO_8859_1));
         }
 
@@ -1670,13 +1673,52 @@ public class CustomHttpTool implements McpTool {
         return requestStr;
     }
 
-    private HttpRequest createHttpRequest(String requestStr, JsonNode arguments) throws Exception {
-        // Normalize line endings to CRLF (handles agents that incorrectly use LF-only).
-        // Always done — even in raw_request mode — per the spec.
-        requestStr = normalizeRequestLineEndings(requestStr);
+    /**
+     * Normalize line endings in the HEADER block only (everything up to the blank-line
+     * separator), leaving the body bytes completely untouched. Used in raw_request mode
+     * so LF-only headers are still upgraded to CRLF while a binary body survives
+     * byte-for-byte. The previous behaviour ran {@link #normalizeRequestLineEndings} over
+     * the whole request, which rewrote every 0x0A in the body to 0x0D 0x0A and corrupted
+     * binary uploads (and silently changed Content-Length).
+     */
+    private String normalizeHeadersOnly(String requestStr) {
+        if (requestStr == null || requestStr.isEmpty()) {
+            return requestStr;
+        }
 
+        // Locate the header/body separator: prefer CRLF-CRLF, fall back to LF-LF.
+        int sepLen = 4;
+        int sepIdx = requestStr.indexOf("\r\n\r\n");
+        if (sepIdx < 0) {
+            sepIdx = requestStr.indexOf("\n\n");
+            sepLen = 2;
+        }
+
+        if (sepIdx < 0) {
+            // No body present — safe to normalize the whole thing.
+            return normalizeRequestLineEndings(requestStr);
+        }
+
+        String headers = requestStr.substring(0, sepIdx);
+        String body = requestStr.substring(sepIdx + sepLen);
+        // Canonical CRLF headers + canonical separator + verbatim body bytes.
+        return normalizeRequestLineEndings(headers) + "\r\n\r\n" + body;
+    }
+
+    private HttpRequest createHttpRequest(String requestStr, JsonNode arguments) throws Exception {
         boolean rawRequest = arguments != null && arguments.has("raw_request")
             && arguments.get("raw_request").asBoolean(false);
+
+        // Normalize line endings to CRLF (handles agents that incorrectly use LF-only).
+        // In raw_request mode we normalize ONLY the header block and leave the body bytes
+        // verbatim, so binary bodies (multipart uploads, gzip, serialized blobs with
+        // 0x0A/0x0D/high bytes) survive byte-for-byte — raw_request's byte-exactness
+        // contract. In normal mode we normalize the whole request as before.
+        if (rawRequest) {
+            requestStr = normalizeHeadersOnly(requestStr);
+        } else {
+            requestStr = normalizeRequestLineEndings(requestStr);
+        }
         String overrideHost = arguments != null
             ? McpUtils.getTrimmedStringParam(arguments, "target_host")
             : null;

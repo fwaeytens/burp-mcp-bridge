@@ -7,9 +7,9 @@ package com.example.burpmcp;
 public class Version {
     
     // Version components
-    public static final String VERSION = "2.6.1";
-    public static final String BUILD_DATE = "2026-06-11";
-    public static final String RELEASE_NAME = "isError on validation failures + action_requirements + interceptor hold-filter & verified agent docs";
+    public static final String VERSION = "2.6.2";
+    public static final String BUILD_DATE = "2026-06-15";
+    public static final String RELEASE_NAME = "raw_request byte-exact bodies + WebSocket-send timeout guard (no more worker-pool wedge)";
 
     // Feature tracking
     public static final int TOOL_COUNT = 22; // Total number of registered tools
@@ -54,7 +54,14 @@ public class Version {
      * Get detailed changelog for this version.
      */
     public static String getChangelog() {
-        return "## Version 2.6.1 - MCP isError on validation failures, action_requirements, interceptor hold-filter + verified agent docs (2026-06-11)\n\n" +
+        return "## Version 2.6.2 - raw_request byte-exact bodies + WebSocket-send timeout guard (2026-06-15)\n\n" +
+               "### 🧬 burp_custom_http: raw_request now preserves binary bodies byte-for-byte\n" +
+               "- ✅ Fixed: line-ending normalization (LF→CRLF) was applied to the WHOLE request even in `raw_request` mode, rewriting every `0x0A` in the body to `0x0D 0x0A` and corrupting binary uploads (multipart images, gzip, serialized blobs) plus silently changing Content-Length.\n" +
+               "- ✅ In `raw_request` mode (and `SEND_PIPELINED`), only the header block is normalized to CRLF; the body is sent verbatim. `raw_request:true` is now genuinely byte-exact, matching the documented contract. Send binary bodies as Latin-1 (0x00–0xFF) code points.\n\n" +
+               "### 🧵 burp_websocket: a stalled send can no longer wedge the whole bridge\n" +
+               "- ✅ Fixed: a blocked Montoya `sendTextMessage()`/`sendBinaryMessage()` permanently consumed an MCP worker thread (CompletableFuture.cancel() can't interrupt blocked native I/O). Enough hung sends drained the 10-worker pool and made every tool — even burp_help — time out with \"extension may be overloaded\" until an extension reload.\n" +
+               "- ✅ The send now runs on a dedicated daemon executor with a hard 10s timeout; on timeout the MCP worker is released and a clear error is returned. A stuck connection leaks at most one ephemeral daemon thread, never a pooled worker.\n\n" +
+               "## Version 2.6.1 - MCP isError on validation failures, action_requirements, interceptor hold-filter + verified agent docs (2026-06-11)\n\n" +
                "### 🚦 Validation errors now set MCP isError:true\n" +
                "- ✅ Tool argument-validation failures (McpUtils, ScannerTool, ScopeTool error helpers) return `{content, isError:true}` instead of plain text with a ❌ prefix. Spec-compliant clients now detect failures via the flag, not emoji-sniffing.\n\n" +
                "### 📋 burp_help: action_requirements populated\n" +
