@@ -1,4 +1,4 @@
-# Burp MCP Bridge - Agent Context File (v2.6.3)
+# Burp MCP Bridge - Agent Context File (v2.7.0)
 
 ## 🚀 MANDATORY: Always Start With Documentation Discovery
 
@@ -294,8 +294,8 @@ await use_mcp_tool("burp-mcp-bridge", "burp_help", {
 
 ## 🛠️ Project Info
 
-- **Version**: 2.6.3
-- **Total Tools**: 22 (1 help + 21 security)
+- **Version**: 2.7.0
+- **Total Tools**: 23 (1 help + 22 security)
 - **Port**: 8081 (Burp extension HTTP server)
 - **Transport**: Dual mode (stdio + HTTP/SSE)
 - **MCP Spec**: 2025-06-18 (with annotations)

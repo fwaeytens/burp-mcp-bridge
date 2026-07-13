@@ -7,6 +7,9 @@ import burp.api.montoya.core.Registration;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.proxy.ProxyHttpRequestResponse;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.util.*;
 import java.net.URL;
@@ -58,6 +61,83 @@ public class ScopeTool implements McpTool {
         }
     }
 
+    /** Extract the bare hostname from a full URL, "*.host", or bare "host[:port][/path]". */
+    static String extractHost(String input) {
+        if (input == null) return null;
+        String s = input.trim();
+        if (s.startsWith("*.")) s = s.substring(2);
+        try {
+            if (s.contains("://")) {
+                String h = new URL(s).getHost();
+                if (h != null && !h.isEmpty()) return stripBrackets(h);
+            }
+        } catch (Exception ignored) {
+            // fall through to manual parse
+        }
+        String hostPart = s.split("/", 2)[0];
+        if (hostPart.startsWith("[")) { // IPv6 literal [::1]:port
+            int end = hostPart.indexOf(']');
+            return end > 1 ? hostPart.substring(1, end) : hostPart;
+        }
+        int colon = hostPart.indexOf(':');
+        return colon > 0 ? hostPart.substring(0, colon) : hostPart;
+    }
+
+    private static String stripBrackets(String h) {
+        return h.startsWith("[") && h.endsWith("]") ? h.substring(1, h.length() - 1) : h;
+    }
+
+    /**
+     * Add a host and ALL its subdomains to Burp's target scope, replicating the UI's
+     * "Include subdomains" checkbox. Montoya's {@code Scope.includeInScope(String)} only
+     * accepts concrete URLs (no wildcard/regex — verified against the 2026.4 API), so the
+     * subdomain-matching rule is injected through the project-options JSON round-trip:
+     * export the current {@code target.scope}, append an advanced-scope include rule whose
+     * host is a regex matching the domain and any subdomain, then import it back —
+     * preserving any existing include/exclude rules.
+     *
+     * @return the host regex that was added
+     */
+    private String addHostWithSubdomains(String host) throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        String exported = api.burpSuite().exportProjectOptionsAsJson("target.scope");
+        api.logging().logToOutput("ScopeTool: exported target.scope = " + exported);
+
+        ObjectNode root;
+        JsonNode parsed = exported != null ? mapper.readTree(exported) : null;
+        root = (parsed != null && parsed.isObject()) ? (ObjectNode) parsed : mapper.createObjectNode();
+
+        ObjectNode target = root.has("target") && root.get("target").isObject()
+            ? (ObjectNode) root.get("target") : root.putObject("target");
+        ObjectNode scopeNode = target.has("scope") && target.get("scope").isObject()
+            ? (ObjectNode) target.get("scope") : target.putObject("scope");
+        // Host-regex rules require advanced scope mode.
+        scopeNode.put("advanced_mode", true);
+        ArrayNode include = scopeNode.has("include") && scopeNode.get("include").isArray()
+            ? (ArrayNode) scopeNode.get("include") : scopeNode.putArray("include");
+
+        // Matches the apex host and any subdomain, any scheme/port/path.
+        String hostRegex = "^(?:.*\\.)?" + host.replace(".", "\\.") + "$";
+
+        boolean exists = false;
+        for (JsonNode n : include) {
+            if (n.has("host") && hostRegex.equals(n.get("host").asText())) { exists = true; break; }
+        }
+        if (!exists) {
+            ObjectNode entry = include.addObject();
+            entry.put("enabled", true);
+            entry.put("protocol", "any");
+            entry.put("host", hostRegex);
+            entry.put("port", "");
+            entry.put("file", "");
+        }
+
+        String modified = mapper.writeValueAsString(root);
+        api.logging().logToOutput("ScopeTool: importing target.scope = " + modified);
+        api.burpSuite().importProjectOptionsFromJson(modified);
+        return hostRegex;
+    }
+
     @Override
     public Map<String, Object> getToolInfo() {
         Map<String, Object> tool = new HashMap<>();
@@ -106,7 +186,7 @@ public class ScopeTool implements McpTool {
         Map<String, Object> includeSubdomainsProperty = new HashMap<>();
         includeSubdomainsProperty.put("type", "boolean");
         includeSubdomainsProperty.put("default", true);
-        includeSubdomainsProperty.put("description", "Include all subdomains when adding to scope");
+        includeSubdomainsProperty.put("description", "When adding to scope, also include ALL subdomains — the equivalent of Burp's UI 'Include subdomains' checkbox. Implemented via an advanced-scope host regex (^(?:.*\\.)?host$) injected through project-options import, since Montoya's scope API can't express wildcards. Default true. Set false to add only the exact host/URL. An explicit '*.host' url also triggers this.");
         properties.put("includeSubdomains", includeSubdomainsProperty);
         
         Map<String, Object> limitProperty = new HashMap<>();
@@ -198,32 +278,43 @@ public class ScopeTool implements McpTool {
                         return createErrorResponse("URL or host is required for 'add' action");
                     }
 
-                    boolean isWildcard = url.startsWith("*.") || url.contains("*");
-                    boolean isHost = !url.contains("://") && !url.startsWith("/") && !isWildcard;
+                    String rawUrl = url.trim();
+                    // An explicit "*.host" wildcard means "this host + all subdomains".
+                    boolean explicitWildcard = rawUrl.startsWith("*.");
+                    if (explicitWildcard) {
+                        rawUrl = rawUrl.substring(2);
+                        includeSubdomains = true;
+                    }
+                    boolean isHost = !rawUrl.contains("://") && !rawUrl.startsWith("/") && !rawUrl.contains("*");
                     List<String> addedUrls = new ArrayList<>();
                     List<String> failedUrls = new ArrayList<>();
+                    boolean subdomainsIncluded = false;
+                    String hostRegex = null;
+                    String host = extractHost(rawUrl);
 
-                    if (isWildcard) {
-                        // Compact JSON
-                        if (!McpUtils.isVerbose(arguments)) {
-                            Map<String, Object> data = new HashMap<>();
-                            data.put("action", "add");
-                            data.put("success", false);
-                            data.put("url", url);
-                            data.put("error", "wildcard_not_supported");
-                            data.put("message", "Montoya API doesn't support wildcard patterns. Use Burp UI for 'Include subdomains'.");
-                            return McpUtils.createJsonResponse(data);
+                    if (includeSubdomains && host != null && !host.isEmpty()) {
+                        // Replicate the UI's "Include subdomains" via the project-options
+                        // round-trip (Scope.includeInScope can't express wildcards/regex).
+                        try {
+                            hostRegex = addHostWithSubdomains(host);
+                            subdomainsIncluded = true;
+                            addedUrls.add("host-regex:" + hostRegex);
+                            String canonical = rawUrl.contains("://") ? normalizeUrl(rawUrl) : "https://" + host + "/";
+                            knownInScopeUrls.add(canonical);
+                            knownOutOfScopeUrls.remove(canonical);
+                        } catch (Exception e) {
+                            api.logging().logToError("ScopeTool: advanced-scope subdomain add failed for " + host
+                                + " (" + e.getMessage() + "); falling back to exact host");
+                            for (String scheme : new String[]{"https://", "http://"}) {
+                                String full = scheme + host;
+                                try { scope.includeInScope(full); addedUrls.add(full); knownInScopeUrls.add(full); }
+                                catch (Exception ex) { failedUrls.add(full); }
+                            }
                         }
-                        result.append("❌ **Wildcard patterns not supported**\n\n");
-                        result.append("The Montoya API doesn't support wildcard patterns like `").append(url).append("`.\n\n");
-                        result.append("**Options:**\n");
-                        result.append("• Use Burp's Target > Scope UI to add wildcards with 'Include subdomains' checked\n");
-                        result.append("• Add specific subdomains as you discover them (e.g., `api.example.com`)\n");
-                        result.append("• Add the base domain without wildcard (e.g., `example.com`)\n");
-
                     } else if (isHost) {
+                        // Exact host only (both schemes).
                         for (String scheme : new String[]{"https://", "http://"}) {
-                            String full = scheme + url;
+                            String full = scheme + host;
                             try {
                                 scope.includeInScope(full);
                                 addedUrls.add(full);
@@ -233,53 +324,24 @@ public class ScopeTool implements McpTool {
                                 api.logging().logToError("Failed to add " + scheme + ": " + e.getMessage());
                             }
                         }
-                        if (McpUtils.isVerbose(arguments)) {
-                            result.append("🌐 Adding host to scope: ").append(url).append("\n\n");
-                            for (String u : addedUrls) result.append("✅ Added: ").append(u).append("\n");
-                            for (String u : failedUrls) result.append("❌ Failed to add: ").append(u).append("\n");
-                            if (!addedUrls.isEmpty()) {
-                                result.append("\n📌 Host added to scope for both HTTP and HTTPS protocols.\n");
-                            } else {
-                                result.append("\n⚠️ Failed to add host to scope.\n");
-                            }
-                        }
-
                     } else {
-                        String urlToAdd = normalizeUrl(url);
-                        if (includeSubdomains) {
-                            try {
-                                URL parsedUrl = new URL(urlToAdd);
-                                String wildcardUrl = parsedUrl.getProtocol() + "://*." +
-                                    parsedUrl.getHost().replaceFirst("^www\\.", "") +
-                                    (parsedUrl.getPort() != -1 ? ":" + parsedUrl.getPort() : "") + "/*";
-                                scope.includeInScope(wildcardUrl);
-                                scope.includeInScope(urlToAdd);
-                                addedUrls.add(urlToAdd);
-                                addedUrls.add(wildcardUrl);
-                            } catch (Exception e) {
-                                scope.includeInScope(urlToAdd);
-                                addedUrls.add(urlToAdd);
-                            }
-                        } else {
+                        // Full URL, exact (no subdomains).
+                        String urlToAdd = normalizeUrl(rawUrl);
+                        try {
                             scope.includeInScope(urlToAdd);
                             addedUrls.add(urlToAdd);
-                        }
-                        knownInScopeUrls.add(urlToAdd);
-                        knownOutOfScopeUrls.remove(urlToAdd);
-
-                        if (McpUtils.isVerbose(arguments)) {
-                            if (addedUrls.size() > 1) {
-                                result.append("✅ Added to scope with subdomains:\n");
-                                for (String u : addedUrls) result.append("  • ").append(u).append("\n");
-                            } else {
-                                result.append("✅ Added to scope: ").append(addedUrls.get(0)).append("\n");
-                            }
+                            knownInScopeUrls.add(urlToAdd);
+                            knownOutOfScopeUrls.remove(urlToAdd);
+                        } catch (Exception e) {
+                            failedUrls.add(urlToAdd);
+                            api.logging().logToError("Failed to add " + urlToAdd + ": " + e.getMessage());
                         }
                     }
 
                     // Record the change
                     String timestamp = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date());
-                    recentScopeChanges.offer(String.format("[%s] Added: %s", timestamp, url));
+                    recentScopeChanges.offer(String.format("[%s] Added: %s%s", timestamp, url,
+                        subdomainsIncluded ? " (+subdomains)" : ""));
                     while (recentScopeChanges.size() > 20) {
                         recentScopeChanges.poll();
                     }
@@ -290,11 +352,26 @@ public class ScopeTool implements McpTool {
                         data.put("action", "add");
                         data.put("success", !addedUrls.isEmpty());
                         data.put("addedUrls", addedUrls);
+                        data.put("includeSubdomains", subdomainsIncluded);
+                        if (subdomainsIncluded) data.put("hostRegex", hostRegex);
                         if (!failedUrls.isEmpty()) data.put("failedUrls", failedUrls);
                         return McpUtils.createJsonResponse(data);
                     }
 
-                    result.append("\n📌 This host/URL and all its subdomains/subpaths are now included in the target scope.\n");
+                    if (subdomainsIncluded) {
+                        result.append("✅ Added to scope WITH subdomains (advanced-scope host regex):\n");
+                        result.append("  • host: ").append(host).append("\n");
+                        result.append("  • regex: ").append(hostRegex).append("\n");
+                        result.append("\n📌 ").append(host)
+                              .append(" and ALL its subdomains are now in scope (any scheme/port/path).\n");
+                    } else if (!addedUrls.isEmpty()) {
+                        result.append("✅ Added to scope (exact host, no subdomains):\n");
+                        for (String u : addedUrls) result.append("  • ").append(u).append("\n");
+                        result.append("\n📌 Only these exact URLs are in scope. Pass includeSubdomains=true to also match subdomains.\n");
+                    } else {
+                        result.append("⚠️ Failed to add to scope.\n");
+                        for (String u : failedUrls) result.append("  • failed: ").append(u).append("\n");
+                    }
                     break;
                 }
                     

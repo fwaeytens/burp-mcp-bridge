@@ -95,6 +95,7 @@ public class McpServer {
 
         // Configuration & Utilities
         tools.put("burp_scope", new ScopeTool(api));
+        tools.put("burp_config", new ConfigTool(api));
         tools.put("burp_organizer", new OrganizerTool(api));
         tools.put("burp_annotate", new AnnotateTool(api));
         
@@ -650,6 +651,7 @@ public class McpServer {
             case "burp_comparer": return new ComparerTool(api);
             case "burp_collaborator": return new CollaboratorTool(api);
             case "burp_scope": return new ScopeTool(api);
+            case "burp_config": return new ConfigTool(api);
             case "burp_organizer": return new OrganizerTool(api);
             case "burp_annotate": return new AnnotateTool(api);
             case "burp_sitemap_analysis": return new SiteMapAnalysisTool(api);

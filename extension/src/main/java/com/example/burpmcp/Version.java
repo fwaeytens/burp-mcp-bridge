@@ -7,12 +7,12 @@ package com.example.burpmcp;
 public class Version {
     
     // Version components
-    public static final String VERSION = "2.6.3";
+    public static final String VERSION = "2.7.0";
     public static final String BUILD_DATE = "2026-07-13";
-    public static final String RELEASE_NAME = "async dispatch preserves per-tool state + IPv6 loopback + Node engine floor";
+    public static final String RELEASE_NAME = "burp_config tool (project/user options JSON) + working scope 'include subdomains'";
 
     // Feature tracking
-    public static final int TOOL_COUNT = 22; // Total number of registered tools
+    public static final int TOOL_COUNT = 23; // Total number of registered tools
     public static final boolean ASYNC_ENABLED = true;
     public static final boolean CONFIG_ENABLED = true;
 
@@ -54,7 +54,15 @@ public class Version {
      * Get detailed changelog for this version.
      */
     public static String getChangelog() {
-        return "## Version 2.6.3 - async dispatch preserves per-tool state + IPv6 loopback + Node engine floor (2026-07-13)\n\n" +
+        return "## Version 2.7.0 - burp_config tool + working scope 'include subdomains' (2026-07-13)\n\n" +
+               "### 🆕 New tool: burp_config (project/user options as JSON)\n" +
+               "- ✅ Read/write Burp PROJECT and USER options via Montoya's export/import JSON API. Actions: GET_PROJECT_OPTIONS / SET_PROJECT_OPTIONS / GET_USER_OPTIONS / SET_USER_OPTIONS. `path` scopes the export (e.g. `target.scope`, `proxy`); `json` carries the import. General primitive for settings the typed tools don't expose (advanced scope, proxy listeners, session-handling rules, upstream proxies).\n" +
+               "- ⚠️ SET replaces the options in the supplied JSON — GET the subtree first, modify, then SET it back.\n\n" +
+               "### 🎯 burp_scope: 'include subdomains' now actually works\n" +
+               "- ✅ Fixed: `includeSubdomains:true` was a no-op — it tried a `*.host/*` string that Montoya's `Scope.includeInScope()` rejects (swallowed), added only the exact host, yet claimed subdomains were included. It now injects an advanced-scope host regex (`^(?:.*\\.)?host$`) via the project-options round-trip — the true equivalent of the UI 'Include subdomains' checkbox.\n" +
+               "- ✅ An explicit `*.host` url is now accepted (was rejected as 'wildcard not supported'). Success messages no longer overstate coverage.\n" +
+               "- Total tools: 22 → 23.\n\n" +
+               "## Version 2.6.3 - async dispatch preserves per-tool state + IPv6 loopback + Node engine floor (2026-07-13)\n\n" +
                "### 🧠 Stateful tools no longer lose in-memory state between calls\n" +
                "- ✅ Fixed: the async dispatcher created a FRESH tool instance for every tools/call, silently dropping per-tool state. burp_session_management SET_TOKEN then LIST_TOKENS/TEST_SESSION ran on a new instance with an empty token map; burp_annotate handler registrations were likewise lost.\n" +
                "- ✅ AsyncRequestHandler now executes against the registered singleton instances (shared with McpServer's tool map). SessionManagementTool's collections are now thread-safe (ConcurrentHashMap / CopyOnWriteArrayList) since the singleton is shared across the worker pool. getToolInstance() is deprecated.\n\n" +

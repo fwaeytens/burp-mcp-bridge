@@ -1,6 +1,6 @@
 # Burp MCP Bridge
 
-[![Version](https://img.shields.io/badge/version-2.6.3-blue.svg)](https://github.com/fwaeytens/burp-mcp-bridge/releases)
+[![Version](https://img.shields.io/badge/version-2.7.0-blue.svg)](https://github.com/fwaeytens/burp-mcp-bridge/releases)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Java](https://img.shields.io/badge/java-17+-orange.svg)](https://www.oracle.com/java/)
 [![Burp Suite](https://img.shields.io/badge/Burp%20Suite-Professional%202026.4+-red.svg)](https://portswigger.net/burp)
@@ -9,12 +9,12 @@ A Burp Suite Professional extension that enables AI/LLM integration through the 
 
 ## 🎯 What is this?
 
-Burp MCP Bridge connects AI assistants (like Claude) to Burp Suite Professional, enabling automated security testing workflows through natural language commands. It exposes 22 tools through a standardized API.
+Burp MCP Bridge connects AI assistants (like Claude) to Burp Suite Professional, enabling automated security testing workflows through natural language commands. It exposes 23 tools through a standardized API.
 
 ## ✨ Key Features
 
 - **Dual Transport Support** - Supports both stdio (Claude Code) and HTTP/SSE (OpenAI, Google Gemini) connections
-- **22 Security Testing Tools** - Complete coverage including WebSocket interception, response analysis, and utility functions
+- **23 Security Testing Tools** - Complete coverage including WebSocket interception, response analysis, and utility functions
 - **Unified Help Tool** - `burp_help` consolidates all documentation discovery (list tools, search by capability, get detailed help)
 - **Enhanced Crawler** - Full lifecycle management with tracking, monitoring, and concurrent crawl control
 - **Advanced Session Management (v1.7.34)** - Native cookie jar integration and automatic session handling
@@ -52,7 +52,7 @@ Burp MCP Bridge connects AI assistants (like Claude) to Burp Suite Professional,
 
 1. **Burp Extension** (Java) runs inside Burp Suite and exposes an HTTP API server on port 8081
 2. **MCP Bridge** (Node.js) is the actual MCP server - runs on stdio (default) or HTTPS port 3000, translates MCP protocol to Burp HTTP API calls
-3. **Claude/AI** connects to the MCP Bridge via MCP protocol to discover and use all 22 tools
+3. **Claude/AI** connects to the MCP Bridge via MCP protocol to discover and use all 23 tools
 4. **Help Tool** (`burp_help`) allows AI to self-discover capabilities without external docs
 
 ### 🔄 Communication Flow
@@ -96,12 +96,12 @@ mvn clean package
 1. **Start Burp Suite Professional** (must be running first)
 2. Go to **Extensions** → **Extensions** tab
 3. Click **Add** → Select **Extension type: Java**
-4. Choose `extension/target/burp-mcp-bridge-2.6.3.jar`
+4. Choose `extension/target/burp-mcp-bridge-2.7.0.jar`
 5. ✅ **VERIFY**: Look for these messages in the output:
    - "MCP Server listening on http://127.0.0.1:8081"
    - "=== Available MCP Tools ==="
    - "burp_help appears first"
-   - "Total: 22 tools available"
+   - "Total: 23 tools available"
 
 ### 3. Install MCP Bridge
 
@@ -167,7 +167,7 @@ curl -X POST http://localhost:8081/mcp \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"burp_help","arguments":{"list":true}}}' | jq '.result.content[0].text' | head -20
 
-# Should show all 22 tools with summaries
+# Should show all 23 tools with summaries
 ```
 
 ## 🌐 Transport Modes (v2.0.1+)
@@ -272,7 +272,7 @@ The extension now includes a unified help system that allows AI agents to discov
 **`burp_help`** - Unified documentation and discovery tool with multiple modes:
 
 1. **List all tools** - `{"list": true}`
-   - Returns all 22 tools with summaries
+   - Returns all 23 tools with summaries
    - Organized by category
 
 2. **Discover by capability** - `{"capability": "scan for vulnerabilities"}`
@@ -289,7 +289,7 @@ The extension now includes a unified help system that allows AI agents to discov
    - Returns comprehensive usage instructions
    - Quick reference for all modes
 
-## 🛠️ Available Tools (22 Total)
+## 🛠️ Available Tools (23 Total)
 
 ### Documentation & Discovery (1)
 - `burp_help` - Unified documentation and tool discovery (list tools, search by capability, get detailed help)
@@ -434,7 +434,7 @@ await use_mcp_tool("burp-mcp-bridge", "burp_add_issue", {
 2. **"Unknown tool" errors**
    - ✅ Reload the extension in Burp
    - ✅ Check extension output for errors
-   - ✅ Verify version 2.6.3 is loaded
+   - ✅ Verify version 2.7.0 is loaded
 
 3. **Claude can't connect**
    - ✅ Check `.mcp.json` is in project root
@@ -455,7 +455,7 @@ await use_mcp_tool("burp-mcp-bridge", "burp_add_issue", {
 ```
 burp-mcp-bridge/
 ├── extension/          # Java Burp extension
-│   ├── src/           # Source code (22 tools)
+│   ├── src/           # Source code (23 tools)
 │   ├── target/        # Compiled JAR
 │   └── pom.xml        # Maven config
 ├── bridge/            # Node.js MCP bridge
@@ -514,4 +514,4 @@ MIT License - See [LICENSE](LICENSE) file for details
 
 ---
 
-**Current Version**: 2.6.3 | **Burp Suite**: 2026.4+ | **Tools**: 22 | **Status**: Production Ready with AI-Powered Anomaly Detection
+**Current Version**: 2.7.0 | **Burp Suite**: 2026.4+ | **Tools**: 23 | **Status**: Production Ready with AI-Powered Anomaly Detection

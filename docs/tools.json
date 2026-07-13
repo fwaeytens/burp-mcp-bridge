@@ -1,7 +1,7 @@
 {
-  "version": "2.6.3",
+  "version": "2.7.0",
   "mcpVersion": "2025-06-18",
-  "toolCount": 22,
+  "toolCount": 23,
   "compatibility": {
     "burpSuite": "2026.4+",
     "java": "17+",
@@ -1578,6 +1578,42 @@
         "destructiveHint": true,
         "idempotentHint": false,
         "openWorldHint": true
+      }
+    },
+    {
+      "name": "burp_config",
+      "title": "Burp Configuration (project/user options JSON)",
+      "category": "Configuration & Utilities",
+      "description": "Read and write Burp Suite PROJECT and USER options as JSON, via Montoya's export/import API. General primitive for settings the typed tools don't expose (advanced target scope, proxy listeners, session-handling rules, upstream proxies). Actions: GET_PROJECT_OPTIONS / GET_USER_OPTIONS (pass 'path' like 'target.scope' to scope the export; omit to export everything), SET_PROJECT_OPTIONS / SET_USER_OPTIONS (import the JSON in 'json'). SET replaces the options contained in the supplied JSON — GET the subtree first, modify, then SET it back. ⚠️ Exports can contain stored secrets in cleartext (platform-auth credentials, upstream-proxy/SOCKS passwords, client certs) — scope with 'path' and don't paste full dumps into untrusted places. For simple scope add/remove use burp_scope.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["GET_PROJECT_OPTIONS", "SET_PROJECT_OPTIONS", "GET_USER_OPTIONS", "SET_USER_OPTIONS"],
+            "description": "Config action to perform"
+          },
+          "path": {
+            "type": "string",
+            "description": "GET only: dotted options path to export (e.g. 'target.scope', 'proxy'). Omit to export ALL options (can be very large). Ignored for SET."
+          },
+          "json": {
+            "type": "string",
+            "description": "SET only (required): the options JSON to import, in the same nested shape GET returns."
+          },
+          "verbose": {
+            "type": "boolean",
+            "default": false,
+            "description": "Return decorated markdown instead of compact JSON."
+          }
+        },
+        "required": ["action"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
       }
     }
   ],
