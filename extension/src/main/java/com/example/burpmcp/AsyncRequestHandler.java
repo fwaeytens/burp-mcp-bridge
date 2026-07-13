@@ -20,6 +20,12 @@ public class AsyncRequestHandler {
     private final ExecutorService executorService;
     private final ScheduledExecutorService scheduledExecutor;
     private final ObjectMapper objectMapper;
+
+    // Registered singleton tool instances (same map McpServer builds in initializeTools()).
+    // Async execution MUST run against these so per-tool in-memory state (e.g.
+    // SessionManagementTool's token map, AnnotateTool's handler registry) survives across
+    // tools/call requests. Newing up a fresh instance per call silently dropped that state.
+    private final Map<String, McpTool> tools;
     
     // Request tracking
     private final AtomicLong requestIdCounter = new AtomicLong(0);
@@ -28,8 +34,9 @@ public class AsyncRequestHandler {
     // Rate limiting
     private final Map<String, RateLimiter> rateLimiters = new ConcurrentHashMap<>();
     
-    public AsyncRequestHandler(MontoyaApi api) {
+    public AsyncRequestHandler(MontoyaApi api, Map<String, McpTool> tools) {
         this.api = api;
+        this.tools = tools;
         this.config = BurpMcpConfig.getInstance();
         this.objectMapper = new ObjectMapper();
         
@@ -82,8 +89,9 @@ public class AsyncRequestHandler {
                     ));
                 }
                 
-                // Get the tool and execute
-                McpTool tool = McpServer.getToolInstance(toolName, api);
+                // Resolve the registered singleton instance (NOT a fresh one) so per-tool
+                // in-memory state persists across calls.
+                McpTool tool = tools != null ? tools.get(toolName) : null;
                 if (tool == null) {
                     return McpUtils.createErrorResponse("Unknown tool: " + toolName);
                 }

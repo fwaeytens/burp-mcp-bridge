@@ -7,9 +7,9 @@ package com.example.burpmcp;
 public class Version {
     
     // Version components
-    public static final String VERSION = "2.6.2";
-    public static final String BUILD_DATE = "2026-06-15";
-    public static final String RELEASE_NAME = "raw_request byte-exact bodies + WebSocket-send timeout guard (no more worker-pool wedge)";
+    public static final String VERSION = "2.6.3";
+    public static final String BUILD_DATE = "2026-07-13";
+    public static final String RELEASE_NAME = "async dispatch preserves per-tool state + IPv6 loopback + Node engine floor";
 
     // Feature tracking
     public static final int TOOL_COUNT = 22; // Total number of registered tools
@@ -54,7 +54,16 @@ public class Version {
      * Get detailed changelog for this version.
      */
     public static String getChangelog() {
-        return "## Version 2.6.2 - raw_request byte-exact bodies + WebSocket-send timeout guard (2026-06-15)\n\n" +
+        return "## Version 2.6.3 - async dispatch preserves per-tool state + IPv6 loopback + Node engine floor (2026-07-13)\n\n" +
+               "### 🧠 Stateful tools no longer lose in-memory state between calls\n" +
+               "- ✅ Fixed: the async dispatcher created a FRESH tool instance for every tools/call, silently dropping per-tool state. burp_session_management SET_TOKEN then LIST_TOKENS/TEST_SESSION ran on a new instance with an empty token map; burp_annotate handler registrations were likewise lost.\n" +
+               "- ✅ AsyncRequestHandler now executes against the registered singleton instances (shared with McpServer's tool map). SessionManagementTool's collections are now thread-safe (ConcurrentHashMap / CopyOnWriteArrayList) since the singleton is shared across the worker pool. getToolInstance() is deprecated.\n\n" +
+               "### 🌐 IPv6 loopback handling fixed (Node bridge)\n" +
+               "- ✅ Fixed: BURP_MCP_SERVER_HOST=::1 silently connected to localhost (URL.hostname rejects a bare IPv6 literal). Bare IPv6 hosts are now bracketed before URL construction.\n" +
+               "- ✅ Fixed: browser origins like http://[::1]:3000 were rejected because URL.hostname returns \"[::1]\" but the allowlist stored \"::1\". Origin/loopback/allowlist checks now normalize IPv6 brackets on both sides.\n\n" +
+               "### 📦 Node engine floor raised to match dependencies\n" +
+               "- ✅ package.json engines bumped >=16.0.0 -> >=18.14.1 (global fetch + @modelcontextprotocol/sdk and @hono/node-server both require Node 18+). README updated to Node.js 18+.\n\n" +
+               "## Version 2.6.2 - raw_request byte-exact bodies + WebSocket-send timeout guard (2026-06-15)\n\n" +
                "### 🧬 burp_custom_http: raw_request now preserves binary bodies byte-for-byte\n" +
                "- ✅ Fixed: line-ending normalization (LF→CRLF) was applied to the WHOLE request even in `raw_request` mode, rewriting every `0x0A` in the body to `0x0D 0x0A` and corrupting binary uploads (multipart images, gzip, serialized blobs) plus silently changing Content-Length.\n" +
                "- ✅ In `raw_request` mode (and `SEND_PIPELINED`), only the header block is normalized to CRLF; the body is sent verbatim. `raw_request:true` is now genuinely byte-exact, matching the documented contract. Send binary bodies as Latin-1 (0x00–0xFF) code points.\n\n" +

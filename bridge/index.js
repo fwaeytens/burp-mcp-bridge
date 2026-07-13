@@ -139,6 +139,23 @@ function hostHeaderToHostname(hostHeader = '') {
   return s.split(':')[0];
 }
 
+/** True if the host string is a bare (unbracketed) IPv6 literal, e.g. "::1", "fe80::1". */
+function isBareIpv6(host = '') {
+  const s = String(host);
+  return s.includes(':') && !s.startsWith('[');
+}
+
+/** Strip a single surrounding pair of brackets from an IPv6 literal: "[::1]" -> "::1". */
+function stripIpv6Brackets(host = '') {
+  const s = String(host);
+  return s.startsWith('[') && s.endsWith(']') ? s.slice(1, -1) : s;
+}
+
+/** Wrap a bare IPv6 literal in brackets for URL use: "::1" -> "[::1]" (idempotent). */
+function bracketIpv6(host = '') {
+  return isBareIpv6(host) ? `[${host}]` : String(host);
+}
+
 class BurpMcpBridge {
   constructor() {
     // ---- Core configuration
@@ -149,9 +166,11 @@ class BurpMcpBridge {
     this.burpPort = String(burpPortInt);
     this.burpHost = process.env.BURP_MCP_SERVER_HOST ?? 'localhost';
 
-    // Build a robust base URL (IPv4, IPv6, hostname)
+    // Build a robust base URL (IPv4, IPv6, hostname). A bare IPv6 literal (e.g. "::1")
+    // must be bracketed before assignment — otherwise URL.hostname silently rejects it
+    // and the host stays "localhost".
     const burpUrl = new URL('http://localhost');
-    burpUrl.hostname = this.burpHost;       // "::1" stays unbracketed here
+    burpUrl.hostname = bracketIpv6(this.burpHost);
     burpUrl.port = this.burpPort;
     this.burpBaseUrl = burpUrl.toString();
 
@@ -465,8 +484,10 @@ IP.2 = ::1
   }
 
   // Returns true if the provided hostname resolves to loopback forms.
+  // Normalize IPv6 brackets first so "[::1]" (URL.hostname form) also matches.
   isLoopbackHostname(hostname) {
-    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+    const h = stripIpv6Brackets(hostname);
+    return h === 'localhost' || h === '127.0.0.1' || h === '::1';
   }
 
   allowedHostsFromEnv(baseSet) {
@@ -477,7 +498,9 @@ IP.2 = ::1
         if (!entry) continue;
         try {
           const u = new URL(entry);
-          const hostPort = u.port ? `${u.hostname}:${u.port}` : u.hostname;
+          // Normalize IPv6 brackets so "[::1]" and "::1" compare equal.
+          const host = stripIpv6Brackets(u.hostname);
+          const hostPort = u.port ? `${host}:${u.port}` : host;
           allowedHosts.add(hostPort);
         } catch {
           // Allow bare host[:port] entries too
@@ -498,12 +521,13 @@ IP.2 = ::1
       return false;
     }
 
-    // Default allowlist (store "::1", not "[::1]")
+    // Default allowlist stored in unbracketed IPv6 form ("::1", not "[::1]").
     const baseAllowed = ['localhost', '127.0.0.1', '::1'];
     const allowedHosts = this.allowedHostsFromEnv(baseAllowed);
 
-    // Check hostname and hostname:port forms
-    const originHost = originUrl.hostname; // "::1" for IPv6
+    // Check hostname and hostname:port forms. URL.hostname returns "[::1]" for IPv6,
+    // so strip brackets to match the unbracketed allowlist entries.
+    const originHost = stripIpv6Brackets(originUrl.hostname);
     const originHostPort = originUrl.port ? `${originHost}:${originUrl.port}` : originHost;
 
     const isAllowed = allowedHosts.has(originHost) || allowedHosts.has(originHostPort);

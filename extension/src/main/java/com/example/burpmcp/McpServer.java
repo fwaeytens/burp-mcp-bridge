@@ -52,8 +52,12 @@ public class McpServer {
         // Load configuration from system properties/environment
         config.loadFromSystemProperties();
 
-        // Initialize async handler
-        this.asyncHandler = new AsyncRequestHandler(api);
+        // Register the singleton tool instances BEFORE the async handler so it can execute
+        // against them (preserving per-tool in-memory state across tools/call requests).
+        initializeTools();
+
+        // Initialize async handler, sharing the registered tool instances
+        this.asyncHandler = new AsyncRequestHandler(api, tools);
 
         // Log configuration
         if (config.getLogLevel().ordinal() >= BurpMcpConfig.LogLevel.INFO.ordinal()) {
@@ -61,7 +65,6 @@ public class McpServer {
             logging.logToOutput(config.getConfigSummary());
         }
 
-        initializeTools();
         ToolDocumentationStore docStore = ToolDocumentationStore.getInstance();
         docStore.syncWithToolSchemas(tools);
         validateToolRegistration();
@@ -619,8 +622,15 @@ public class McpServer {
     }
     
     /**
-     * Static method to get tool instances for async handler.
+     * Factory that builds a FRESH tool instance per call.
+     *
+     * @deprecated Do NOT use for request dispatch. It discards per-tool in-memory state
+     * (e.g. SessionManagementTool's token map, AnnotateTool's handler registry) because a
+     * new instance is created every call. The async dispatcher now executes against the
+     * registered singletons in {@link #tools} (passed to {@link AsyncRequestHandler}).
+     * Retained only for tests / one-off standalone instantiation.
      */
+    @Deprecated
     public static McpTool getToolInstance(String toolName, MontoyaApi api) {
         // This is a simplified version for the async handler
         // In production, you might want to use a factory pattern

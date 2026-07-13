@@ -20,6 +20,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.regex.Pattern;
@@ -49,8 +51,10 @@ public class SessionManagementTool implements McpTool {
 
     public SessionManagementTool(MontoyaApi api) {
         this.api = api;
-        this.sessionTokens = new HashMap<>();
-        this.sessionUrls = new ArrayList<>();
+        // Thread-safe: this tool is now a shared singleton executed on the async worker
+        // pool, so concurrent SET_TOKEN / read calls can touch these collections at once.
+        this.sessionTokens = new ConcurrentHashMap<>();
+        this.sessionUrls = new CopyOnWriteArrayList<>();
     }
 
     @Override

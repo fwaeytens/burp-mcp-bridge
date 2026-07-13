@@ -203,7 +203,7 @@ Press **Ctrl+C** to stop the bridge cleanly at any time.
 ### **Self-Documentation & Tool Discovery**
 - ✅ **Tool Coverage** - Surfaces all 22 tools to connected agents
 - ✅ **Workflow Guidance** - Bridges access to on-demand documentation and workflows via MCP
-- ✅ **Consistency** - Ensures tooling metadata matches Burp MCP Bridge v2.6.2 release
+- ✅ **Consistency** - Ensures tooling metadata matches Burp MCP Bridge v2.6.3 release
 
 ## 🔧 **Troubleshooting**
 
@@ -239,7 +239,7 @@ Press **Ctrl+C** to stop the bridge cleanly at any time.
 **Solutions:**
 1. ✅ Reload the Burp MCP Bridge extension
 2. ✅ Check Extensions → Errors tab for extension issues
-3. ✅ Verify `burp-mcp-bridge-2.6.2.jar` is properly loaded
+3. ✅ Verify `burp-mcp-bridge-2.6.3.jar` is properly loaded
 4. ✅ Restart Burp Suite if needed
 
 ### **Configuration Issues**
@@ -284,11 +284,11 @@ BURP_MCP_DEBUG=true node index.js
 
 **Example:**
 ```
-[INFO] 2026-01-27T16:54:23.456Z - Burp MCP Bridge v2.6.2 initializing...
+[INFO] 2026-01-27T16:54:23.456Z - Burp MCP Bridge v2.6.3 initializing...
 [INFO] 2025-10-22T16:54:23.457Z - Connecting to Burp extension at: http://localhost:8081
 [DEBUG] 2025-10-22T16:54:23.458Z - Sending request to Burp: ping
 [INFO] 2025-10-22T16:54:23.480Z - ✅ Successfully connected to Burp extension
-[INFO] 2026-01-27T16:54:23.481Z - 🚀 Burp MCP Bridge v2.6.2 started and ready for Claude Code
+[INFO] 2026-01-27T16:54:23.481Z - 🚀 Burp MCP Bridge v2.6.3 started and ready for Claude Code
 ```
 
 ## 🔄 **Version Compatibility**
@@ -437,7 +437,7 @@ Response:
 ```json
 {
   "status": "ok",
-  "version": "2.6.2",
+  "version": "2.6.3",
   "burpConnection": "http://localhost:8081",
   "transports": ["stdio", "http-sse", "streamable-http"]
 }

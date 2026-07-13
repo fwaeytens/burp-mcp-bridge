@@ -1,6 +1,6 @@
 # Burp MCP Bridge
 
-[![Version](https://img.shields.io/badge/version-2.6.2-blue.svg)](https://github.com/fwaeytens/burp-mcp-bridge/releases)
+[![Version](https://img.shields.io/badge/version-2.6.3-blue.svg)](https://github.com/fwaeytens/burp-mcp-bridge/releases)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Java](https://img.shields.io/badge/java-17+-orange.svg)](https://www.oracle.com/java/)
 [![Burp Suite](https://img.shields.io/badge/Burp%20Suite-Professional%202026.4+-red.svg)](https://portswigger.net/burp)
@@ -69,7 +69,7 @@ OpenAI/Gemini → HTTP/SSE MCP → Node.js Bridge → HTTP → Burp Extension �
 - **Burp Suite Professional** (licensed version required) - Must be running
 - **Java 17 or higher** - For compiling the extension
 - **Apache Maven** - For building (`mvn -version` to check)
-- **Node.js 16+** - For MCP bridge (`node -version` to check)
+- **Node.js 18+** - For MCP bridge (`node -version` to check)
 
 ## 🚀 Quick Start
 
@@ -77,7 +77,7 @@ OpenAI/Gemini → HTTP/SSE MCP → Node.js Bridge → HTTP → Burp Extension �
 - ✅ **Burp Suite Professional** (licensed version) - Must be running
 - ✅ **Java 17+** - Run `java -version` to verify
 - ✅ **Maven** - Run `mvn -version` to verify
-- ✅ **Node.js 16+** - Run `node -version` to verify
+- ✅ **Node.js 18+** - Run `node -version` to verify
 
 ### 1. Clone and Build
 
@@ -96,7 +96,7 @@ mvn clean package
 1. **Start Burp Suite Professional** (must be running first)
 2. Go to **Extensions** → **Extensions** tab
 3. Click **Add** → Select **Extension type: Java**
-4. Choose `extension/target/burp-mcp-bridge-2.6.2.jar`
+4. Choose `extension/target/burp-mcp-bridge-2.6.3.jar`
 5. ✅ **VERIFY**: Look for these messages in the output:
    - "MCP Server listening on http://127.0.0.1:8081"
    - "=== Available MCP Tools ==="
@@ -434,7 +434,7 @@ await use_mcp_tool("burp-mcp-bridge", "burp_add_issue", {
 2. **"Unknown tool" errors**
    - ✅ Reload the extension in Burp
    - ✅ Check extension output for errors
-   - ✅ Verify version 2.6.2 is loaded
+   - ✅ Verify version 2.6.3 is loaded
 
 3. **Claude can't connect**
    - ✅ Check `.mcp.json` is in project root
@@ -514,4 +514,4 @@ MIT License - See [LICENSE](LICENSE) file for details
 
 ---
 
-**Current Version**: 2.6.2 | **Burp Suite**: 2026.4+ | **Tools**: 22 | **Status**: Production Ready with AI-Powered Anomaly Detection
+**Current Version**: 2.6.3 | **Burp Suite**: 2026.4+ | **Tools**: 22 | **Status**: Production Ready with AI-Powered Anomaly Detection
