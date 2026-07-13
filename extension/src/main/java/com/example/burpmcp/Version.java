@@ -60,9 +60,10 @@ public class Version {
                "- ✅ AsyncRequestHandler now executes against the registered singleton instances (shared with McpServer's tool map). SessionManagementTool's collections are now thread-safe (ConcurrentHashMap / CopyOnWriteArrayList) since the singleton is shared across the worker pool. getToolInstance() is deprecated.\n\n" +
                "### 🌐 IPv6 loopback handling fixed (Node bridge)\n" +
                "- ✅ Fixed: BURP_MCP_SERVER_HOST=::1 silently connected to localhost (URL.hostname rejects a bare IPv6 literal). Bare IPv6 hosts are now bracketed before URL construction.\n" +
-               "- ✅ Fixed: browser origins like http://[::1]:3000 were rejected because URL.hostname returns \"[::1]\" but the allowlist stored \"::1\". Origin/loopback/allowlist checks now normalize IPv6 brackets on both sides.\n\n" +
+               "- ✅ Fixed: browser origins like http://[::1]:3000 were rejected because URL.hostname returns \"[::1]\" but the allowlist stored \"::1\". Origin/loopback/allowlist checks now normalize IPv6 brackets on both sides.\n" +
+               "- ✅ Fixed: bare MCP_ALLOWED_ORIGINS entries like \"example.com:3000\" were silently dropped (new URL() parses them as a scheme with an empty host, not a throw). Empty-hostname parses are now treated as bare host[:port] entries.\n\n" +
                "### 📦 Node engine floor raised to match dependencies\n" +
-               "- ✅ package.json engines bumped >=16.0.0 -> >=18.14.1 (global fetch + @modelcontextprotocol/sdk and @hono/node-server both require Node 18+). README updated to Node.js 18+.\n\n" +
+               "- ✅ package.json (and package-lock.json root metadata) engines bumped >=16.0.0 -> >=18.14.1 (global fetch + @modelcontextprotocol/sdk and @hono/node-server both require Node 18+). README updated to Node.js 18+.\n\n" +
                "## Version 2.6.2 - raw_request byte-exact bodies + WebSocket-send timeout guard (2026-06-15)\n\n" +
                "### 🧬 burp_custom_http: raw_request now preserves binary bodies byte-for-byte\n" +
                "- ✅ Fixed: line-ending normalization (LF→CRLF) was applied to the WHOLE request even in `raw_request` mode, rewriting every `0x0A` in the body to `0x0D 0x0A` and corrupting binary uploads (multipart images, gzip, serialized blobs) plus silently changing Content-Length.\n" +

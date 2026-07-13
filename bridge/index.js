@@ -156,6 +156,20 @@ function bracketIpv6(host = '') {
   return isBareIpv6(host) ? `[${host}]` : String(host);
 }
 
+/**
+ * Normalize a bare host[:port] allowlist entry to the same form the origin check
+ * produces (unbracketed IPv6): "[::1]" -> "::1", "[::1]:3000" -> "::1:3000",
+ * "example.com:3000" -> "example.com:3000".
+ */
+function normalizeBareHostEntry(entry = '') {
+  const s = String(entry).trim();
+  if (s.startsWith('[')) {
+    const end = s.indexOf(']');
+    if (end > 1) return s.slice(1, end) + s.slice(end + 1); // strip brackets, keep any :port
+  }
+  return s;
+}
+
 class BurpMcpBridge {
   constructor() {
     // ---- Core configuration
@@ -498,13 +512,19 @@ IP.2 = ::1
         if (!entry) continue;
         try {
           const u = new URL(entry);
-          // Normalize IPv6 brackets so "[::1]" and "::1" compare equal.
-          const host = stripIpv6Brackets(u.hostname);
-          const hostPort = u.port ? `${host}:${u.port}` : host;
-          allowedHosts.add(hostPort);
+          // A bare "example.com:3000" parses as a custom scheme with an EMPTY hostname
+          // (not a real URL) — treat it as a bare host[:port] entry, not a URL.
+          if (!u.hostname) {
+            allowedHosts.add(normalizeBareHostEntry(entry));
+          } else {
+            // Normalize IPv6 brackets so "[::1]" and "::1" compare equal.
+            const host = stripIpv6Brackets(u.hostname);
+            const hostPort = u.port ? `${host}:${u.port}` : host;
+            allowedHosts.add(hostPort);
+          }
         } catch {
-          // Allow bare host[:port] entries too
-          allowedHosts.add(entry);
+          // Allow bare host[:port] entries too (e.g. "example.com:3000", "[::1]:3000").
+          allowedHosts.add(normalizeBareHostEntry(entry));
         }
       }
     }
