@@ -31,6 +31,8 @@ await use_mcp_tool("burp-mcp-bridge", "burp_help", {});
 - **burp_scanner** - Automated vulnerability scanning (includes CRAWL_ONLY action for content discovery)
 - **burp_collaborator** - Out-of-band interaction testing
 - **burp_proxy_history** - Query and analyze captured traffic
+- **burp_scope** - Manage target scope (add/remove/check); `includeSubdomains:true` = UI 'Include subdomains'
+- **burp_config** - Read/write Burp project & user options as JSON (advanced scope, proxy listeners, match/replace, session-handling rules/macros, upstream proxy, platform auth). GET→modify→SET; changes apply live
 
 ### ❌ Tools That CANNOT Execute (Configuration Only)
 - **burp_repeater** - Only creates UI tabs, CANNOT send requests

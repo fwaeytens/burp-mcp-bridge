@@ -1584,18 +1584,18 @@
       "name": "burp_config",
       "title": "Burp Configuration (project/user options JSON)",
       "category": "Configuration & Utilities",
-      "description": "Read and write Burp Suite PROJECT and USER options as JSON, via Montoya's export/import API. General primitive for settings the typed tools don't expose (advanced target scope, proxy listeners, session-handling rules, upstream proxies). Actions: GET_PROJECT_OPTIONS / GET_USER_OPTIONS (pass 'path' like 'target.scope' to scope the export; omit to export everything), SET_PROJECT_OPTIONS / SET_USER_OPTIONS (import the JSON in 'json'). SET replaces the options contained in the supplied JSON — GET the subtree first, modify, then SET it back. ⚠️ Exports can contain stored secrets in cleartext (platform-auth credentials, upstream-proxy/SOCKS passwords, client certs) — scope with 'path' and don't paste full dumps into untrusted places. For simple scope add/remove use burp_scope.",
+      "description": "Read and write Burp Suite PROJECT and USER options as JSON, via Montoya's export/import API. General primitive for settings the typed tools don't expose (advanced target scope, proxy listeners, session-handling rules, upstream proxies) and for troubleshooting Burp's current state. Actions: GET_PROJECT_OPTIONS / GET_USER_OPTIONS (omit 'path' to export the FULL config incl. defaults; scope with a rooted 'path' — PROJECT 'target.*'/'project_options.*', USER 'user_options.*'), SET_PROJECT_OPTIONS / SET_USER_OPTIONS (import the JSON in 'json'), RESET_PROJECT_OPTIONS (restore a known default for a supported 'path', currently 'target.scope'). SET replaces the options contained in the supplied JSON — GET the subtree first, modify, then SET it back. ⚠️ Exports can contain stored secrets in cleartext (platform-auth credentials, upstream-proxy/SOCKS passwords, client certs) — scope with 'path' and don't paste full dumps into untrusted places. For simple scope add/remove use burp_scope.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "action": {
             "type": "string",
-            "enum": ["GET_PROJECT_OPTIONS", "SET_PROJECT_OPTIONS", "GET_USER_OPTIONS", "SET_USER_OPTIONS"],
-            "description": "Config action to perform"
+            "enum": ["GET_PROJECT_OPTIONS", "SET_PROJECT_OPTIONS", "RESET_PROJECT_OPTIONS", "GET_USER_OPTIONS", "SET_USER_OPTIONS"],
+            "description": "Config action to perform. RESET_PROJECT_OPTIONS restores a known default for supported 'path' values (currently 'target.scope')."
           },
           "path": {
             "type": "string",
-            "description": "GET only: dotted options path to export (e.g. 'target.scope', 'proxy'). Omit to export ALL options (can be very large). Ignored for SET."
+            "description": "Used by GET (optional) and REQUIRED by RESET_PROJECT_OPTIONS; ignored by SET. Dotted options path rooted like the JSON — PROJECT roots: 'target', 'proxy', 'project_options' (e.g. 'target.scope', 'proxy', 'project_options.connections'); USER: 'user_options.*' (e.g. 'user_options.proxy'). On GET, omit to export the FULL config (troubleshooting/backup; large); a path matching no key falls through to the full export. On RESET, must be a supported default path (currently 'target.scope')."
           },
           "json": {
             "type": "string",
@@ -1650,8 +1650,8 @@
     },
     {
       "name": "Configuration & Utilities",
-      "tools": 3,
-      "description": "Scope, organizer, and annotations"
+      "tools": 4,
+      "description": "Scope, config (project/user options), organizer, and annotations"
     },
     {
       "name": "Site Map Analysis",

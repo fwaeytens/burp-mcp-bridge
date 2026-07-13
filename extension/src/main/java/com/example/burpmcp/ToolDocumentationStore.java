@@ -85,6 +85,11 @@ public class ToolDocumentationStore {
             "COMPARE_TEXT", List.of("text1", "text2"),
             "COMPARE_PROXY_ENTRIES", List.of("url1", "url2")));
 
+        byTool.put("burp_config", Map.of(
+            "SET_PROJECT_OPTIONS", List.of("json"),
+            "SET_USER_OPTIONS", List.of("json"),
+            "RESET_PROJECT_OPTIONS", List.of("path")));
+
         byTool.forEach((toolName, reqs) -> {
             ToolDocumentation doc = documentation.get(toolName);
             if (doc != null) {
@@ -897,7 +902,67 @@ public class ToolDocumentationStore {
             List.of(
                 "Set scope before scanning to limit testing to authorized targets",
                 "Use 'analyze' action to see what percentage of proxy traffic is in scope",
-                "Use bulk_add with a list of URLs for multiple targets"
+                "Use bulk_add with a list of URLs for multiple targets",
+                "includeSubdomains=true (default) matches the domain and all subdomains — the UI 'Include subdomains' checkbox"
+            ));
+
+        // burp_config - project/user options as JSON
+        addToolMetadata("burp_config", "Configuration & Utilities",
+            List.of("config", "settings", "options", "project", "user", "import", "export", "json",
+                    "scope", "proxy", "upstream", "session-handling", "macro", "credentials", "reset"),
+            List.of("read burp settings", "write burp settings", "export project options",
+                    "import project options", "export user options", "configure advanced scope",
+                    "configure upstream proxy", "configure platform auth", "reset scope"),
+            List.of("burp_scope", "burp_session_management", "burp_global_interceptor"),
+            List.of(
+                Map.of(
+                    "title", "Export a settings subtree",
+                    "input", Map.of("action", "GET_PROJECT_OPTIONS", "path", "target.scope"),
+                    "output", Map.of("json", "{\"target\":{\"scope\":{\"advanced_mode\":true,\"include\":[...]}}}", "length", 330),
+                    "explanation", "Pass 'path' (e.g. target.scope, proxy, project_options.connections) to export just that subtree. Omit path to export EVERYTHING (large)."
+                ),
+                Map.of(
+                    "title", "Include-subdomains scope via round-trip",
+                    "input", Map.of("action", "SET_PROJECT_OPTIONS",
+                        "json", "{\"target\":{\"scope\":{\"advanced_mode\":true,\"include\":[{\"enabled\":true,\"protocol\":\"any\",\"host\":\"^(?:.*\\\\.)?example\\\\.com$\"}]}}}"),
+                    "output", Map.of("success", true, "importedTopLevelKeys", List.of("target")),
+                    "explanation", "GET target.scope first, append the host-regex rule to include[], then SET — importing an array REPLACES it, so preserve existing rules. (burp_scope add includeSubdomains=true does this for you.)"
+                ),
+                Map.of(
+                    "title", "Reset target scope to default (empty)",
+                    "input", Map.of("action", "RESET_PROJECT_OPTIONS", "path", "target.scope"),
+                    "output", Map.of("success", true, "reset", "target.scope"),
+                    "explanation", "Restores a known-default for supported paths (currently target.scope → advanced_mode:false, empty include/exclude)."
+                ),
+                Map.of(
+                    "title", "Read user options (⚠️ may contain cleartext secrets)",
+                    "input", Map.of("action", "GET_USER_OPTIONS", "path", "user_options.connections"),
+                    "output", Map.of("json", "{\"user_options\":{\"connections\":{\"platform_authentication\":{...}}}}"),
+                    "explanation", "USER paths must be rooted at 'user_options.' — a bare 'connections' falls through to the FULL dump. User options include stored platform-auth credentials / proxy passwords in cleartext; don't paste full dumps into untrusted places."
+                ),
+                Map.of(
+                    "title", "Dump the full config for troubleshooting",
+                    "input", Map.of("action", "GET_PROJECT_OPTIONS"),
+                    "output", Map.of("json", "{...every project setting at its current value, incl. defaults...}"),
+                    "explanation", "Omit 'path' to get the complete current config (not just modified settings). Do the same with GET_USER_OPTIONS for user-level settings. Large output — use for troubleshooting/backup."
+                ),
+                Map.of(
+                    "title", "Add a proxy match/replace rule (Tools/Proxy)",
+                    "input", Map.of("action", "SET_PROJECT_OPTIONS",
+                        "json", "{\"proxy\":{...GET 'proxy' first..., \"match_replace_rules\":[<existing rules>, {\"category\":\"regex\",\"comment\":\"my rule\",\"enabled\":true,\"rule_type\":\"request_header\",\"string_match\":\"^User-Agent.*$\",\"string_replace\":\"User-Agent: x\"}]}}"),
+                    "output", Map.of("success", true, "importedTopLevelKeys", List.of("proxy")),
+                    "explanation", "Proxy config lives at ROOT 'proxy' (not project_options.proxy). GET 'proxy', append to match_replace_rules[], SET the whole subtree back. ⚠️ Preserve request_listeners exactly or you can disrupt the proxy listener you're testing through."
+                )
+            ),
+            List.of(
+                "Always GET the subtree, modify it, then SET the whole modified subtree back (SET replaces arrays) — capture the original first so you can restore it",
+                "Changes apply live — no extension reload needed",
+                "Common paths: target.scope; proxy (listeners/intercept/match-replace); project_options.connections (network/upstream/platform-auth); project_options.sessions (session rules/macros/cookie jar); project_options.ssl (TLS/client certs); user_options.* (global)",
+                "Omit 'path' for a full config dump (troubleshooting/backup); scope with a correctly-rooted 'path' otherwise",
+                "PROJECT roots: target, proxy, project_options; USER root: user_options — a wrong path falls through to the full dump (which can include cleartext secrets)",
+                "When SETting 'proxy', preserve request_listeners exactly — altering it can restart the proxy you're testing through",
+                "For simple scope add/remove/check use burp_scope; use burp_config for advanced/bulk config",
+                "Use RESET_PROJECT_OPTIONS path=target.scope to clear scope back to default"
             ));
 
         // burp_session_management with examples

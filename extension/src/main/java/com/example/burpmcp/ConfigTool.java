@@ -22,8 +22,16 @@ public class ConfigTool implements McpTool {
     private static final List<String> SUPPORTED_ACTIONS = List.of(
         "GET_PROJECT_OPTIONS",
         "SET_PROJECT_OPTIONS",
+        "RESET_PROJECT_OPTIONS",
         "GET_USER_OPTIONS",
         "SET_USER_OPTIONS"
+    );
+
+    // Known-default JSON for paths that can be safely reset. Burp's Montoya API has no
+    // generic "reset to factory default", so RESET is limited to subtrees where a sane
+    // default is well-defined. Keyed by the 'path' argument.
+    private static final Map<String, String> RESET_DEFAULTS = Map.of(
+        "target.scope", "{\"target\":{\"scope\":{\"advanced_mode\":false,\"exclude\":[],\"include\":[]}}}"
     );
 
     public ConfigTool(MontoyaApi api) {
@@ -37,9 +45,21 @@ public class ConfigTool implements McpTool {
         tool.put("title", "Burp Configuration (project/user options JSON)");
         tool.put("description",
             "Read and write Burp Suite PROJECT and USER options as JSON. General config primitive for settings the "
-            + "typed tools don't expose. Actions: GET_PROJECT_OPTIONS / GET_USER_OPTIONS (export; pass 'path' like "
-            + "'target.scope' or 'proxy' to scope the export — omitting it exports EVERYTHING, which can be very large), "
-            + "SET_PROJECT_OPTIONS / SET_USER_OPTIONS (import the JSON in 'json'). "
+            + "typed tools don't expose, and for troubleshooting Burp's current state. Actions: GET_PROJECT_OPTIONS / "
+            + "GET_USER_OPTIONS (omit 'path' to export the FULL current config — every setting at its current value, "
+            + "including defaults, not just modified ones: useful for troubleshooting/backup, but large). To scope the "
+            + "export, pass a 'path' rooted like the JSON itself: PROJECT roots are 'target', 'proxy' and "
+            + "'project_options' (e.g. 'target.scope', 'proxy', 'project_options.connections'); USER paths start with 'user_options.' (e.g. "
+            + "'user_options.proxy', 'user_options.connections'). A path that matches no real key falls through to the "
+            + "FULL export (e.g. user path 'proxy' WITHOUT the 'user_options.' prefix dumps everything). "
+            + "COMMON PATHS: 'target.scope' (scope); 'proxy' (proxy listeners, intercept rules, match/replace, response "
+            + "modification — note: root 'proxy', not project_options.proxy); 'project_options.connections' (timeouts, "
+            + "upstream proxy, SOCKS, platform-auth); 'project_options.sessions' (session-handling rules, macros, cookie "
+            + "jar); 'project_options.ssl' (TLS, client certs); 'user_options.*' for global settings. Changes apply LIVE "
+            + "(no extension reload needed). ⚠️ When SETting the whole 'proxy' subtree, preserve 'request_listeners' "
+            + "exactly — altering it can restart/disrupt the proxy listener you're testing through. "
+            + "SET_PROJECT_OPTIONS / SET_USER_OPTIONS (import the JSON in 'json'), RESET_PROJECT_OPTIONS (restore a "
+            + "known default for a supported 'path', currently 'target.scope'). "
             + "⚠️ SET replaces the options contained in the supplied JSON — always GET the relevant subtree first, modify "
             + "it, then SET the whole modified subtree back (importing a partial array REPLACES that array, so preserve "
             + "existing entries). ⚠️ Exports can contain STORED SECRETS IN CLEARTEXT (platform-authentication credentials, "
@@ -65,12 +85,17 @@ public class ConfigTool implements McpTool {
         Map<String, Object> properties = new HashMap<>();
 
         properties.put("action", McpUtils.createEnumProperty("string",
-            "Config action to perform", SUPPORTED_ACTIONS));
+            "Config action. RESET_PROJECT_OPTIONS restores a known-default for supported 'path' values (currently "
+            + "'target.scope' → empty scope); Burp has no generic reset, so other paths must be reset by SETting an "
+            + "explicit default.", SUPPORTED_ACTIONS));
 
         Map<String, Object> pathProperty = new HashMap<>();
         pathProperty.put("type", "string");
-        pathProperty.put("description", "GET only: dotted options path to export (e.g. 'target.scope', 'proxy', "
-            + "'project_options.connections'). Omit to export ALL options (can be very large). Ignored for SET.");
+        pathProperty.put("description", "Used by GET (optional) and REQUIRED by RESET_PROJECT_OPTIONS; ignored by SET. "
+            + "Dotted options path, rooted like the JSON — PROJECT roots: 'target', 'proxy', 'project_options' (e.g. "
+            + "'target.scope', 'proxy', 'project_options.connections'); USER: 'user_options.*' (e.g. 'user_options.proxy'). On GET, omit to export "
+            + "the FULL config (troubleshooting/backup; large); a path that matches no key falls through to the full "
+            + "export. On RESET, must be a supported default path (currently 'target.scope').");
         properties.put("path", pathProperty);
 
         Map<String, Object> jsonProperty = new HashMap<>();
@@ -111,6 +136,8 @@ public class ConfigTool implements McpTool {
                     return importOptions(arguments, false);
                 case "SET_USER_OPTIONS":
                     return importOptions(arguments, true);
+                case "RESET_PROJECT_OPTIONS":
+                    return resetOptions(arguments, path);
                 default:
                     return McpUtils.createErrorResponse("Unsupported action: " + action);
             }
@@ -139,6 +166,28 @@ public class ConfigTool implements McpTool {
         if (path != null && !path.isEmpty()) sb.append(" — path `").append(path).append('`');
         sb.append("\n\n```json\n").append(json).append("\n```\n");
         return McpUtils.createSuccessResponse(sb.toString());
+    }
+
+    private Object resetOptions(JsonNode arguments, String path) {
+        if (path == null || path.isEmpty()) {
+            return McpUtils.createErrorResponse("'path' is required for RESET_PROJECT_OPTIONS. Supported: "
+                + String.join(", ", RESET_DEFAULTS.keySet()));
+        }
+        String defaultJson = RESET_DEFAULTS.get(path);
+        if (defaultJson == null) {
+            return McpUtils.createErrorResponse("RESET not supported for path '" + path + "'. Burp exposes no generic "
+                + "reset-to-default; supported paths: " + String.join(", ", RESET_DEFAULTS.keySet())
+                + ". For anything else, GET the subtree, edit it, and SET the desired default explicitly.");
+        }
+        api.burpSuite().importProjectOptionsFromJson(defaultJson);
+        if (!McpUtils.isVerbose(arguments)) {
+            Map<String, Object> data = new HashMap<>();
+            data.put("action", "RESET_PROJECT_OPTIONS");
+            data.put("success", true);
+            data.put("reset", path);
+            return McpUtils.createJsonResponse(data);
+        }
+        return McpUtils.createSuccessResponse("✅ Reset " + path + " to default");
     }
 
     private Object importOptions(JsonNode arguments, boolean userOptions) {

@@ -84,7 +84,7 @@ BURP_MCP_REQUEST_TIMEOUT=60000 \
 node index.js
 ```
 
-## 🚀 **Features (v2.1.1)**
+## 🚀 **Features (v2.7.0)**
 
 ### **🆕 Dual Transport Support**
 - ✅ **Stdio Transport** - For Claude Code and stdio-based MCP clients

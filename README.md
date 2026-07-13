@@ -315,8 +315,9 @@ The extension now includes a unified help system that allows AI agents to discov
 - `burp_comparer` - Compare requests/responses (sends to Comparer UI)
 - `burp_collaborator` - Generate payloads and monitor out-of-band interactions with full Montoya API support
 
-### Configuration & Utilities (3)
-- `burp_scope` - Enhanced scope management with host support and tracking
+### Configuration & Utilities (4)
+- `burp_scope` - Enhanced scope management with host support and tracking (incl. 'include subdomains')
+- `burp_config` - Read/write Burp project & user options as JSON (advanced scope, proxy, session handling, upstream proxy); RESET support
 - `burp_organizer` - Organize requests/responses in Burp's Organizer tool
 - `burp_annotate` - Add annotations and highlights to proxy entries
 
