@@ -32,7 +32,8 @@ public class BurpHelpTool implements McpTool {
         int securityToolCount = docStore.getAllDocumentation().size();
         tool.put("description", "Discover and learn about all Burp MCP capabilities. Use this tool to list available tools, " +
             "search by capability, or get detailed help for a specific tool. Returns tool names, descriptions, and examples. " +
-            "Always start here when unsure which tool to use. (" + securityToolCount + " tools available)");
+            "Always start here when unsure which tool to use. (" + securityToolCount + " security tools plus this help tool; " +
+            ToolRegistry.toolCount() + " registered tools total)");
 
         // MCP 2025-06-18 annotations
         Map<String, Object> annotations = new HashMap<>();

@@ -485,8 +485,13 @@ public class ProxyInterceptorTool implements McpTool {
         
         Map<String, Object> requestIdProp = new HashMap<>();
         requestIdProp.put("type", "string");
-        requestIdProp.put("description", "ID of the request to modify (from get_queue)");
+        requestIdProp.put("description", "Request ID from get_queue for request actions. Also accepted as a legacy alias for response_id on response actions.");
         properties.put("request_id", requestIdProp);
+
+        Map<String, Object> responseIdProp = new HashMap<>();
+        responseIdProp.put("type", "string");
+        responseIdProp.put("description", "Response ID from get_response_queue for modify_response, forward_response, or drop_response.");
+        properties.put("response_id", responseIdProp);
         
         Map<String, Object> modificationsProp = new HashMap<>();
         modificationsProp.put("type", "object");
@@ -990,6 +995,7 @@ public class ProxyInterceptorTool implements McpTool {
         for (PendingResponse pending : queue) {
             Map<String, Object> e = new HashMap<>();
             e.put("id", pending.responseId);
+            e.put("responseId", pending.responseId);
             e.put("statusCode", pending.response.statusCode());
             e.put("ageMs", now - pending.timestamp);
             jsonQueue.add(e);
@@ -1018,8 +1024,8 @@ public class ProxyInterceptorTool implements McpTool {
     
     @SuppressWarnings("unchecked")
     private Object modifyResponse(Map<String, Object> args, boolean verbose) {
-        String responseId = (String) args.get("request_id");
-        if (responseId == null) return McpUtils.createErrorResponse("Missing response_id parameter");
+        String responseId = responseIdFrom(args);
+        if (responseId == null) return McpUtils.createErrorResponse("response_id is required");
 
         CompletableFuture<ModificationResponse> future = responseDecisionMap.get(responseId);
         if (future == null) return McpUtils.createErrorResponse("Response ID not found: " + responseId);
@@ -1042,8 +1048,8 @@ public class ProxyInterceptorTool implements McpTool {
     }
 
     private Object forwardResponse(Map<String, Object> args, boolean verbose) {
-        String responseId = (String) args.get("request_id");
-        if (responseId == null) return McpUtils.createErrorResponse("Missing response_id parameter");
+        String responseId = responseIdFrom(args);
+        if (responseId == null) return McpUtils.createErrorResponse("response_id is required");
         CompletableFuture<ModificationResponse> future = responseDecisionMap.get(responseId);
         if (future == null) return McpUtils.createErrorResponse("Response ID not found: " + responseId);
 
@@ -1055,8 +1061,8 @@ public class ProxyInterceptorTool implements McpTool {
     }
 
     private Object dropResponse(Map<String, Object> args, boolean verbose) {
-        String responseId = (String) args.get("request_id");
-        if (responseId == null) return McpUtils.createErrorResponse("Missing response_id parameter");
+        String responseId = responseIdFrom(args);
+        if (responseId == null) return McpUtils.createErrorResponse("response_id is required");
         CompletableFuture<ModificationResponse> future = responseDecisionMap.get(responseId);
         if (future == null) return McpUtils.createErrorResponse("Response ID not found: " + responseId);
 
@@ -1067,6 +1073,11 @@ public class ProxyInterceptorTool implements McpTool {
         future.complete(response);
         if (!verbose) return McpUtils.createJsonResponse(Map.of("success", true, "action", "drop_response", "responseId", responseId));
         return McpUtils.createSuccessResponse("✅ Response dropped");
+    }
+
+    private String responseIdFrom(Map<String, Object> args) {
+        String responseId = trimToNull(args.get("response_id"));
+        return responseId != null ? responseId : trimToNull(args.get("request_id"));
     }
     
     private Object getWebSocketQueue(boolean verbose) {

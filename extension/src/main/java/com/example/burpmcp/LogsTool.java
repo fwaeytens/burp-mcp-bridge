@@ -3,9 +3,6 @@ package com.example.burpmcp;
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.logging.Logging;
 import com.fasterxml.jackson.databind.JsonNode;
-import java.io.ByteArrayOutputStream;
-import java.io.PrintStream;
-import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -21,7 +18,7 @@ public class LogsTool implements McpTool {
     private static final ConcurrentLinkedQueue<LogEntry> outputLogs = new ConcurrentLinkedQueue<>();
     private static final ConcurrentLinkedQueue<LogEntry> errorLogs = new ConcurrentLinkedQueue<>();
     private static final ConcurrentLinkedQueue<LogEntry> eventLogs = new ConcurrentLinkedQueue<>();
-    private static boolean interceptorsInstalled = false;
+    private static boolean captureInitialized = false;
     
     // Static method for other tools to log directly
     public static void logOutput(String message) {
@@ -48,7 +45,7 @@ public class LogsTool implements McpTool {
     
     public LogsTool(MontoyaApi api) {
         this.api = api;
-        installLogInterceptors();
+        initializeLogCapture();
     }
 
     @Override
@@ -56,56 +53,21 @@ public class LogsTool implements McpTool {
         outputLogs.clear();
         errorLogs.clear();
         eventLogs.clear();
-        interceptorsInstalled = false;
+        captureInitialized = false;
     }
     
-    @SuppressWarnings("deprecation") // No non-deprecated API to obtain the underlying PrintStreams
-    private synchronized void installLogInterceptors() {
-        if (interceptorsInstalled) {
+    private synchronized void initializeLogCapture() {
+        if (captureInitialized) {
             return;
         }
-        
+
+        captureInitialized = true;
         try {
-            Logging logging = api.logging();
-            
-            // Intercept output stream
-            PrintStream originalOut = logging.output();
-            PrintStream interceptedOut = new PrintStream(originalOut) {
-                @Override
-                public void println(String x) {
-                    super.println(x);
-                    addLogEntry(outputLogs, "OUTPUT", x);
-                }
-                
-                @Override
-                public void print(String s) {
-                    super.print(s);
-                    addLogEntry(outputLogs, "OUTPUT", s);
-                }
-            };
-            
-            // Intercept error stream
-            PrintStream originalErr = logging.error();
-            PrintStream interceptedErr = new PrintStream(originalErr) {
-                @Override
-                public void println(String x) {
-                    super.println(x);
-                    addLogEntry(errorLogs, "ERROR", x);
-                }
-                
-                @Override
-                public void print(String s) {
-                    super.print(s);
-                    addLogEntry(errorLogs, "ERROR", s);
-                }
-            };
-            
-            interceptorsInstalled = true;
-            api.logging().logToOutput("LogsTool: Log interceptors installed successfully");
-            
-        } catch (Exception e) {
-            // Using the enhanced logToError(String, Throwable) method
-            api.logging().logToError("LogsTool: Failed to install log interceptors", e);
+            if (api != null) {
+                api.logging().logToOutput("LogsTool: Explicit log capture initialized");
+            }
+        } catch (Exception ignored) {
+            // Log capture itself is in-memory and remains available if Burp logging is unavailable.
         }
     }
     
@@ -128,10 +90,10 @@ public class LogsTool implements McpTool {
         Map<String, Object> tool = new HashMap<>();
         tool.put("name", "burp_logs");
         tool.put("title", "Extension Logs");
-        tool.put("description", "Access and manage Burp Suite extension logs. " +
-            "Use this to retrieve output logs, error logs, write custom log entries, and raise debug events. " +
+        tool.put("description", "Access and manage MCP-captured extension logs. " +
+            "Use this to retrieve entries explicitly written through this tool or LogsTool.logOutput/logError, write custom log entries, and raise debug events. " +
             "Actions: GET_LOGS (retrieve logs), WRITE_LOG (add entry), RAISE_EVENT (debug/info/error/critical), CLEAR_LOGS. " +
-            "Useful for debugging and monitoring extension behavior.");
+            "This is not a complete mirror of every line Burp writes to its output streams.");
 
         // MCP 2025-06-18 annotations
         Map<String, Object> annotations = new HashMap<>();
@@ -237,7 +199,8 @@ public class LogsTool implements McpTool {
 
         if (!McpUtils.isVerbose(arguments)) {
             Map<String, Object> data = new HashMap<>();
-            data.put("interceptorsInstalled", interceptorsInstalled);
+            data.put("captureInitialized", captureInitialized);
+            data.put("interceptorsInstalled", captureInitialized); // Backward-compatible alias.
             data.put("outputCount", outputLogs.size());
             data.put("errorCount", errorLogs.size());
             data.put("eventCount", eventLogs.size());
@@ -268,7 +231,7 @@ public class LogsTool implements McpTool {
             appendLogs(result, eventLogs, limit);
         }
         result.append("\n## Current Session Info\n\n");
-        result.append("- Log capture started: ").append(interceptorsInstalled ? "Yes" : "No").append("\n");
+        result.append("- Log capture started: ").append(captureInitialized ? "Yes" : "No").append("\n");
         result.append("- Output logs captured: ").append(outputLogs.size()).append("\n");
         result.append("- Error logs captured: ").append(errorLogs.size()).append("\n");
         result.append("- Event logs captured: ").append(eventLogs.size()).append("\n");

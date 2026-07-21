@@ -109,16 +109,16 @@ public class OrganizerTool implements McpTool {
     
     private Object sendToOrganizer(JsonNode arguments) {
         boolean fromProxy = McpUtils.getBooleanParam(arguments, "fromProxy", false);
+        String url = McpUtils.getStringParam(arguments, "url", "");
+        if (url.isEmpty()) {
+            return McpUtils.createErrorResponse("URL is required for SEND_TO_ORGANIZER");
+        }
+
         String sentUrl;
         String sentMethod;
 
         if (fromProxy) {
             // Send from proxy history
-            String url = arguments.has("url") ? arguments.get("url").asText() : null;
-            if (url == null || url.isEmpty()) {
-                return McpUtils.createErrorResponse("URL is required when sending from proxy history");
-            }
-
             // Find in proxy history
             var proxyHistory = api.proxy().history();
             var matchingItem = proxyHistory.stream()
@@ -138,7 +138,6 @@ public class OrganizerTool implements McpTool {
             }
         } else {
             // Create new request
-            String url = arguments.get("url").asText();
             String method = McpUtils.getStringParam(arguments, "method", "GET");
 
             try {

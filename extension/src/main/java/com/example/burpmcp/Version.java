@@ -7,9 +7,9 @@ package com.example.burpmcp;
 public class Version {
     
     // Version components
-    public static final String VERSION = "2.8.0";
+    public static final String VERSION = "2.8.1";
     public static final String BUILD_DATE = "2026-07-21";
-    public static final String RELEASE_NAME = "ordered tool registry, automated contract tests, and lifecycle cleanup";
+    public static final String RELEASE_NAME = "agent-facing contracts, concise discovery, and structured outputs";
 
     // Feature tracking
     public static final int TOOL_COUNT = 23; // Total number of registered tools
@@ -54,7 +54,20 @@ public class Version {
      * Get detailed changelog for this version.
      */
     public static String getChangelog() {
-        return "## Version 2.8.0 - ordered tool registry, automated contract tests, and lifecycle cleanup (2026-07-21)\n\n" +
+        return new StringBuilder()
+               .append("## Version 2.8.1 - agent-facing contracts, concise discovery, and structured outputs (2026-07-21)\n\n" +
+               "### Agent-facing metadata contracts\n" +
+               "- Added an AgentToolMetadata overlay so tools/list and docs/export expose concise descriptions while burp_help keeps the detailed workflow guidance and examples.\n" +
+               "- Every registered tool now exposes an output schema, action-dependent requirement metadata, category/help hints, and verbose-text structuredContent fallbacks for strict MCP clients.\n" +
+               "- Bridge-side truncation now preserves a small schema-compatible structuredContent summary instead of deleting structured output, and bridge-generated errors include structuredContent too.\n" +
+               "- Generic top-level array fallbacks now accept any JSON item type, and the metadata overlay preserves explicitly closed output schemas instead of forcing additionalProperties=true.\n" +
+               "- Added explicit nested schemas for interceptor rules/modifications, scanner headers/cookies/insertion points, issue filters, annotation auto-rules, response analyzer arrays, utility shell arguments, and log objects.\n\n" +
+               "### Documentation accuracy and robustness\n" +
+               "- burp_help now reports 22 security tools plus the help tool instead of ambiguously saying 22 tools total, and its action requirements include no-argument actions alongside curated required fields.\n" +
+               "- Corrected stale help examples and initialization guidance for custom HTTP visibility, nested response fields, scanner status/insertion-point fields, response analysis, organizer/logs/Bambda/WebSocket inputs, and other compact JSON return shapes.\n" +
+               "- Proxy response interception now documents and accepts response_id directly while preserving request_id as a backward-compatible alias.\n" +
+               "- Corrected the global interceptor rule contract to match the runtime url_pattern/body_search/match_pattern keys, kept shutdown queue cleanup under the registration lock, and clarified that burp_logs captures explicit MCP log entries rather than every Burp output stream line.\n\n")
+               .append("## Version 2.8.0 - ordered tool registry, automated contract tests, and lifecycle cleanup (2026-07-21)\n\n" +
                "### Tool registry and documentation consistency\n" +
                "- Added ToolRegistry as the ordered source of truth for all 23 tool factories, help categories, search metadata, and action requirements.\n" +
                "- McpServer and ToolDocumentationStore now consume the registry instead of maintaining separate registration and metadata tables. tools/list order is deterministic with burp_help first.\n" +
@@ -906,6 +919,7 @@ public class Version {
                "- v1.2.1: Java 17 modernization with enhanced issue creation tools\n" +
                "- v1.2.0: Scanner/Repeater enhancements, incremental naming\n" +
                "- v1.1.0: URL encoding fixes, async handling, proxy casting\n" +
-               "- v1.0.0: Initial release with 19 comprehensive tools";
+               "- v1.0.0: Initial release with 19 comprehensive tools")
+               .toString();
     }
 }

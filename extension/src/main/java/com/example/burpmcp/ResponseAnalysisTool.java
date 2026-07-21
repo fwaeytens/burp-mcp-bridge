@@ -72,10 +72,10 @@ public class ResponseAnalysisTool implements McpTool {
         
         // For reflection analysis  
         properties.put("proxyIds", McpUtils.createProperty("array",
-            "Proxy history IDs to analyze for reflection points"));
+            "Optional 1-based proxy history IDs to analyze for reflection points. Omit to inspect recent proxy history."));
         
         properties.put("testString", McpUtils.createProperty("string",
-            "Test string to look for in responses (for reflection analysis)", "REFLECTED_TEST_12345"));
+            "Optional label echoed in reflection output for caller correlation. Reflection detection inspects request values from proxy history.", "REFLECTED_TEST_12345"));
         
         // For pattern analysis
         properties.put("pattern", McpUtils.createProperty("string",
@@ -534,10 +534,33 @@ public class ResponseAnalysisTool implements McpTool {
             
             // Analyze proxy history for reflection
             List<ProxyHttpRequestResponse> history = api.proxy().history();
+            List<ProxyHttpRequestResponse> candidates = new ArrayList<>();
+            List<Integer> requestedProxyIds = new ArrayList<>();
+            List<Integer> invalidProxyIds = new ArrayList<>();
+
+            if (arguments.has("proxyIds") && arguments.get("proxyIds").isArray()) {
+                for (JsonNode node : arguments.get("proxyIds")) {
+                    Integer id = parseProxyId(node);
+                    if (id == null || id < 1 || id > history.size()) {
+                        if (id != null) {
+                            invalidProxyIds.add(id);
+                        }
+                        continue;
+                    }
+                    requestedProxyIds.add(id);
+                    candidates.add(history.get(id - 1));
+                }
+            } else {
+                for (int i = history.size() - 1; i >= 0; i--) {
+                    candidates.add(history.get(i));
+                }
+            }
             
             int analyzed = 0;
-            for (int i = history.size() - 1; i >= 0 && analyzed < limit; i--) {
-                ProxyHttpRequestResponse item = history.get(i);
+            for (ProxyHttpRequestResponse item : candidates) {
+                if (analyzed >= limit) {
+                    break;
+                }
                 if (!item.hasResponse()) continue;
                 
                 String request = item.finalRequest().toString();
@@ -612,6 +635,8 @@ public class ResponseAnalysisTool implements McpTool {
                 data.put("entriesAnalyzed", analyzed);
                 data.put("reflectionPointsFound", reflectionPoints.size());
                 data.put("reflectionPoints", reflectionPoints);
+                if (!requestedProxyIds.isEmpty()) data.put("requestedProxyIds", requestedProxyIds);
+                if (!invalidProxyIds.isEmpty()) data.put("invalidProxyIds", invalidProxyIds);
                 return McpUtils.createJsonResponse(data);
             }
 
@@ -650,6 +675,23 @@ public class ResponseAnalysisTool implements McpTool {
         } catch (Exception e) {
             return McpUtils.createErrorResponse("Failed to analyze reflections: " + e.getMessage());
         }
+    }
+
+    private Integer parseProxyId(JsonNode node) {
+        if (node == null || node.isNull()) {
+            return null;
+        }
+        if (node.canConvertToInt()) {
+            return node.asInt();
+        }
+        if (node.isTextual()) {
+            try {
+                return Integer.parseInt(node.asText().trim());
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
     }
     
     private Object rankResponsesByAnomaly(JsonNode arguments) {

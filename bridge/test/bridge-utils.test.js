@@ -31,14 +31,16 @@ test('fixContentLength adds a missing header and leaves empty bodies alone', () 
   );
 });
 
-test('truncateResult drops duplicate structured content before truncating text', () => {
+test('truncateResult preserves a schema-compatible structured fallback', () => {
   const result = {
     content: [{ type: 'text', text: 'short' }],
     structuredContent: { payload: 'x'.repeat(MAX_RESULT_CHARS) }
   };
 
   const truncated = truncateResult(result);
-  assert.equal(truncated.structuredContent, undefined);
+  assert.equal(truncated.structuredContent.truncated, true);
+  assert.equal(truncated.structuredContent.limitChars, MAX_RESULT_CHARS);
+  assert.match(truncated.structuredContent.text, /⚠️ Result truncated/);
   assert.deepEqual(truncated.content, result.content);
 });
 
@@ -47,7 +49,8 @@ test('truncateResult bounds oversized text content', () => {
   const truncated = truncateResult(result);
   assert.equal(truncated.content.length, 2);
   assert.match(truncated.content[1].text, /⚠️ Result truncated/);
-  assert.ok(JSON.stringify(truncated).length < MAX_RESULT_CHARS + 500);
+  assert.equal(truncated.structuredContent.truncated, true);
+  assert.ok(JSON.stringify(truncated).length <= MAX_RESULT_CHARS);
 });
 
 test('host helpers normalize IPv6 and parse integer environment values', () => {

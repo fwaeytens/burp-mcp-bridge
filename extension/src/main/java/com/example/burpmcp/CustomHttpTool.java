@@ -368,8 +368,44 @@ public class CustomHttpTool implements McpTool {
         // Output schema
         Map<String, Object> outputProps = new HashMap<>();
         outputProps.put("success", SchemaHelper.boolProp("Whether the request was sent successfully"));
-        outputProps.put("request", SchemaHelper.objectProp("Request metadata (url, method, http_version)"));
-        outputProps.put("response", SchemaHelper.objectProp("Response data (status_code, headers, body, response_time_ms)"));
+        outputProps.put("routed_via_proxy", SchemaHelper.boolProp("Whether the request was tunneled through Burp's proxy listener"));
+        outputProps.put("request", Map.of(
+            "type", "object",
+            "description", "Request metadata",
+            "additionalProperties", true,
+            "properties", Map.of(
+                "url", SchemaHelper.stringProp("Request URL"),
+                "method", SchemaHelper.stringProp("HTTP method"),
+                "http_version", SchemaHelper.stringProp("HTTP version")
+            )
+        ));
+        outputProps.put("response", Map.of(
+            "type", "object",
+            "description", "Single-response data for SEND_REQUEST",
+            "additionalProperties", true,
+            "properties", Map.of(
+                "status_code", SchemaHelper.intProp("HTTP status code"),
+                "reason_phrase", SchemaHelper.stringProp("HTTP reason phrase"),
+                "http_version", SchemaHelper.stringProp("HTTP version"),
+                "body", SchemaHelper.stringProp("Response body, capped by max_body_bytes"),
+                "body_length", SchemaHelper.intProp("Full response body length in bytes"),
+                "response_time_ms", SchemaHelper.intProp("Response time in milliseconds")
+            )
+        ));
+        outputProps.put("responses", Map.of(
+            "type", "array",
+            "description", "Per-response summaries for SEND_PARALLEL and SEND_PIPELINED",
+            "items", Map.of(
+                "type", "object",
+                "additionalProperties", true,
+                "properties", Map.of(
+                    "index", SchemaHelper.intProp("Input request index"),
+                    "status_code", SchemaHelper.intProp("HTTP status code"),
+                    "body_length", SchemaHelper.intProp("Response body length in bytes"),
+                    "response_time_ms", SchemaHelper.intProp("Response time in milliseconds")
+                )
+            )
+        ));
         tool.put("outputSchema", SchemaHelper.outputSchema(outputProps));
 
         return tool;

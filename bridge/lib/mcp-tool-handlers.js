@@ -4,6 +4,14 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 
 import { fixContentLength, truncateResult } from './bridge-utils.js';
 
+export function createToolErrorResult(message) {
+  return {
+    content: [{ type: 'text', text: message }],
+    structuredContent: { text: message },
+    isError: true
+  };
+}
+
 export function prepareToolArguments(toolName, inputArguments = {}) {
   const args = { ...(inputArguments || {}) };
   if (toolName !== 'burp_custom_http') {
@@ -61,25 +69,20 @@ export function registerMcpToolHandlers({
       if (response.error) {
         const msg = String(response.error.message || 'Unknown error');
         logError(`[${rid}] Tool ${toolName} returned error: ${msg}`);
-        return { content: [{ type: 'text', text: `❌ Error: ${msg}` }], isError: true };
+        return createToolErrorResult(`❌ Error: ${msg}`);
       }
 
       logDebug(`[${rid}] Tool ${toolName} completed successfully`);
       return truncateResult(response.result);
     } catch (error) {
       logError(`[${rid}] Error calling tool ${toolName}: ${error.message}`);
-      return {
-        content: [{
-          type: 'text',
-          text:
-            `❌ Connection Error: ${error.message}\n\n` +
-            `Troubleshooting:\n` +
-            `• Ensure Burp Suite Professional is running\n` +
-            `• Verify Burp MCP Bridge extension is loaded\n` +
-            `• Check that ${burpBaseUrl} is reachable`
-        }],
-        isError: true
-      };
+      return createToolErrorResult(
+        `❌ Connection Error: ${error.message}\n\n` +
+        `Troubleshooting:\n` +
+        `• Ensure Burp Suite Professional is running\n` +
+        `• Verify Burp MCP Bridge extension is loaded\n` +
+        `• Check that ${burpBaseUrl} is reachable`
+      );
     }
   });
 }

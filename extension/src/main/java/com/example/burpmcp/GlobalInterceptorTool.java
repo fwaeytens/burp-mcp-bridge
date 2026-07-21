@@ -126,13 +126,13 @@ public class GlobalInterceptorTool implements McpTool {
                 webSocketRegistration = null;
             }
             interceptorEnabled.set(false);
+            for (CompletableFuture<ModificationInstructions> future : responseMap.values()) {
+                future.cancel(true);
+            }
+            responseMap.clear();
+            pendingQueue.clear();
         }
 
-        for (CompletableFuture<ModificationInstructions> future : responseMap.values()) {
-            future.cancel(true);
-        }
-        responseMap.clear();
-        pendingQueue.clear();
         requestRules.clear();
         responseRules.clear();
         webSocketRules.clear();
@@ -233,7 +233,7 @@ public class GlobalInterceptorTool implements McpTool {
         
         Map<String, Object> ruleProp = new HashMap<>();
         ruleProp.put("type", "object");
-        ruleProp.put("description", "Rule object. Required keys: pattern (regex matching URL or content), action ('add_header'|'remove_header'|'replace_body'|'modify_body'|'drop'), priority (int, lower=earlier). Optional: value (for add_header/replace_body), match_target ('url'|'header'|'body'). Example: {pattern: '.*api.*', action: 'add_header', value: 'X-Test: 1', priority: 10}.");
+        ruleProp.put("description", "Rule config. HTTP rules match with url_pattern/method/required_headers/status_code/status_range/content_type and modify with add_headers/remove_headers/body_search/body_replace/change_method/change_path/change_status/change_reason. WebSocket rules use match_pattern/replace_text/direction/drop. Set use_regex=true to treat url_pattern or match_pattern as regex.");
         properties.put("rule", ruleProp);
         
         Map<String, Object> priorityProp = new HashMap<>();

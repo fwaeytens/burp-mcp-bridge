@@ -8,7 +8,7 @@ test('BurpJsonRpcClient posts JSON-RPC requests with correlation headers', async
   let seenOptions;
   const client = new BurpJsonRpcClient({
     baseUrl: 'http://localhost:8081/',
-    version: '2.8.0',
+    version: '2.8.1',
     requestTimeout: 1000,
     fetchImpl: async (url, options) => {
       seenUrl = url;
@@ -24,7 +24,7 @@ test('BurpJsonRpcClient posts JSON-RPC requests with correlation headers', async
 
   assert.equal(seenUrl, 'http://localhost:8081/');
   assert.equal(seenOptions.method, 'POST');
-  assert.equal(seenOptions.headers['User-Agent'], 'Burp-MCP-Bridge/2.8.0');
+  assert.equal(seenOptions.headers['User-Agent'], 'Burp-MCP-Bridge/2.8.1');
   assert.equal(seenOptions.headers['X-Request-Id'], 'rid-1');
   assert.equal(seenOptions.headers['X-Tool-Name'], 'burp_help');
   assert.equal(JSON.parse(seenOptions.body).method, 'tools/list');
@@ -34,7 +34,7 @@ test('BurpJsonRpcClient posts JSON-RPC requests with correlation headers', async
 test('BurpJsonRpcClient rejects malformed JSON-RPC responses', async () => {
   const client = new BurpJsonRpcClient({
     baseUrl: 'http://localhost:8081/',
-    version: '2.8.0',
+    version: '2.8.1',
     requestTimeout: 1000,
     fetchImpl: async () => ({
       ok: true,

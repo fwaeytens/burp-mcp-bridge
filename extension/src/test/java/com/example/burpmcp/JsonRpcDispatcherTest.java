@@ -59,6 +59,97 @@ public class JsonRpcDispatcherTest {
     }
 
     @Test
+    public void toolsCallAttachesStructuredContentForPlainText() throws Exception {
+        tools.put("plain_tool", new PlainTextTool());
+        dispatcher = new JsonRpcDispatcher(
+            mapper,
+            tools,
+            new FakeAsyncToolExecutor(tools),
+            () -> 1000,
+            () -> 8081,
+            () -> "test config",
+            new ToolDocumentationExporter(tools)
+        );
+
+        ObjectNode request = request(6, "tools/call");
+        request.set("params", mapper.valueToTree(Map.of("name", "plain_tool", "arguments", Map.of())));
+
+        JsonNode response = dispatcher.handle("tools/call", request, "127.0.0.1");
+
+        assertFalse(response.has("error"));
+        assertEquals("plain response", response.path("result").path("structuredContent").path("text").asText());
+    }
+
+    @Test
+    public void toolsCallWrapsPrimitiveJsonArraysInItems() throws Exception {
+        tools.put("array_tool", new PrimitiveArrayTool());
+        dispatcher = new JsonRpcDispatcher(
+            mapper,
+            tools,
+            new FakeAsyncToolExecutor(tools),
+            () -> 1000,
+            () -> 8081,
+            () -> "test config",
+            new ToolDocumentationExporter(tools)
+        );
+
+        ObjectNode request = request(7, "tools/call");
+        request.set("params", mapper.valueToTree(Map.of("name", "array_tool", "arguments", Map.of())));
+
+        JsonNode response = dispatcher.handle("tools/call", request, "127.0.0.1");
+
+        assertFalse(response.has("error"));
+        assertEquals("first", response.path("result").path("structuredContent").path("items").get(0).asText());
+        assertEquals(2, response.path("result").path("structuredContent").path("items").get(1).asInt());
+    }
+
+    @Test
+    public void toolsCallAttachesStructuredContentForToolExecutionErrors() throws Exception {
+        tools.put("error_tool", new ErrorTextTool());
+        dispatcher = new JsonRpcDispatcher(
+            mapper,
+            tools,
+            new FakeAsyncToolExecutor(tools),
+            () -> 1000,
+            () -> 8081,
+            () -> "test config",
+            new ToolDocumentationExporter(tools)
+        );
+
+        ObjectNode request = request(8, "tools/call");
+        request.set("params", mapper.valueToTree(Map.of("name", "error_tool", "arguments", Map.of())));
+
+        JsonNode response = dispatcher.handle("tools/call", request, "127.0.0.1");
+
+        assertFalse(response.has("error"));
+        assertTrue(response.path("result").path("isError").asBoolean());
+        assertEquals("failed", response.path("result").path("structuredContent").path("text").asText());
+    }
+
+    @Test
+    public void toolsCallAttachesEmptyStructuredContentForNonTextContent() throws Exception {
+        tools.put("non_text_tool", new NonTextTool());
+        dispatcher = new JsonRpcDispatcher(
+            mapper,
+            tools,
+            new FakeAsyncToolExecutor(tools),
+            () -> 1000,
+            () -> 8081,
+            () -> "test config",
+            new ToolDocumentationExporter(tools)
+        );
+
+        ObjectNode request = request(9, "tools/call");
+        request.set("params", mapper.valueToTree(Map.of("name", "non_text_tool", "arguments", Map.of())));
+
+        JsonNode response = dispatcher.handle("tools/call", request, "127.0.0.1");
+
+        assertFalse(response.has("error"));
+        assertTrue(response.path("result").path("structuredContent").isObject());
+        assertEquals(0, response.path("result").path("structuredContent").size());
+    }
+
+    @Test
     public void unknownToolAndUnknownMethodReturnJsonRpcErrors() throws Exception {
         ObjectNode toolRequest = request(3, "tools/call");
         toolRequest.set("params", mapper.valueToTree(Map.of("name", "missing_tool")));
@@ -137,6 +228,73 @@ public class JsonRpcDispatcherTest {
         @Override
         public Object getStats() {
             return "fake stats";
+        }
+    }
+
+    private static final class PlainTextTool implements McpTool {
+        @Override
+        public Map<String, Object> getToolInfo() {
+            return Map.of(
+                "name", "plain_tool",
+                "description", "Plain text tool",
+                "inputSchema", Map.of("type", "object")
+            );
+        }
+
+        @Override
+        public Object execute(JsonNode arguments) {
+            return List.of(Map.of("type", "text", "text", "plain response"));
+        }
+    }
+
+    private static final class NonTextTool implements McpTool {
+        @Override
+        public Map<String, Object> getToolInfo() {
+            return Map.of(
+                "name", "non_text_tool",
+                "description", "Non-text tool",
+                "inputSchema", Map.of("type", "object")
+            );
+        }
+
+        @Override
+        public Object execute(JsonNode arguments) {
+            return List.of(Map.of("type", "image", "data", "ignored"));
+        }
+    }
+
+    private static final class PrimitiveArrayTool implements McpTool {
+        @Override
+        public Map<String, Object> getToolInfo() {
+            return Map.of(
+                "name", "array_tool",
+                "description", "Primitive array tool",
+                "inputSchema", Map.of("type", "object")
+            );
+        }
+
+        @Override
+        public Object execute(JsonNode arguments) {
+            return List.of(Map.of("type", "text", "text", "[\"first\",2]"));
+        }
+    }
+
+    private static final class ErrorTextTool implements McpTool {
+        @Override
+        public Map<String, Object> getToolInfo() {
+            return Map.of(
+                "name", "error_tool",
+                "description", "Error text tool",
+                "inputSchema", Map.of("type", "object")
+            );
+        }
+
+        @Override
+        public Object execute(JsonNode arguments) {
+            return Map.of(
+                "content", List.of(Map.of("type", "text", "text", "failed")),
+                "isError", true
+            );
         }
     }
 }

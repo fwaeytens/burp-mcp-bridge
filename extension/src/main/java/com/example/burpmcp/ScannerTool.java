@@ -312,8 +312,10 @@ public class ScannerTool implements McpTool {
         Map<String, Object> outputProps = new HashMap<>();
         outputProps.put("scanId", SchemaHelper.stringProp("Scan identifier for tracking"));
         outputProps.put("status", SchemaHelper.stringProp("Scan status (running, completed, cancelled)"));
-        outputProps.put("progress", SchemaHelper.intProp("Scan progress percentage"));
-        outputProps.put("issues", SchemaHelper.objectProp("Array of discovered vulnerabilities"));
+        outputProps.put("issuesFound", SchemaHelper.intProp("Number of issues found so far"));
+        outputProps.put("requestCount", SchemaHelper.intProp("Number of requests processed by the scan"));
+        outputProps.put("insertionPointsResolved", SchemaHelper.intProp("Number of insertion points resolved for a specific-request scan"));
+        outputProps.put("issues", Map.of("type", "array", "description", "Discovered vulnerabilities"));
         tool.put("outputSchema", SchemaHelper.outputSchema(outputProps));
 
         return tool;

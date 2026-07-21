@@ -29,8 +29,9 @@ final class JsonRpcDispatcher {
         "6. DISCOVERY: Use burp_help to list tools or search by capability before starting.\n\n" +
         "7. SCANNING: Always use burp_scanner GET_STATUS to check scan progress after starting a scan. " +
         "Use insertionPointParams to scan specific parameters by name (like Burp UI's 'Scan selected insertion point').\n\n" +
-        "8. VISIBILITY: burp_custom_http requests appear in the Target tab (Site Map), NOT in Proxy History. " +
-        "Proxy History only contains traffic that flowed through the proxy (browser requests).\n\n" +
+        "8. VISIBILITY: burp_custom_http SEND_REQUEST defaults route_via_proxy=true, so it appears in Proxy History. " +
+        "SEND_PARALLEL and SEND_PIPELINED default route_via_proxy=false, so they stay out of Proxy History unless you opt in. " +
+        "Direct sends still appear in the Target tab (Site Map) when add_to_sitemap=true.\n\n" +
         "9. BROWSER = PLAYWRIGHT THROUGH BURP: The Playwright browser is proxied through Burp by default, so pages the agent " +
         "navigates show up in burp_proxy_history and the Site Map, and can be transformed by Burp rules. " +
         "For AUTOMATIC modification, set burp_global_interceptor rules FIRST (enable, then set_auth/add_header/add_request_rule), THEN navigate - " +
@@ -41,7 +42,7 @@ final class JsonRpcDispatcher {
         "Tool quick reference:\n" +
         "- Send/modify HTTP requests -> burp_custom_http\n" +
         "- Scan for vulnerabilities -> burp_scanner\n" +
-        "- View captured traffic -> burp_proxy_history (proxy only, not burp_custom_http requests)\n" +
+        "- View captured traffic -> burp_proxy_history (traffic that flowed through Burp's proxy listener, including default SEND_REQUEST calls)\n" +
         "- Out-of-band testing -> burp_collaborator: " +
         "Use GENERATE_PAYLOAD to get a unique *.burpcollaborator.net domain, " +
         "inject it into requests (SSRF, blind XXE, blind SQLi, email header injection), " +
@@ -88,7 +89,9 @@ final class JsonRpcDispatcher {
                 return objectMapper.valueToTree(Map.of("jsonrpc", "2.0"));
 
             case "tools/list":
-                result.put("tools", tools.values().stream().map(McpTool::getToolInfo).toList());
+                result.put("tools", tools.entrySet().stream()
+                    .map(entry -> AgentToolMetadata.forToolsList(entry.getKey(), entry.getValue().getToolInfo()))
+                    .toList());
                 break;
 
             case "tools/call":
@@ -211,8 +214,10 @@ final class JsonRpcDispatcher {
     }
 
     /**
-     * When a tool returns JSON text but no structuredContent, attach the parsed
-     * object so strict MCP clients accept the response for tools with outputSchema.
+     * When a tool returns no structuredContent, attach the parsed JSON object, a
+     * text wrapper, or an empty object fallback so strict MCP clients accept the
+     * response for tools with outputSchema. This also applies to tool-execution
+     * errors: CallToolResult allows structuredContent alongside isError.
      */
     @SuppressWarnings("unchecked")
     private void attachStructuredContentIfMissing(Map<String, Object> result) {
@@ -221,22 +226,27 @@ final class JsonRpcDispatcher {
         }
         Object content = result.get("content");
         if (!(content instanceof List<?> list) || list.isEmpty()) {
+            result.put("structuredContent", Map.of());
             return;
         }
         Object first = list.get(0);
         if (!(first instanceof Map<?, ?> blockMap)) {
+            result.put("structuredContent", Map.of());
             return;
         }
         Map<String, Object> block = (Map<String, Object>) blockMap;
         if (!"text".equals(block.get("type"))) {
+            result.put("structuredContent", Map.of());
             return;
         }
         Object textValue = block.get("text");
         if (!(textValue instanceof String text)) {
+            result.put("structuredContent", Map.of());
             return;
         }
         String trimmed = text.trim();
         if (trimmed.isEmpty() || (trimmed.charAt(0) != '{' && trimmed.charAt(0) != '[')) {
+            result.put("structuredContent", Map.of("text", text));
             return;
         }
         try {
@@ -247,7 +257,7 @@ final class JsonRpcDispatcher {
                 result.put("structuredContent", Map.of("items", parsed));
             }
         } catch (Exception ignored) {
-            // Text content is not JSON; leave it unchanged.
+            result.put("structuredContent", Map.of("text", text));
         }
     }
 }

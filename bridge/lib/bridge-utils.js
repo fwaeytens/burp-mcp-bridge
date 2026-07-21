@@ -28,6 +28,9 @@ export function fixContentLength(rawRequest) {
 /**
  * Truncate MCP tool results that exceed the size limit.
  * Claude Code caps MCP results at 100,000 chars, so keep a little headroom.
+ *
+ * Keep a small structuredContent object when truncating. Tools that advertise
+ * outputSchema must still return structuredContent for strict MCP clients.
  */
 export const MAX_RESULT_CHARS = 95_000;
 
@@ -37,38 +40,88 @@ export function truncateResult(result) {
   const serialized = JSON.stringify(result);
   if (serialized.length <= MAX_RESULT_CHARS) return result;
 
-  const trimmed = { ...result };
-  delete trimmed.structuredContent;
+  const notice = buildTruncationNotice(serialized.length);
+  const noticeBlock = { type: 'text', text: `\n\n${notice}` };
+  const trimmed = {
+    ...result,
+    structuredContent: buildTruncatedStructuredContent(serialized.length)
+  };
 
-  const afterDrop = JSON.stringify(trimmed);
-  if (afterDrop.length <= MAX_RESULT_CHARS) return trimmed;
+  if (JSON.stringify(trimmed).length <= MAX_RESULT_CHARS) return trimmed;
 
-  if (!Array.isArray(trimmed.content)) return trimmed;
+  if (!Array.isArray(trimmed.content)) {
+    return buildMinimalTruncatedResult(trimmed, noticeBlock);
+  }
 
-  let remaining = MAX_RESULT_CHARS;
   const truncatedContent = [];
-
   for (const block of trimmed.content) {
     if (block.type === 'text' && typeof block.text === 'string') {
-      if (remaining <= 0) continue;
-      if (block.text.length <= remaining) {
+      if (fitsWithinLimit(trimmed, [...truncatedContent, block, noticeBlock])) {
         truncatedContent.push(block);
-        remaining -= block.text.length;
-      } else {
-        truncatedContent.push({ ...block, text: block.text.slice(0, remaining) });
-        remaining = 0;
+        continue;
       }
-    } else {
+
+      const text = largestFittingText(trimmed, truncatedContent, block, noticeBlock);
+      if (text.length > 0) {
+        truncatedContent.push({ ...block, text });
+      }
+      break;
+    }
+
+    if (fitsWithinLimit(trimmed, [...truncatedContent, block, noticeBlock])) {
       truncatedContent.push(block);
     }
   }
 
-  truncatedContent.push({
-    type: 'text',
-    text: `\n\n⚠️ Result truncated (${serialized.length.toLocaleString()} chars exceeded ${MAX_RESULT_CHARS.toLocaleString()} char limit). Use 'limit' parameter or narrower filters to reduce output size.`
-  });
+  const truncated = { ...trimmed, content: [...truncatedContent, noticeBlock] };
+  if (JSON.stringify(truncated).length <= MAX_RESULT_CHARS) return truncated;
 
-  return { ...trimmed, content: truncatedContent };
+  return buildMinimalTruncatedResult(trimmed, noticeBlock);
+}
+
+function buildTruncationNotice(originalChars) {
+  return `⚠️ Result truncated (${originalChars.toLocaleString()} chars exceeded ${MAX_RESULT_CHARS.toLocaleString()} char limit). Use 'limit' parameter or narrower filters to reduce output size.`;
+}
+
+function buildTruncatedStructuredContent(originalChars) {
+  return {
+    text: buildTruncationNotice(originalChars),
+    truncated: true,
+    originalChars,
+    limitChars: MAX_RESULT_CHARS
+  };
+}
+
+function buildMinimalTruncatedResult(result, noticeBlock) {
+  const minimal = {
+    content: [noticeBlock],
+    structuredContent: result.structuredContent
+  };
+  if (result.isError !== undefined) {
+    minimal.isError = result.isError;
+  }
+  return minimal;
+}
+
+function fitsWithinLimit(result, content) {
+  return JSON.stringify({ ...result, content }).length <= MAX_RESULT_CHARS;
+}
+
+function largestFittingText(result, content, block, noticeBlock) {
+  let low = 0;
+  let high = block.text.length;
+
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    const candidate = { ...block, text: block.text.slice(0, mid) };
+    if (fitsWithinLimit(result, [...content, candidate, noticeBlock])) {
+      low = mid;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  return block.text.slice(0, low);
 }
 
 /** Parse integer envs safely with default; trims and handles empty strings. */

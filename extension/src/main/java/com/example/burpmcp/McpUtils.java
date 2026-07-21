@@ -24,8 +24,9 @@ public class McpUtils {
      * The result also includes the raw {@code data} as {@code structuredContent} so
      * the response is spec-compliant for tools that declare an {@code outputSchema}.
      * MCP clients that enforce the spec (e.g. opencode) reject results lacking
-     * {@code structuredContent} when an output schema is present. The bridge layer
-     * may strip {@code structuredContent} when truncating oversized payloads.
+     * {@code structuredContent} when an output schema is present. If the bridge
+     * truncates an oversized payload, it replaces this with a small structured
+     * truncation summary rather than removing the field.
      */
     public static Object createJsonResponse(Map<String, Object> data) {
         Map<String, Object> textBlock = new HashMap<>();

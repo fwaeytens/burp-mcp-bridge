@@ -120,7 +120,7 @@ public class ToolDocumentationStore {
             McpTool tool = entry.getValue();
             Map<String, Object> toolInfo;
             try {
-                toolInfo = tool.getToolInfo();
+                toolInfo = AgentToolMetadata.enrichToolInfo(toolName, tool.getToolInfo());
             } catch (Exception e) {
                 // Skip tools that fail to provide metadata
                 continue;
@@ -156,6 +156,7 @@ public class ToolDocumentationStore {
                 Map<String, Object> returns = (Map<String, Object>) outputSchema;
                 doc.setReturns(returns);
             }
+            doc.setActionRequirements(AgentToolMetadata.actionRequirementsFor(toolName, toolInfo));
 
             // Update categories map - add tool to its category
             String category = doc.getCategory();
@@ -359,14 +360,14 @@ public class ToolDocumentationStore {
                     "title", "Send HTTPS GET request",
                     "input", Map.of("action", "SEND_REQUEST",
                         "request", "GET / HTTP/1.1\\r\\nHost: example.com:443\\r\\n\\r\\n"),
-                    "output", Map.of("status_code", 200, "body", "..."),
+                    "output", Map.of("success", true, "response", Map.of("status_code", 200, "body", "...")),
                     "explanation", "Use port 443 in Host header for HTTPS"
                 ),
                 Map.of(
                     "title", "Send HTTPS via URL scheme",
                     "input", Map.of("action", "SEND_REQUEST",
                         "request", "GET https://example.com/api HTTP/1.1\\r\\nHost: example.com\\r\\n\\r\\n"),
-                    "output", Map.of("status_code", 200),
+                    "output", Map.of("success", true, "response", Map.of("status_code", 200)),
                     "explanation", "Alternative: use https:// in request line"
                 ),
                 Map.of(
@@ -375,7 +376,9 @@ public class ToolDocumentationStore {
                         "requests", List.of("GET /a HTTP/1.1\\r\\nHost: example.com:443\\r\\n\\r\\n",
                                             "GET /b HTTP/1.1\\r\\nHost: example.com:443\\r\\n\\r\\n"),
                         "max_concurrency", 10),
-                    "output", Map.of("responses", "array in input order"),
+                    "output", Map.of("success", true, "responses", List.of(
+                        Map.of("index", 0, "status_code", 200),
+                        Map.of("index", 1, "status_code", 200))),
                     "explanation", "Default max_concurrency=10 prevents tail-of-batch drops on large sweeps. Use this for SSRF/host-header/sitemap sweeps."
                 ),
                 Map.of(
@@ -383,7 +386,7 @@ public class ToolDocumentationStore {
                     "input", Map.of("action", "SEND_PARALLEL",
                         "requests", List.of("POST /transfer HTTP/1.1\\r\\nHost: bank.com:443\\r\\n\\r\\namount=100"),
                         "max_concurrency", 50),
-                    "output", Map.of("responses", "array of responses"),
+                    "output", Map.of("success", true, "responses", List.of(Map.of("index", 0, "status_code", 200))),
                     "explanation", "Set max_concurrency=50 to opt back into fire-all-at-once behavior. Required for race-condition testing where simultaneity matters."
                 ),
                 Map.of(
@@ -392,7 +395,7 @@ public class ToolDocumentationStore {
                         "request", "GET /admin HTTP/1.1\\r\\nHost: 192.168.0.1\\r\\n\\r\\n",
                         "target_host", "LAB-ID.web-security-academy.net",
                         "target_port", 443),
-                    "output", Map.of("status_code", 200, "body", "admin panel HTML"),
+                    "output", Map.of("success", true, "response", Map.of("status_code", 200, "body", "admin panel HTML")),
                     "explanation", "TCP socket goes to target_host:target_port; Host header (192.168.0.1) is sent verbatim. Use this for host-header SSRF / virtual-host confusion / cache-poisoning labs."
                 ),
                 Map.of(
@@ -402,7 +405,7 @@ public class ToolDocumentationStore {
                         "target_host", "LAB-ID.web-security-academy.net",
                         "target_port", 443,
                         "raw_request", true),
-                    "output", Map.of("status_code", 200, "body", "admin panel HTML"),
+                    "output", Map.of("success", true, "response", Map.of("status_code", 200, "body", "admin panel HTML")),
                     "explanation", "raw_request=true sends bytes verbatim — the absolute-URI request line is preserved on the wire (no rewrite to origin-form), so front-end and back-end can disagree on routing."
                 ),
                 Map.of(
@@ -413,14 +416,17 @@ public class ToolDocumentationStore {
                             "GET / HTTP/1.1\\r\\nHost: lab.example\\r\\nConnection: close\\r\\n\\r\\n"),
                         "target_host", "lab.example",
                         "target_port", 443),
-                    "output", Map.of("responses", "[{status_code:200,...},{status_code:302,...}]", "trailing_bytes_length", 0),
+                    "output", Map.of("success", true, "responses", List.of(
+                        Map.of("index", 0, "status_code", 200),
+                        Map.of("index", 1, "status_code", 302)), "trailing_bytes_length", 0),
                     "explanation", "Two requests on ONE TCP/TLS connection — the back-end interprets the smuggled GET in request 1's body. Required for CL.0/TE.CL/CL.TE/TE.0/0.CL and connection-state attacks; SEND_REQUEST/SEND_PARALLEL open separate sockets and cannot trigger the desync."
                 ),
                 Map.of(
                     "title", "Visible in HTTP history (default for SEND_REQUEST)",
                     "input", Map.of("action", "SEND_REQUEST",
                         "request", "GET /admin HTTP/1.1\\r\\nHost: example.com:443\\r\\nConnection: close\\r\\n\\r\\n"),
-                    "output", Map.of("routed_via_proxy", true, "proxy", "127.0.0.1:8080", "status_code", 200),
+                    "output", Map.of("success", true, "routed_via_proxy", true, "proxy", "127.0.0.1:8080",
+                        "response", Map.of("status_code", 200)),
                     "explanation", "route_via_proxy defaults to TRUE for SEND_REQUEST: the request CONNECTs through Burp's local proxy listener, so it appears in Proxy → HTTP history alongside browser traffic."
                 ),
                 Map.of(
@@ -431,7 +437,7 @@ public class ToolDocumentationStore {
                         "target_port", 443,
                         "raw_request", true,
                         "route_via_proxy", false),
-                    "output", Map.of("status_code", 200),
+                    "output", Map.of("success", true, "response", Map.of("status_code", 200)),
                     "explanation", "Setting route_via_proxy=false skips the proxy so Burp's match/replace and proxy parsing don't rewrite the absolute-URI request line. Required for raw_request smuggling tests."
                 ),
                 Map.of(
@@ -440,15 +446,17 @@ public class ToolDocumentationStore {
                         "requests", List.of("GET /a HTTP/1.1\\r\\nHost: example.com:443\\r\\n\\r\\n",
                                              "GET /b HTTP/1.1\\r\\nHost: example.com:443\\r\\n\\r\\n"),
                         "route_via_proxy", true),
-                    "output", Map.of("routed_via_proxy", true, "responses", "[{index:0,...},{index:1,...}]"),
+                    "output", Map.of("success", true, "routed_via_proxy", true, "responses", List.of(
+                        Map.of("index", 0, "status_code", 200),
+                        Map.of("index", 1, "status_code", 200))),
                     "explanation", "SEND_PARALLEL defaults route_via_proxy=false. Opt in when you want each request logged in HTTP history; expect slightly slower throughput (extra CONNECT+TLS per worker) and no proxy-bypass of match/replace rules."
                 )
             ),
             List.of(
-                "Always use port 443 or https:// for HTTPS - Host header alone uses HTTP",
+                "Always include an explicit port or URL scheme: a portless Host header defaults to HTTPS:443",
                 "Content-Length is auto-calculated - don't worry about getting it right",
                 "Use SEND_PARALLEL for race condition testing, not burp_intruder",
-                "Check response status_code to verify request was successful",
+                "Check response.status_code to verify request was successful",
                 "Use target_host/target_port when Host header must lie (host-header SSRF, routing-based attacks)",
                 "Use raw_request=true to preserve absolute-URI request lines verbatim (parser-discrepancy / request-smuggling)",
                 "SEND_PARALLEL defaults to max_concurrency=10 (prevents silent tail-of-batch drops); pass 50 for race conditions",
@@ -476,12 +484,12 @@ public class ToolDocumentationStore {
                 Map.of(
                     "title", "Check scan progress",
                     "input", Map.of("action", "GET_STATUS", "scanId", "scan_123"),
-                    "output", Map.of("progress", 75, "issues_found", 3),
+                    "output", Map.of("scanId", "scan_123", "status", "Running", "issuesFound", 3),
                     "explanation", "Monitor scan progress and issue count"
                 ),
                 Map.of(
                     "title", "Get discovered issues",
-                    "input", Map.of("action", "GET_ISSUES"),
+                    "input", Map.of("action", "GET_ISSUES", "scanId", "scan_123"),
                     "output", Map.of("issues", "array of vulnerabilities"),
                     "explanation", "Retrieve all vulnerabilities found by scanner"
                 ),
@@ -491,7 +499,7 @@ public class ToolDocumentationStore {
                         "request", "GET /search?q=test HTTP/1.1\\r\\nHost: target.com:443\\r\\n\\r\\n",
                         "useHttps", true,
                         "insertionPointParams", List.of("q")),
-                    "output", Map.of("scanId", "scan_456", "insertionPoints", 1),
+                    "output", Map.of("scanId", "scan_456", "insertionPointsResolved", 1),
                     "explanation", "Scans only the 'q' parameter, auto-resolving byte offsets"
                 ),
                 Map.of(
@@ -500,7 +508,7 @@ public class ToolDocumentationStore {
                         "request", "GET /api?token=abc123 HTTP/1.1\\r\\nHost: target.com:443\\r\\n\\r\\n",
                         "useHttps", true,
                         "insertionPointValues", List.of("abc123")),
-                    "output", Map.of("scanId", "scan_789", "insertionPoints", 1),
+                    "output", Map.of("scanId", "scan_789", "insertionPointsResolved", 1),
                     "explanation", "Finds 'abc123' in the request and scans only that position"
                 )
             ),
@@ -531,7 +539,7 @@ public class ToolDocumentationStore {
                 Map.of(
                     "title", "Get full request details",
                     "input", Map.of("action", "detail", "entryIds", List.of(1, 5, 10)),
-                    "output", Map.of("requests", "full request/response data"),
+                    "output", Map.of("entries", "full request/response data"),
                     "explanation", "Retrieve complete request and response for specific entries"
                 )
             ),
@@ -548,7 +556,7 @@ public class ToolDocumentationStore {
                 Map.of(
                     "title", "⚠️ This tool only creates UI tabs",
                     "input", Map.of("action", "SEND_TO_REPEATER", "url", "https://example.com"),
-                    "output", Map.of("message", "Tab created - manual send required"),
+                    "output", Map.of("success", true, "tabName", "MCP-1", "url", "https://example.com"),
                     "explanation", "Creates Repeater tab but does NOT send request. Use burp_custom_http to actually send requests."
                 )
             ),
@@ -565,7 +573,7 @@ public class ToolDocumentationStore {
                     "title", "⚠️ This tool only configures UI",
                     "input", Map.of("action", "SEND_WITH_POSITIONS", "url", "https://example.com",
                         "body", "user=§admin§&pass=§test§"),
-                    "output", Map.of("message", "Positions marked - manual attack required"),
+                    "output", Map.of("success", true, "positionsFound", 2, "url", "https://example.com"),
                     "explanation", "Configures Intruder but does NOT run attack. Use burp_custom_http with loop for automated fuzzing."
                 )
             ),
@@ -581,7 +589,7 @@ public class ToolDocumentationStore {
                 Map.of(
                     "title", "Generate OOB payload",
                     "input", Map.of("action", "GENERATE_PAYLOAD", "payloadType", "HOSTNAME"),
-                    "output", Map.of("payload", "abc123.burpcollaborator.net"),
+                    "output", Map.of("payloadType", "HOSTNAME", "payloads", List.of(Map.of("payload", "abc123.burpcollaborator.net"))),
                     "explanation", "Generate unique payload for out-of-band testing"
                 ),
                 Map.of(
@@ -603,19 +611,19 @@ public class ToolDocumentationStore {
                 Map.of(
                     "title", "Get response statistics",
                     "input", Map.of("action", "RESPONSE_STATS", "target", "https://example.com"),
-                    "output", Map.of("statusCodes", Map.of("200", 45, "302", 12), "topMimeTypes", Map.of("HTML", 30, "JSON", 15)),
+                    "output", Map.of("success", true, "statistics", Map.of("statusCodes", Map.of("200", 45, "302", 12), "topMimeTypes", Map.of("HTML", 30, "JSON", 15))),
                     "explanation", "Returns status code distribution, MIME types, and response size stats for all captured traffic to the target"
                 ),
                 Map.of(
                     "title", "Map attack surface",
                     "input", Map.of("action", "MAP_ATTACK_SURFACE", "target", "https://example.com"),
-                    "output", Map.of("parameterNames", List.of("id", "search"), "contentTypes", List.of("application/json")),
+                    "output", Map.of("success", true, "attackSurface", Map.of("parameterNames", List.of("id", "search"), "contentTypes", List.of("application/json"))),
                     "explanation", "Identifies all input points: parameters, content types, HTTP methods, form actions, file uploads, and API endpoints"
                 ),
                 Map.of(
                     "title", "Detect technology stack",
                     "input", Map.of("action", "DETECT_TECHNOLOGY", "target", "https://example.com"),
-                    "output", Map.of("frameworks", List.of("WordPress", "jQuery"), "servers", List.of("nginx")),
+                    "output", Map.of("success", true, "technology", Map.of("frameworks", List.of("WordPress", "jQuery"), "servers", List.of("nginx"))),
                     "explanation", "Fingerprints server software, frameworks, and languages from response headers and content patterns"
                 ),
                 Map.of(
@@ -638,34 +646,36 @@ public class ToolDocumentationStore {
             List.of(
                 Map.of(
                     "title", "Find reflection points for XSS",
-                    "input", Map.of("action", "reflection", "hostname", "example.com", "parameter", "search", "value", "test123"),
-                    "output", Map.of("reflections", "list of URLs where input is reflected in response"),
-                    "explanation", "Identifies where user input appears in responses - essential for XSS testing"
+                    "input", Map.of("action", "reflection", "limit", 50),
+                    "output", Map.of("operation", "reflection", "reflectionPointsFound", 1,
+                        "reflectionPoints", List.of(Map.of("url", "https://example.com/search?q=test", "reflections", Map.of("q", List.of("URL parameter"))))),
+                    "explanation", "Analyzes recent proxy history and identifies request values reflected in responses - essential for XSS testing"
                 ),
                 Map.of(
                     "title", "Search for security keywords",
-                    "input", Map.of("action", "keywords", "hostname", "example.com"),
-                    "output", Map.of("keywords", Map.of("password", 3, "token", 7, "admin", 2)),
-                    "explanation", "Scans responses for security-relevant keywords like password, token, admin, error, etc."
+                    "input", Map.of("action", "keywords", "keywords", List.of("password", "token", "admin"), "limit", 50),
+                    "output", Map.of("operation", "keywords", "variantKeywords", List.of("token"), "invariantKeywords", List.of("admin")),
+                    "explanation", "Scans recent proxy responses for selected security-relevant keywords."
                 ),
                 Map.of(
                     "title", "Rank anomalous responses",
                     "input", Map.of("action", "rank_anomalies", "limit", 100, "topN", 10),
-                    "output", Map.of("ranked", "top 10 most unusual responses with anomaly scores 0-100"),
+                    "output", Map.of("operation", "rank_anomalies", "topAnomalies", List.of(Map.of("rank", 92, "url", "https://example.com/admin"))),
                     "explanation", "Uses Burp's RankingUtils to find responses that differ from the norm - great after fuzzing to find interesting results"
                 ),
                 Map.of(
                     "title", "Regex pattern search",
-                    "input", Map.of("action", "pattern", "hostname", "example.com", "pattern", "api[_-]?key[\"']?\\s*[:=]"),
-                    "output", Map.of("matches", "list of pattern matches with URLs"),
-                    "explanation", "Search response bodies with regex - useful for finding API keys, secrets, or specific patterns"
+                    "input", Map.of("action", "pattern", "pattern", "api[_-]?key[\"']?\\s*[:=]", "limit", 50),
+                    "output", Map.of("operation", "pattern", "matchesFound", 1,
+                        "matches", List.of(Map.of("url", "https://example.com/app.js", "matchCount", 1))),
+                    "explanation", "Search recent proxy response bodies with regex - useful for finding API keys, secrets, or specific patterns"
                 )
             ),
             List.of(
                 "Use 'rank_anomalies' after fuzzing to quickly find interesting responses",
                 "Use 'reflection' before crafting XSS payloads to find where input is reflected",
                 "Use 'all' action for a complete analysis combining keywords, variations, reflection, and patterns",
-                "Filter by hostname to focus analysis on a specific target"
+                "Use proxyIds or urls where supported, or narrow proxy history first, to focus analysis on a specific target"
             ));
 
         // burp_scope with examples
@@ -675,8 +685,9 @@ public class ToolDocumentationStore {
                 Map.of(
                     "title", "Add target to scope",
                     "input", Map.of("action", "add", "url", "https://example.com"),
-                    "output", Map.of("success", true, "message", "URL added to scope"),
-                    "explanation", "Adds a URL to Burp's target scope. All paths under this URL are included."
+                    "output", Map.of("action", "add", "success", true, "includeSubdomains", true,
+                        "addedUrls", List.of("host-regex:^(?:.*\\.)?example\\.com$")),
+                    "explanation", "Adds the host and its subdomains to Burp's target scope by default. Set includeSubdomains=false for an exact URL only."
                 ),
                 Map.of(
                     "title", "Check if URL is in scope",
@@ -687,8 +698,8 @@ public class ToolDocumentationStore {
                 Map.of(
                     "title", "View current scope",
                     "input", Map.of("action", "view"),
-                    "output", Map.of("includeRules", "list of included URLs", "excludeRules", "list of excluded URLs"),
-                    "explanation", "Shows all include and exclude rules with scope coverage statistics"
+                    "output", Map.of("knownInScopeCount", 1, "inScopeUrls", List.of("https://example.com")),
+                    "explanation", "Shows the scope URLs observed by this tool and recent scope-change statistics"
                 )
             ),
             List.of(
@@ -770,15 +781,15 @@ public class ToolDocumentationStore {
                 ),
                 Map.of(
                     "title", "Extract session tokens",
-                    "input", Map.of("action", "EXTRACT_TOKENS", "hostname", "example.com"),
+                    "input", Map.of("action", "EXTRACT_TOKENS", "url", "example.com"),
                     "output", Map.of("tokens", List.of("JSESSIONID=abc", "csrf_token=xyz")),
                     "explanation", "Finds session tokens from proxy history and cookie jar for a target"
                 ),
                 Map.of(
                     "title", "Enable auto-session refresh",
-                    "input", Map.of("action", "ENABLE_AUTO_SESSION", "hostname", "example.com", "loginUrl", "https://example.com/login"),
-                    "output", Map.of("enabled", true),
-                    "explanation", "Automatically re-authenticates when a 401/403 response is detected"
+                    "input", Map.of("action", "ENABLE_AUTO_SESSION", "autoRefresh", true),
+                    "output", Map.of("operation", "enableAutoSession", "success", true, "autoRefresh", true),
+                    "explanation", "Registers Burp's session handling action and enables automatic refresh behavior on 401/403 responses"
                 )
             ),
             List.of(
@@ -833,20 +844,20 @@ public class ToolDocumentationStore {
                     "title", "Annotate a proxy entry",
                     "input", Map.of("action", "ANNOTATE_PROXY", "url", "https://example.com/api/users?id=1",
                         "notes", "Possible IDOR - test with different user IDs", "highlightColor", "RED"),
-                    "output", Map.of("success", true),
+                    "output", Map.of("operation", "ANNOTATE_PROXY", "success", true, "location", "Proxy History"),
                     "explanation", "Adds a note and red highlight to the matching proxy history entry"
                 ),
                 Map.of(
                     "title", "Bulk annotate by pattern",
                     "input", Map.of("action", "ANNOTATE_BY_PATTERN", "pattern", "/api/admin",
-                        "notes", "Admin endpoint", "color", "ORANGE"),
-                    "output", Map.of("annotated", 5),
+                        "notes", "Admin endpoint", "highlightColor", "ORANGE"),
+                    "output", Map.of("operation", "ANNOTATE_BY_PATTERN", "totalAnnotated", 5),
                     "explanation", "Highlights all entries matching a URL pattern"
                 ),
                 Map.of(
                     "title", "Search by annotation",
                     "input", Map.of("action", "SEARCH_BY_ANNOTATION", "searchQuery", "IDOR"),
-                    "output", Map.of("entries", "list of annotated entries matching query"),
+                    "output", Map.of("operation", "SEARCH_BY_ANNOTATION", "matchCount", 1, "matches", "list of annotated entries matching query"),
                     "explanation", "Find previously annotated entries by note content"
                 )
             ),
@@ -863,7 +874,7 @@ public class ToolDocumentationStore {
                 Map.of(
                     "title", "Apply preset filter",
                     "input", Map.of("action", "APPLY_FILTER", "preset", "error_responses"),
-                    "output", Map.of("success", true, "filtered", "proxy history filtered to 4xx/5xx responses"),
+                    "output", Map.of("success", true, "preset", "error_responses", "location", "PROXY_HTTP_HISTORY"),
                     "explanation", "Applies a built-in filter to show only error responses in proxy history"
                 ),
                 Map.of(
@@ -875,7 +886,7 @@ public class ToolDocumentationStore {
                 Map.of(
                     "title", "Create custom Java filter",
                     "input", Map.of("action", "CREATE_CUSTOM",
-                        "script", "return requestResponse.request().url().contains(\"/api/\") && requestResponse.hasResponse() && requestResponse.response().statusCode() == 200;",
+                        "customScript", "return requestResponse.request().url().contains(\"/api/\") && requestResponse.hasResponse() && requestResponse.response().statusCode() == 200;",
                         "location", "PROXY_HTTP_HISTORY"),
                     "output", Map.of("success", true),
                     "explanation", "Write a Java Bambda expression to create complex custom filters"
@@ -893,26 +904,26 @@ public class ToolDocumentationStore {
             List.of(
                 Map.of(
                     "title", "Compare two proxy entries",
-                    "input", Map.of("action", "COMPARE_PROXY_ENTRIES", "entryId1", 1, "entryId2", 5),
-                    "output", Map.of("differences", "list of diffs between the two responses"),
-                    "explanation", "Compares two proxy history entries to find differences - useful for access control testing"
+                    "input", Map.of("action", "COMPARE_PROXY_ENTRIES", "url1", "/account?id=1", "url2", "/account?id=2"),
+                    "output", Map.of("sentToComparer", true, "url1", "https://example.com/account?id=1", "url2", "https://example.com/account?id=2"),
+                    "explanation", "Finds proxy history entries by URL substring and sends both requests to Comparer - useful for access control testing"
                 ),
                 Map.of(
                     "title", "Compare two responses",
-                    "input", Map.of("action", "COMPARE_RESPONSES", "response1", "HTTP/1.1 200 OK...", "response2", "HTTP/1.1 200 OK..."),
-                    "output", Map.of("differences", "word-level diff output"),
-                    "explanation", "Compare arbitrary response strings to find subtle differences"
+                    "input", Map.of("action", "COMPARE_RESPONSES", "url1", "https://example.com/account?id=1", "url2", "https://example.com/account?id=2"),
+                    "output", Map.of("statusMatch", true, "bodiesIdentical", false, "bodyLength1", 1200, "bodyLength2", 1234),
+                    "explanation", "Fetches two URLs and compares their response bodies to find subtle differences"
                 ),
                 Map.of(
                     "title", "Compare text strings",
                     "input", Map.of("action", "COMPARE_TEXT", "text1", "admin=true", "text2", "admin=false"),
-                    "output", Map.of("differences", "character-level diff"),
+                    "output", Map.of("identical", false, "length1", 10, "length2", 11),
                     "explanation", "General-purpose text comparison"
                 )
             ),
             List.of(
                 "Compare responses as admin vs regular user to find authorization issues",
-                "Use COMPARE_PROXY_ENTRIES with entry IDs from burp_proxy_history",
+                "Use COMPARE_PROXY_ENTRIES with distinctive URL substrings from burp_proxy_history",
                 "Set ignoreWhitespace: true for cleaner diffs"
             ));
 
@@ -958,9 +969,10 @@ public class ToolDocumentationStore {
                 Map.of(
                     "title", "Send request to organizer",
                     "input", Map.of("action", "SEND_TO_ORGANIZER",
-                        "request", "GET /admin HTTP/1.1\r\nHost: example.com:443\r\n\r\n"),
-                    "output", Map.of("success", true, "itemId", 1),
-                    "explanation", "Bookmark an interesting request for later review"
+                        "url", "https://example.com/admin",
+                        "method", "GET"),
+                    "output", Map.of("success", true, "operation", "sendToOrganizer", "url", "https://example.com/admin", "method", "GET"),
+                    "explanation", "Creates a request from the URL and bookmarks it for later review. Set fromProxy=true to send a matching proxy-history entry instead."
                 ),
                 Map.of(
                     "title", "List organized items",
@@ -986,19 +998,19 @@ public class ToolDocumentationStore {
             List.of(
                 Map.of(
                     "title", "Get extension logs",
-                    "input", Map.of("action", "GET_LOGS", "type", "output", "limit", 50),
-                    "output", Map.of("logs", "array of recent log entries"),
+                    "input", Map.of("action", "GET_LOGS", "category", "OUTPUT", "limit", 50),
+                    "output", Map.of("outputLogs", "array of recent log entries", "outputCount", 1),
                     "explanation", "Retrieve output or error logs from the extension"
                 ),
                 Map.of(
                     "title", "Write a log entry",
-                    "input", Map.of("action", "WRITE_LOG", "message", "Starting scan of admin panel", "level", "info"),
+                    "input", Map.of("action", "WRITE_LOG", "message", "Starting scan of admin panel", "level", "OUTPUT"),
                     "output", Map.of("success", true),
                     "explanation", "Add a custom log entry for tracking test progress"
                 )
             ),
             List.of(
-                "Check error logs (type: 'error') when a tool call fails unexpectedly",
+                "Check error logs (category: 'ERROR') when a tool call fails unexpectedly",
                 "Use WRITE_LOG to create an audit trail of testing activities"
             ));
 
@@ -1043,8 +1055,9 @@ public class ToolDocumentationStore {
                 ),
                 Map.of(
                     "title", "Add auto-modify rule",
-                    "input", Map.of("action", "add_auto_modify", "match", "user_role", "replace", "admin"),
-                    "output", Map.of("ruleId", "rule_1"),
+                    "input", Map.of("action", "add_auto_modify", "rule_name", "promote_role",
+                        "search_pattern", "user_role", "replace_with", "admin"),
+                    "output", Map.of("success", true, "ruleName", "promote_role"),
                     "explanation", "Automatically replace text in WebSocket messages - useful for privilege escalation testing"
                 ),
                 Map.of(

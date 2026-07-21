@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { prepareToolArguments } from '../lib/mcp-tool-handlers.js';
+import { createToolErrorResult, prepareToolArguments } from '../lib/mcp-tool-handlers.js';
 
 test('prepareToolArguments repairs normal custom HTTP requests', () => {
   const args = prepareToolArguments('burp_custom_http', {
@@ -23,4 +23,12 @@ test('prepareToolArguments preserves byte-exact and pipelined custom HTTP reques
     prepareToolArguments('burp_custom_http', { action: 'SEND_PIPELINED', requests: [rawRequest] }).requests,
     [rawRequest]
   );
+});
+
+test('createToolErrorResult keeps structuredContent for strict output-schema clients', () => {
+  const result = createToolErrorResult('❌ Error: request failed');
+
+  assert.equal(result.isError, true);
+  assert.deepEqual(result.structuredContent, { text: '❌ Error: request failed' });
+  assert.equal(result.content[0].text, '❌ Error: request failed');
 });

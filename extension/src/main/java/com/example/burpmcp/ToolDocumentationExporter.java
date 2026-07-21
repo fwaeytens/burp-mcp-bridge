@@ -6,9 +6,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Builds the checked-in docs snapshot from the same live tool metadata returned
- * by tools/list. The JSON file is generated through the docs/export RPC method;
- * it is not a second runtime registry.
+ * Builds the checked-in docs snapshot from the same agent-facing metadata
+ * returned by tools/list. The JSON file is generated through the docs/export
+ * RPC method; it is not a second runtime registry.
  */
 final class ToolDocumentationExporter {
     static final String MCP_PROTOCOL_VERSION = "2025-06-18";
@@ -64,7 +64,7 @@ final class ToolDocumentationExporter {
     }
 
     private Map<String, Object> exportTool(String toolName, McpTool tool) {
-        Map<String, Object> toolInfo = tool.getToolInfo();
+        Map<String, Object> toolInfo = AgentToolMetadata.forToolsList(toolName, tool.getToolInfo());
         Map<String, Object> exported = new LinkedHashMap<>();
 
         exported.put("name", toolInfo.getOrDefault("name", toolName));

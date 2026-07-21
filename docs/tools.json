@@ -78,7 +78,9 @@
     {
       "_meta": {
         "anthropic/alwaysLoad": true,
-        "anthropic/searchHint": "discover security tools documentation help"
+        "anthropic/searchHint": "discover security tools documentation help",
+        "burp/category": "Documentation & Discovery",
+        "burp/help": "Use burp_help with tool='burp_help' for full examples and workflows."
       },
       "annotations": {
         "destructiveHint": false,
@@ -88,7 +90,7 @@
         "title": "Help & Discovery"
       },
       "category": "Documentation & Discovery",
-      "description": "Discover and learn about all Burp MCP capabilities. Use this tool to list available tools, search by capability, or get detailed help for a specific tool. Returns tool names, descriptions, and examples. Always start here when unsure which tool to use. (22 tools available)",
+      "description": "Discover tools, search capabilities, and fetch detailed parameters, examples, and workflows. Use this first when you are unsure which Burp MCP tool fits.",
       "inputSchema": {
         "properties": {
           "capability": {
@@ -118,6 +120,8 @@
       },
       "name": "burp_help",
       "outputSchema": {
+        "additionalProperties": true,
+        "description": "Action-dependent structured result for burp_help. Compact responses expose action-specific fields; verbose responses expose text.",
         "properties": {
           "action_requirements": {
             "description": "Action-specific required parameters",
@@ -143,9 +147,24 @@
             "description": "Usage examples",
             "type": "array"
           },
+          "items": {
+            "description": "Array result when a tool returns a top-level list.",
+            "items": {
+              "description": "Array item."
+            },
+            "type": "array"
+          },
           "keywords": {
             "description": "Search keywords",
             "type": "array"
+          },
+          "limitChars": {
+            "description": "Bridge result-size limit used for truncation.",
+            "type": "integer"
+          },
+          "originalChars": {
+            "description": "Serialized result size before bridge truncation.",
+            "type": "integer"
           },
           "parameters": {
             "description": "Parameter definitions",
@@ -159,9 +178,17 @@
             "description": "Required parameter names",
             "type": "array"
           },
+          "text": {
+            "description": "Human-readable response when verbose output is requested.",
+            "type": "string"
+          },
           "tool": {
             "description": "Tool name",
             "type": "string"
+          },
+          "truncated": {
+            "description": "True when the bridge replaced an oversized structured result with a truncation summary.",
+            "type": "boolean"
           }
         },
         "type": "object"
@@ -170,7 +197,16 @@
     },
     {
       "_meta": {
-        "anthropic/searchHint": "captured traffic filter requests responses"
+        "anthropic/searchHint": "captured traffic filter requests responses",
+        "burp/actionRequirements": {
+          "detail": [
+            "entryIds"
+          ],
+          "iterate": [],
+          "list": []
+        },
+        "burp/category": "Core HTTP/Proxy",
+        "burp/help": "Use burp_help with tool='burp_proxy_history' for full examples and workflows."
       },
       "annotations": {
         "destructiveHint": false,
@@ -180,7 +216,7 @@
         "title": "Proxy History"
       },
       "category": "Core HTTP/Proxy",
-      "description": "Chronological proxy capture (every HTTP request as it happened, with timestamps and duplicates). For deduplicated URL tree of the target, use burp_sitemap_analysis. Retrieve and filter HTTP proxy history captured by Burp Suite. Use this to analyze traffic patterns, find specific requests, or extract data from past sessions. Supports 25+ filters including hostname, method, status code, path, parameters, and regex patterns. Returns request/response pairs with timing data. Use 'list' mode for URLs only, 'detail' for full content, or 'iterate' for sequential browsing.",
+      "description": "Read chronological HTTP traffic captured through Burp's proxy. Use list, detail, or iterate; use burp_sitemap_analysis for deduplicated site-wide structure.",
       "inputSchema": {
         "properties": {
           "action": {
@@ -395,10 +431,19 @@
             "type": "boolean"
           }
         },
-        "type": "object"
+        "type": "object",
+        "x-burp-actionRequirements": {
+          "detail": [
+            "entryIds"
+          ],
+          "iterate": [],
+          "list": []
+        }
       },
       "name": "burp_proxy_history",
       "outputSchema": {
+        "additionalProperties": true,
+        "description": "Action-dependent structured result for burp_proxy_history. Compact responses expose action-specific fields; verbose responses expose text.",
         "properties": {
           "entries": {
             "description": "List of proxy history entries",
@@ -425,13 +470,36 @@
             },
             "type": "array"
           },
+          "items": {
+            "description": "Array result when a tool returns a top-level list.",
+            "items": {
+              "description": "Array item."
+            },
+            "type": "array"
+          },
+          "limitChars": {
+            "description": "Bridge result-size limit used for truncation.",
+            "type": "integer"
+          },
+          "originalChars": {
+            "description": "Serialized result size before bridge truncation.",
+            "type": "integer"
+          },
           "showing": {
             "description": "Number of entries returned",
             "type": "integer"
           },
+          "text": {
+            "description": "Human-readable response when verbose output is requested.",
+            "type": "string"
+          },
           "total": {
             "description": "Total matching entries",
             "type": "integer"
+          },
+          "truncated": {
+            "description": "True when the bridge replaced an oversized structured result with a truncation summary.",
+            "type": "boolean"
           }
         },
         "type": "object"
@@ -440,7 +508,17 @@
     },
     {
       "_meta": {
-        "anthropic/searchHint": "create UI tab request template"
+        "anthropic/searchHint": "create UI tab request template",
+        "burp/actionRequirements": {
+          "SEND_FROM_PROXY": [
+            "proxyUrl"
+          ],
+          "SEND_TO_REPEATER": [
+            "url"
+          ]
+        },
+        "burp/category": "Core HTTP/Proxy",
+        "burp/help": "Use burp_help with tool='burp_repeater' for full examples and workflows."
       },
       "annotations": {
         "destructiveHint": false,
@@ -450,7 +528,7 @@
         "title": "Repeater (UI Only)"
       },
       "category": "Core HTTP/Proxy",
-      "description": "Opens Burp Repeater UI tab for manual testing. WARNING: This tool CANNOT send HTTP requests programmatically - it only creates UI tabs for human interaction. To actually send and receive HTTP responses, use burp_custom_http instead. Use this only when preparing requests for manual testing in the Burp UI. Actions: SEND_TO_REPEATER (build new request from URL/method/body), SEND_FROM_PROXY (clone an existing proxy history entry by URL).",
+      "description": "Create Burp Repeater UI tabs for manual testing only. This tool does not send requests; use burp_custom_http for programmatic HTTP.",
       "inputSchema": {
         "properties": {
           "action": {
@@ -496,14 +574,86 @@
         "required": [
           "action"
         ],
-        "type": "object"
+        "type": "object",
+        "x-burp-actionRequirements": {
+          "SEND_FROM_PROXY": [
+            "proxyUrl"
+          ],
+          "SEND_TO_REPEATER": [
+            "url"
+          ]
+        }
       },
       "name": "burp_repeater",
+      "outputSchema": {
+        "additionalProperties": true,
+        "description": "Action-dependent structured result for burp_repeater. Compact responses expose action-specific fields; verbose responses expose text.",
+        "properties": {
+          "items": {
+            "description": "Array result when a tool returns a top-level list.",
+            "items": {
+              "description": "Array item."
+            },
+            "type": "array"
+          },
+          "limitChars": {
+            "description": "Bridge result-size limit used for truncation.",
+            "type": "integer"
+          },
+          "originalChars": {
+            "description": "Serialized result size before bridge truncation.",
+            "type": "integer"
+          },
+          "text": {
+            "description": "Human-readable response when verbose output is requested.",
+            "type": "string"
+          },
+          "truncated": {
+            "description": "True when the bridge replaced an oversized structured result with a truncation summary.",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "title": "Repeater (UI Only)"
     },
     {
       "_meta": {
-        "anthropic/searchHint": "intercept modify live request response"
+        "anthropic/searchHint": "intercept modify live request response",
+        "burp/actionRequirements": {
+          "clear_stats": [],
+          "disable": [],
+          "drop_request": [
+            "request_id"
+          ],
+          "drop_response": [
+            "response_id|request_id"
+          ],
+          "enable": [],
+          "forward_request": [
+            "request_id"
+          ],
+          "forward_response": [
+            "response_id|request_id"
+          ],
+          "get_queue": [],
+          "get_response_queue": [],
+          "get_stats": [],
+          "get_websocket_history": [],
+          "get_websocket_queue": [],
+          "master_intercept_off": [],
+          "master_intercept_on": [],
+          "master_intercept_status": [],
+          "modify_request": [
+            "request_id"
+          ],
+          "modify_response": [
+            "response_id|request_id",
+            "modifications"
+          ]
+        },
+        "burp/category": "Core HTTP/Proxy",
+        "burp/help": "Use burp_help with tool='burp_proxy_interceptor' for full examples and workflows."
       },
       "annotations": {
         "destructiveHint": false,
@@ -513,7 +663,7 @@
         "title": "Proxy Interceptor (Browser Only)"
       },
       "category": "Core HTTP/Proxy",
-      "description": "MANUAL hold/modify/forward of BROWSER-PROXY traffic (requests through Burp's proxy listener — by default the agent's own Playwright browser traffic). For automatic match/replace rules across ALL Burp tools, use burp_global_interceptor instead. For WebSocket frames, use burp_websocket_interceptor. ⚠️ Once 'enable' is on, every matching proxy request is held for up to 30s each, then auto-forwarded unmodified. SCOPE THE HOLD: pass filter_path (URL substring, or regex with filter_regex=true), filter_method, and/or filter_host to 'enable' so ONLY the request you want is held and the rest of the page loads normally. With no filter, ALL requests are held. ⚠️ CRITICAL — TRIGGER HELD TRAFFIC NON-BLOCKING, or you deadlock: the agent cannot poll get_queue while it is blocked inside a synchronous browser_navigate/browser_click (the page waits on the held request). PROVEN AGENT PATTERN (verified solving a PortSwigger lab): (1) enable with a filter so the page stays usable, e.g. {action:'enable', filter_path:'/cart', filter_method:'POST'}; (2) trigger the request fire-and-forget so the agent stays free — e.g. Playwright browser_evaluate running an UN-AWAITED fetch('/path',{method:'POST',body:...}), or a background curl through 127.0.0.1:8080; (3) get_queue to read the held request and its request_id; (4) modify_request (request_id + modifications{replace_body|add_headers|remove_headers|method|path}) which applies changes AND forwards, or forward_request / drop_request; (5) disable (else the next navigation hangs). Keep the page otherwise idle so only your triggered request is held. Actions: enable/disable (MCP interception), master_intercept_on/off (Burp UI button), get_queue/modify_request/forward_request/drop_request (request flow), get_response_queue/modify_response/forward_response/drop_response (response flow), get_websocket_queue/get_websocket_history (WebSocket), get_stats/clear_stats.",
+      "description": "Manually hold, inspect, modify, forward, or drop browser proxy traffic. Scope enable with filters and trigger held requests non-blocking.",
       "inputSchema": {
         "properties": {
           "action": {
@@ -557,15 +707,90 @@
             "type": "boolean"
           },
           "modifications": {
-            "description": "Modifications object. Keys: add_headers (object {name:value}), remove_headers (array of names), replace_body (string), method (string), path (string). Only specified keys are modified.",
+            "additionalProperties": false,
+            "description": "Fields to change before forwarding. Request actions use method/path/body/headers; response actions also support status_code and reason_phrase.",
+            "properties": {
+              "add_headers": {
+                "additionalProperties": {
+                  "description": "Value.",
+                  "type": "string"
+                },
+                "description": "Headers to add or replace.",
+                "properties": {},
+                "type": "object"
+              },
+              "method": {
+                "description": "Replacement request method.",
+                "type": "string"
+              },
+              "path": {
+                "description": "Replacement request path.",
+                "type": "string"
+              },
+              "reason_phrase": {
+                "description": "Replacement response reason phrase.",
+                "type": "string"
+              },
+              "remove_headers": {
+                "description": "Header names to remove.",
+                "items": {
+                  "description": "Header name.",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "replace_body": {
+                "description": "Replacement body.",
+                "type": "string"
+              },
+              "status_code": {
+                "description": "Replacement response status code.",
+                "type": "integer"
+              }
+            },
             "type": "object"
           },
           "options": {
-            "description": "Options object. Keys: drop (boolean — drop instead of forward), intercept_ui (boolean — also show in Burp UI), highlight_color (color name), description (string).",
+            "additionalProperties": false,
+            "description": "Optional request handling behavior for modify_request.",
+            "properties": {
+              "description": {
+                "description": "Annotation description.",
+                "type": "string"
+              },
+              "drop": {
+                "description": "Drop instead of forwarding the request.",
+                "type": "boolean"
+              },
+              "highlight_color": {
+                "description": "Annotation highlight color.",
+                "enum": [
+                  "RED",
+                  "ORANGE",
+                  "YELLOW",
+                  "GREEN",
+                  "CYAN",
+                  "BLUE",
+                  "PINK",
+                  "MAGENTA",
+                  "GRAY",
+                  "NONE"
+                ],
+                "type": "string"
+              },
+              "intercept_ui": {
+                "description": "Also show the request in Burp's UI intercept view.",
+                "type": "boolean"
+              }
+            },
             "type": "object"
           },
           "request_id": {
-            "description": "ID of the request to modify (from get_queue)",
+            "description": "Request ID from get_queue. Legacy alias for response_id on response actions.",
+            "type": "string"
+          },
+          "response_id": {
+            "description": "Response ID from get_response_queue for response actions.",
             "type": "string"
           },
           "verbose": {
@@ -577,14 +802,112 @@
         "required": [
           "action"
         ],
-        "type": "object"
+        "type": "object",
+        "x-burp-actionRequirements": {
+          "clear_stats": [],
+          "disable": [],
+          "drop_request": [
+            "request_id"
+          ],
+          "drop_response": [
+            "response_id|request_id"
+          ],
+          "enable": [],
+          "forward_request": [
+            "request_id"
+          ],
+          "forward_response": [
+            "response_id|request_id"
+          ],
+          "get_queue": [],
+          "get_response_queue": [],
+          "get_stats": [],
+          "get_websocket_history": [],
+          "get_websocket_queue": [],
+          "master_intercept_off": [],
+          "master_intercept_on": [],
+          "master_intercept_status": [],
+          "modify_request": [
+            "request_id"
+          ],
+          "modify_response": [
+            "response_id|request_id",
+            "modifications"
+          ]
+        }
       },
       "name": "burp_proxy_interceptor",
+      "outputSchema": {
+        "additionalProperties": true,
+        "description": "Action-dependent structured result for burp_proxy_interceptor. Compact responses expose action-specific fields; verbose responses expose text.",
+        "properties": {
+          "items": {
+            "description": "Array result when a tool returns a top-level list.",
+            "items": {
+              "description": "Array item."
+            },
+            "type": "array"
+          },
+          "limitChars": {
+            "description": "Bridge result-size limit used for truncation.",
+            "type": "integer"
+          },
+          "originalChars": {
+            "description": "Serialized result size before bridge truncation.",
+            "type": "integer"
+          },
+          "text": {
+            "description": "Human-readable response when verbose output is requested.",
+            "type": "string"
+          },
+          "truncated": {
+            "description": "True when the bridge replaced an oversized structured result with a truncation summary.",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "title": "Proxy Interceptor (Browser Only)"
     },
     {
       "_meta": {
-        "anthropic/searchHint": "scan vulnerabilities active passive crawl audit"
+        "anthropic/searchHint": "scan vulnerabilities active passive crawl audit",
+        "burp/actionRequirements": {
+          "ADD_TO_SCAN": [
+            "scanId"
+          ],
+          "CANCEL_SCAN": [
+            "scanId"
+          ],
+          "CLEAR_ISSUES": [],
+          "CRAWL_ONLY": [
+            "urls"
+          ],
+          "FILTER_ISSUES": [],
+          "GENERATE_REPORT": [
+            "scanId"
+          ],
+          "GET_ISSUES": [
+            "scanId"
+          ],
+          "GET_STATUS": [
+            "scanId"
+          ],
+          "IMPORT_BCHECK": [
+            "definition"
+          ],
+          "LIST_SCANS": [],
+          "SCAN_METRICS": [],
+          "SCAN_SPECIFIC_REQUEST": [
+            "request",
+            "useHttps"
+          ],
+          "START_SCAN": [
+            "urls"
+          ]
+        },
+        "burp/category": "Scanning & Analysis",
+        "burp/help": "Use burp_help with tool='burp_scanner' for full examples and workflows."
       },
       "annotations": {
         "destructiveHint": false,
@@ -594,7 +917,7 @@
         "title": "Vulnerability Scanner"
       },
       "category": "Scanning & Analysis",
-      "description": "Comprehensive vulnerability scanner and crawler with full automation. Use this to scan targets for security vulnerabilities, discover content via crawling, and retrieve scan results. Actions: START_SCAN (scan with optional crawl), CRAWL_ONLY (content discovery), GET_STATUS (check progress), GET_ISSUES (retrieve vulnerabilities), CANCEL_SCAN, LIST_SCANS, ADD_TO_SCAN, GENERATE_REPORT, IMPORT_BCHECK (custom checks), CLEAR_ISSUES, SCAN_SPECIFIC_REQUEST, SCAN_METRICS, FILTER_ISSUES. Supports authenticated scanning via headers/cookies parameters. For targeted scanning use insertionPointParams (by parameter name) or insertionPointValues (by value string) to scan only specific insertion points, like Burp UI's 'Scan selected insertion point'. START_SCAN with crawl:false only scans the provided URLs without traversal — set crawl:true to spider+scan. By default uses authenticated session from proxy history (useProxySession:true).",
+      "description": "Start Burp scans and crawls, track progress, retrieve issues, import BChecks, and scan raw requests with targeted insertion points.",
       "inputSchema": {
         "properties": {
           "action": {
@@ -632,7 +955,12 @@
             "type": "string"
           },
           "cookies": {
-            "description": "Cookies to include as key-value pairs (e.g., {\"sessionid\": \"abc123\", \"token\": \"xyz\"})",
+            "additionalProperties": {
+              "description": "Value.",
+              "type": "string"
+            },
+            "description": "Cookies to include as name/value pairs.",
+            "properties": {},
             "type": "object"
           },
           "crawl": {
@@ -654,7 +982,12 @@
             "type": "string"
           },
           "headers": {
-            "description": "Additional HTTP headers to include (e.g., {\"Cookie\": \"session=abc123\", \"Authorization\": \"Bearer token\"})",
+            "additionalProperties": {
+              "description": "Value.",
+              "type": "string"
+            },
+            "description": "Additional HTTP headers to include in scan requests.",
+            "properties": {},
             "type": "object"
           },
           "host": {
@@ -676,7 +1009,26 @@
             "type": "array"
           },
           "insertionPoints": {
-            "description": "Insertion point ranges [{start: int, end: int}]",
+            "description": "Explicit insertion point byte ranges.",
+            "items": {
+              "additionalProperties": false,
+              "description": "Insertion point range.",
+              "properties": {
+                "end": {
+                  "description": "Exclusive end byte offset.",
+                  "type": "integer"
+                },
+                "start": {
+                  "description": "Inclusive start byte offset.",
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "start",
+                "end"
+              ],
+              "type": "object"
+            },
             "type": "array"
           },
           "issueIndex": {
@@ -761,17 +1113,76 @@
         "required": [
           "action"
         ],
-        "type": "object"
+        "type": "object",
+        "x-burp-actionRequirements": {
+          "ADD_TO_SCAN": [
+            "scanId"
+          ],
+          "CANCEL_SCAN": [
+            "scanId"
+          ],
+          "CLEAR_ISSUES": [],
+          "CRAWL_ONLY": [
+            "urls"
+          ],
+          "FILTER_ISSUES": [],
+          "GENERATE_REPORT": [
+            "scanId"
+          ],
+          "GET_ISSUES": [
+            "scanId"
+          ],
+          "GET_STATUS": [
+            "scanId"
+          ],
+          "IMPORT_BCHECK": [
+            "definition"
+          ],
+          "LIST_SCANS": [],
+          "SCAN_METRICS": [],
+          "SCAN_SPECIFIC_REQUEST": [
+            "request",
+            "useHttps"
+          ],
+          "START_SCAN": [
+            "urls"
+          ]
+        }
       },
       "name": "burp_scanner",
       "outputSchema": {
+        "additionalProperties": true,
+        "description": "Action-dependent structured result for burp_scanner. Compact responses expose action-specific fields; verbose responses expose text.",
         "properties": {
-          "issues": {
-            "description": "Array of discovered vulnerabilities",
-            "type": "object"
+          "insertionPointsResolved": {
+            "description": "Number of insertion points resolved for a specific-request scan",
+            "type": "integer"
           },
-          "progress": {
-            "description": "Scan progress percentage",
+          "issues": {
+            "description": "Discovered vulnerabilities",
+            "type": "array"
+          },
+          "issuesFound": {
+            "description": "Number of issues found so far",
+            "type": "integer"
+          },
+          "items": {
+            "description": "Array result when a tool returns a top-level list.",
+            "items": {
+              "description": "Array item."
+            },
+            "type": "array"
+          },
+          "limitChars": {
+            "description": "Bridge result-size limit used for truncation.",
+            "type": "integer"
+          },
+          "originalChars": {
+            "description": "Serialized result size before bridge truncation.",
+            "type": "integer"
+          },
+          "requestCount": {
+            "description": "Number of requests processed by the scan",
             "type": "integer"
           },
           "scanId": {
@@ -781,6 +1192,14 @@
           "status": {
             "description": "Scan status (running, completed, cancelled)",
             "type": "string"
+          },
+          "text": {
+            "description": "Human-readable response when verbose output is requested.",
+            "type": "string"
+          },
+          "truncated": {
+            "description": "True when the bridge replaced an oversized structured result with a truncation summary.",
+            "type": "boolean"
           }
         },
         "type": "object"
@@ -789,7 +1208,17 @@
     },
     {
       "_meta": {
-        "anthropic/searchHint": "configure attack template wordlist positions"
+        "anthropic/searchHint": "configure attack template wordlist positions",
+        "burp/actionRequirements": {
+          "SEND_TO_INTRUDER": [
+            "url"
+          ],
+          "SEND_WITH_POSITIONS": [
+            "url"
+          ]
+        },
+        "burp/category": "Scanning & Analysis",
+        "burp/help": "Use burp_help with tool='burp_intruder' for full examples and workflows."
       },
       "annotations": {
         "destructiveHint": false,
@@ -799,7 +1228,7 @@
         "title": "Intruder (UI Only)"
       },
       "category": "Scanning & Analysis",
-      "description": "Configures Burp Intruder UI for attack setup. WARNING: This tool CANNOT execute attacks programmatically - it only configures the UI. You must manually add payloads and click 'Start attack' in Burp UI. For automated parameter fuzzing/testing, use burp_custom_http with a loop instead. Use this only when setting up complex attacks for manual execution. Actions: SEND_TO_INTRUDER (send raw request for manual position marking), SEND_WITH_POSITIONS (use §value§ markers in body to pre-mark fuzz positions, then strips markers when sending).",
+      "description": "Configure Burp Intruder UI attacks and insertion positions for manual execution. It does not run attacks programmatically.",
       "inputSchema": {
         "properties": {
           "action": {
@@ -837,14 +1266,54 @@
           "action",
           "url"
         ],
-        "type": "object"
+        "type": "object",
+        "x-burp-actionRequirements": {
+          "SEND_TO_INTRUDER": [
+            "url"
+          ],
+          "SEND_WITH_POSITIONS": [
+            "url"
+          ]
+        }
       },
       "name": "burp_intruder",
+      "outputSchema": {
+        "additionalProperties": true,
+        "description": "Action-dependent structured result for burp_intruder. Compact responses expose action-specific fields; verbose responses expose text.",
+        "properties": {
+          "items": {
+            "description": "Array result when a tool returns a top-level list.",
+            "items": {
+              "description": "Array item."
+            },
+            "type": "array"
+          },
+          "limitChars": {
+            "description": "Bridge result-size limit used for truncation.",
+            "type": "integer"
+          },
+          "originalChars": {
+            "description": "Serialized result size before bridge truncation.",
+            "type": "integer"
+          },
+          "text": {
+            "description": "Human-readable response when verbose output is requested.",
+            "type": "string"
+          },
+          "truncated": {
+            "description": "True when the bridge replaced an oversized structured result with a truncation summary.",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "title": "Intruder (UI Only)"
     },
     {
       "_meta": {
-        "anthropic/searchHint": "create vulnerability finding report issue"
+        "anthropic/searchHint": "create vulnerability finding report issue",
+        "burp/category": "Issue Management",
+        "burp/help": "Use burp_help with tool='burp_add_issue' for full examples and workflows."
       },
       "annotations": {
         "destructiveHint": false,
@@ -854,7 +1323,7 @@
         "title": "Create Issue"
       },
       "category": "Issue Management",
-      "description": "Add custom audit issues to Burp Suite with intelligent dynamic grouping. Use this to report security findings discovered through manual testing or external tools. Automatically groups with existing issues of the same type. Supports detailed evidence including request/response pairs, payloads, remediation guidance, and references. Issues appear in Burp's Target > Issues panel.",
+      "description": "Create custom Burp audit issues with evidence, severity, remediation, and optional proxy-history-derived request/response context.",
       "inputSchema": {
         "properties": {
           "background": {
@@ -880,7 +1349,54 @@
             "type": "string"
           },
           "filters": {
-            "description": "Filter object passed to ProxyHistoryTool to find evidence requests. Common keys: hostname, method, path, contains, parameter, statusRange, regex. See burp_proxy_history schema for the complete list.",
+            "additionalProperties": true,
+            "description": "Proxy history filters used to locate evidence requests.",
+            "properties": {
+              "contains": {
+                "description": "Text to search for in request or response.",
+                "type": "string"
+              },
+              "cookieName": {
+                "description": "Cookie name filter.",
+                "type": "string"
+              },
+              "hasResponse": {
+                "description": "Require a response.",
+                "type": "boolean"
+              },
+              "hostname": {
+                "description": "Hostname substring filter.",
+                "type": "string"
+              },
+              "inScopeOnly": {
+                "description": "Only use in-scope entries.",
+                "type": "boolean"
+              },
+              "method": {
+                "description": "HTTP method filter.",
+                "type": "string"
+              },
+              "parameter": {
+                "description": "Parameter name filter.",
+                "type": "string"
+              },
+              "path": {
+                "description": "URL path substring filter.",
+                "type": "string"
+              },
+              "regex": {
+                "description": "Regex to search for in request or response.",
+                "type": "string"
+              },
+              "statusCode": {
+                "description": "Exact response status code.",
+                "type": "integer"
+              },
+              "statusRange": {
+                "description": "Response status range, for example 200-299.",
+                "type": "string"
+              }
+            },
             "type": "object"
           },
           "issueType": {
@@ -1002,11 +1518,74 @@
         "type": "object"
       },
       "name": "burp_add_issue",
+      "outputSchema": {
+        "additionalProperties": true,
+        "description": "Action-dependent structured result for burp_add_issue. Compact responses expose action-specific fields; verbose responses expose text.",
+        "properties": {
+          "items": {
+            "description": "Array result when a tool returns a top-level list.",
+            "items": {
+              "description": "Array item."
+            },
+            "type": "array"
+          },
+          "limitChars": {
+            "description": "Bridge result-size limit used for truncation.",
+            "type": "integer"
+          },
+          "originalChars": {
+            "description": "Serialized result size before bridge truncation.",
+            "type": "integer"
+          },
+          "text": {
+            "description": "Human-readable response when verbose output is requested.",
+            "type": "string"
+          },
+          "truncated": {
+            "description": "True when the bridge replaced an oversized structured result with a truncation summary.",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "title": "Create Issue"
     },
     {
       "_meta": {
-        "anthropic/searchHint": "cookie jar authentication tokens sessions"
+        "anthropic/searchHint": "cookie jar authentication tokens sessions",
+        "burp/actionRequirements": {
+          "ANALYZE_SESSION_VALIDITY": [
+            "url"
+          ],
+          "AUTO_SESSION_STATUS": [],
+          "CLEAR_TOKENS": [],
+          "COOKIE_JAR_CLEAR": [],
+          "COOKIE_JAR_DELETE": [
+            "tokenName",
+            "domain"
+          ],
+          "COOKIE_JAR_LIST": [],
+          "COOKIE_JAR_SET": [
+            "tokenName",
+            "tokenValue",
+            "domain"
+          ],
+          "DISABLE_AUTO_SESSION": [],
+          "ENABLE_AUTO_SESSION": [],
+          "EXTRACT_TOKENS": [],
+          "FIND_LOGOUT": [],
+          "LIST_TOKENS": [],
+          "SESSION_STATUS": [],
+          "SET_TOKEN": [
+            "tokenName",
+            "tokenValue"
+          ],
+          "TEST_SESSION": [
+            "url"
+          ]
+        },
+        "burp/category": "Session Management",
+        "burp/help": "Use burp_help with tool='burp_session_management' for full examples and workflows."
       },
       "annotations": {
         "destructiveHint": true,
@@ -1016,7 +1595,7 @@
         "title": "Session Manager"
       },
       "category": "Session Management",
-      "description": "Advanced session management with Burp's native cookie jar and automatic session handling. Use this to manage cookies, extract tokens, test session validity, and configure automatic session refresh. Actions: EXTRACT_TOKENS (find session tokens in proxy history), SET_TOKEN/CLEAR_TOKENS/LIST_TOKENS (in-memory token store), TEST_SESSION/FIND_LOGOUT/SESSION_STATUS (verify session validity), COOKIE_JAR_LIST/COOKIE_JAR_SET/COOKIE_JAR_DELETE/COOKIE_JAR_CLEAR (manage Burp's native cookie jar), ENABLE_AUTO_SESSION/DISABLE_AUTO_SESSION/AUTO_SESSION_STATUS (automatic refresh on 401/403), ANALYZE_SESSION_VALIDITY (heuristic analysis of captured traffic). Integrates with Burp's session handling rules.",
+      "description": "Manage tokens, Burp's cookie jar, session validation, and automatic session handling actions.",
       "inputSchema": {
         "properties": {
           "action": {
@@ -1091,14 +1670,96 @@
         "required": [
           "action"
         ],
-        "type": "object"
+        "type": "object",
+        "x-burp-actionRequirements": {
+          "ANALYZE_SESSION_VALIDITY": [
+            "url"
+          ],
+          "AUTO_SESSION_STATUS": [],
+          "CLEAR_TOKENS": [],
+          "COOKIE_JAR_CLEAR": [],
+          "COOKIE_JAR_DELETE": [
+            "tokenName",
+            "domain"
+          ],
+          "COOKIE_JAR_LIST": [],
+          "COOKIE_JAR_SET": [
+            "tokenName",
+            "tokenValue",
+            "domain"
+          ],
+          "DISABLE_AUTO_SESSION": [],
+          "ENABLE_AUTO_SESSION": [],
+          "EXTRACT_TOKENS": [],
+          "FIND_LOGOUT": [],
+          "LIST_TOKENS": [],
+          "SESSION_STATUS": [],
+          "SET_TOKEN": [
+            "tokenName",
+            "tokenValue"
+          ],
+          "TEST_SESSION": [
+            "url"
+          ]
+        }
       },
       "name": "burp_session_management",
+      "outputSchema": {
+        "additionalProperties": true,
+        "description": "Action-dependent structured result for burp_session_management. Compact responses expose action-specific fields; verbose responses expose text.",
+        "properties": {
+          "items": {
+            "description": "Array result when a tool returns a top-level list.",
+            "items": {
+              "description": "Array item."
+            },
+            "type": "array"
+          },
+          "limitChars": {
+            "description": "Bridge result-size limit used for truncation.",
+            "type": "integer"
+          },
+          "originalChars": {
+            "description": "Serialized result size before bridge truncation.",
+            "type": "integer"
+          },
+          "text": {
+            "description": "Human-readable response when verbose output is requested.",
+            "type": "string"
+          },
+          "truncated": {
+            "description": "True when the bridge replaced an oversized structured result with a truncation summary.",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "title": "Session Manager"
     },
     {
       "_meta": {
-        "anthropic/searchHint": "diff compare two responses bytes words"
+        "anthropic/searchHint": "diff compare two responses bytes words",
+        "burp/actionRequirements": {
+          "COMPARE_PROXY_ENTRIES": [
+            "url1",
+            "url2"
+          ],
+          "COMPARE_REQUESTS": [
+            "url1",
+            "url2"
+          ],
+          "COMPARE_RESPONSES": [
+            "url1",
+            "url2"
+          ],
+          "COMPARE_TEXT": [
+            "text1",
+            "text2"
+          ],
+          "SEND_TO_COMPARER": []
+        },
+        "burp/category": "Analysis & Comparison",
+        "burp/help": "Use burp_help with tool='burp_comparer' for full examples and workflows."
       },
       "annotations": {
         "destructiveHint": false,
@@ -1108,7 +1769,7 @@
         "title": "Response Comparer"
       },
       "category": "Analysis & Comparison",
-      "description": "Compare HTTP requests, responses, and other data. Use this to identify differences between two pieces of data, useful for finding subtle changes in responses that indicate vulnerabilities. Actions: COMPARE_RESPONSES, COMPARE_REQUESTS, COMPARE_TEXT, SEND_TO_COMPARER (opens Burp UI), COMPARE_PROXY_ENTRIES. Supports word-level and byte-level comparison with optional whitespace ignoring. SEND_TO_COMPARER opens a UI tab in Burp (no programmatic diff returned). The other COMPARE_* actions return diffs as data.",
+      "description": "Compare requests, responses, text, or proxy entries, or send data to Burp Comparer UI.",
       "inputSchema": {
         "properties": {
           "action": {
@@ -1163,14 +1824,80 @@
         "required": [
           "action"
         ],
-        "type": "object"
+        "type": "object",
+        "x-burp-actionRequirements": {
+          "COMPARE_PROXY_ENTRIES": [
+            "url1",
+            "url2"
+          ],
+          "COMPARE_REQUESTS": [
+            "url1",
+            "url2"
+          ],
+          "COMPARE_RESPONSES": [
+            "url1",
+            "url2"
+          ],
+          "COMPARE_TEXT": [
+            "text1",
+            "text2"
+          ],
+          "SEND_TO_COMPARER": []
+        }
       },
       "name": "burp_comparer",
+      "outputSchema": {
+        "additionalProperties": true,
+        "description": "Action-dependent structured result for burp_comparer. Compact responses expose action-specific fields; verbose responses expose text.",
+        "properties": {
+          "items": {
+            "description": "Array result when a tool returns a top-level list.",
+            "items": {
+              "description": "Array item."
+            },
+            "type": "array"
+          },
+          "limitChars": {
+            "description": "Bridge result-size limit used for truncation.",
+            "type": "integer"
+          },
+          "originalChars": {
+            "description": "Serialized result size before bridge truncation.",
+            "type": "integer"
+          },
+          "text": {
+            "description": "Human-readable response when verbose output is requested.",
+            "type": "string"
+          },
+          "truncated": {
+            "description": "True when the bridge replaced an oversized structured result with a truncation summary.",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "title": "Response Comparer"
     },
     {
       "_meta": {
-        "anthropic/searchHint": "out-of-band OAST SSRF blind XXE DNS interaction"
+        "anthropic/searchHint": "out-of-band OAST SSRF blind XXE DNS interaction",
+        "burp/actionRequirements": {
+          "CHECK_INTERACTIONS": [],
+          "CLEAR_INTERACTIONS": [],
+          "FILTER_INTERACTIONS": [],
+          "GENERATE_PAYLOAD": [],
+          "GENERATE_WITH_CUSTOM_DATA": [],
+          "GET_SECRET_KEY": [],
+          "LIST_PAYLOADS": [],
+          "LIST_PAYLOAD_TYPES": [],
+          "RESTORE_CLIENT": [
+            "secretKey"
+          ],
+          "SERVER_INFO": [],
+          "STATUS": []
+        },
+        "burp/category": "Analysis & Comparison",
+        "burp/help": "Use burp_help with tool='burp_collaborator' for full examples and workflows."
       },
       "annotations": {
         "destructiveHint": true,
@@ -1180,7 +1907,7 @@
         "title": "Collaborator (OOB)"
       },
       "category": "Analysis & Comparison",
-      "description": "Generate payloads and monitor out-of-band interactions for blind vulnerability testing. Use this for SSRF, blind XXE, blind SQL injection, and other vulnerabilities that require external callback verification. Actions: GENERATE_PAYLOAD, CHECK_INTERACTIONS, LIST_PAYLOAD_TYPES (also LIST_PAYLOADS, kept as deprecated alias — returns the four built-in payload formats, NOT a list of generated payloads), CLEAR_INTERACTIONS, STATUS, GET_SECRET_KEY, RESTORE_CLIENT (recreate a client from a previously-captured secretKey so CHECK_INTERACTIONS can see older interactions), SERVER_INFO, GENERATE_WITH_CUSTOM_DATA, FILTER_INTERACTIONS. GENERATE_PAYLOAD/GENERATE_WITH_CUSTOM_DATA: create callback URLs. CHECK_INTERACTIONS/FILTER_INTERACTIONS: poll for callbacks. LIST_PAYLOAD_TYPES/CLEAR_INTERACTIONS: introspection/maintenance. STATUS/SERVER_INFO: diagnostics. GET_SECRET_KEY: capture the current client's secret. Client lifetime: the Collaborator client is persisted across extension reloads via a secret stored at ~/.config/burp-mcp-bridge/collaborator-secret. If you need to switch sessions, use RESTORE_CLIENT with a saved secretKey. Professional license required. Supports DNS, HTTP, HTTPS, and SMTP interactions.",
+      "description": "Generate Burp Collaborator payloads and poll out-of-band DNS, HTTP, HTTPS, and SMTP interactions.",
       "inputSchema": {
         "properties": {
           "action": {
@@ -1256,14 +1983,80 @@
         "required": [
           "action"
         ],
-        "type": "object"
+        "type": "object",
+        "x-burp-actionRequirements": {
+          "CHECK_INTERACTIONS": [],
+          "CLEAR_INTERACTIONS": [],
+          "FILTER_INTERACTIONS": [],
+          "GENERATE_PAYLOAD": [],
+          "GENERATE_WITH_CUSTOM_DATA": [],
+          "GET_SECRET_KEY": [],
+          "LIST_PAYLOADS": [],
+          "LIST_PAYLOAD_TYPES": [],
+          "RESTORE_CLIENT": [
+            "secretKey"
+          ],
+          "SERVER_INFO": [],
+          "STATUS": []
+        }
       },
       "name": "burp_collaborator",
+      "outputSchema": {
+        "additionalProperties": true,
+        "description": "Action-dependent structured result for burp_collaborator. Compact responses expose action-specific fields; verbose responses expose text.",
+        "properties": {
+          "items": {
+            "description": "Array result when a tool returns a top-level list.",
+            "items": {
+              "description": "Array item."
+            },
+            "type": "array"
+          },
+          "limitChars": {
+            "description": "Bridge result-size limit used for truncation.",
+            "type": "integer"
+          },
+          "originalChars": {
+            "description": "Serialized result size before bridge truncation.",
+            "type": "integer"
+          },
+          "text": {
+            "description": "Human-readable response when verbose output is requested.",
+            "type": "string"
+          },
+          "truncated": {
+            "description": "True when the bridge replaced an oversized structured result with a truncation summary.",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "title": "Collaborator (OOB)"
     },
     {
       "_meta": {
-        "anthropic/searchHint": "target scope include exclude URL"
+        "anthropic/searchHint": "target scope include exclude URL",
+        "burp/actionRequirements": {
+          "add": [
+            "url"
+          ],
+          "analyze": [],
+          "bulk_add": [
+            "urls"
+          ],
+          "bulk_check": [
+            "urls"
+          ],
+          "check": [
+            "url"
+          ],
+          "remove": [
+            "url"
+          ],
+          "view": []
+        },
+        "burp/category": "Configuration & Utilities",
+        "burp/help": "Use burp_help with tool='burp_scope' for full examples and workflows."
       },
       "annotations": {
         "destructiveHint": true,
@@ -1273,7 +2066,7 @@
         "title": "Target Scope"
       },
       "category": "Configuration & Utilities",
-      "description": "Manage Burp Suite target scope to control which URLs are included in testing. Use this to add/remove URLs from scope, check if URLs are in scope, and analyze scope coverage against proxy history. Actions: view (current scope with stats), add (include URL), remove (exclude URL), check (verify URL status), analyze (scope coverage report), bulk_add/bulk_check.",
+      "description": "View, add, remove, check, and analyze Burp target scope, including bulk operations.",
       "inputSchema": {
         "properties": {
           "action": {
@@ -1319,14 +2112,78 @@
         "required": [
           "action"
         ],
-        "type": "object"
+        "type": "object",
+        "x-burp-actionRequirements": {
+          "add": [
+            "url"
+          ],
+          "analyze": [],
+          "bulk_add": [
+            "urls"
+          ],
+          "bulk_check": [
+            "urls"
+          ],
+          "check": [
+            "url"
+          ],
+          "remove": [
+            "url"
+          ],
+          "view": []
+        }
       },
       "name": "burp_scope",
+      "outputSchema": {
+        "additionalProperties": true,
+        "description": "Action-dependent structured result for burp_scope. Compact responses expose action-specific fields; verbose responses expose text.",
+        "properties": {
+          "items": {
+            "description": "Array result when a tool returns a top-level list.",
+            "items": {
+              "description": "Array item."
+            },
+            "type": "array"
+          },
+          "limitChars": {
+            "description": "Bridge result-size limit used for truncation.",
+            "type": "integer"
+          },
+          "originalChars": {
+            "description": "Serialized result size before bridge truncation.",
+            "type": "integer"
+          },
+          "text": {
+            "description": "Human-readable response when verbose output is requested.",
+            "type": "string"
+          },
+          "truncated": {
+            "description": "True when the bridge replaced an oversized structured result with a truncation summary.",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "title": "Target Scope"
     },
     {
       "_meta": {
-        "anthropic/searchHint": "burp settings project user options import export json scope proxy config"
+        "anthropic/searchHint": "burp settings project user options import export json scope proxy config",
+        "burp/actionRequirements": {
+          "GET_PROJECT_OPTIONS": [],
+          "GET_USER_OPTIONS": [],
+          "RESET_PROJECT_OPTIONS": [
+            "path"
+          ],
+          "SET_PROJECT_OPTIONS": [
+            "json"
+          ],
+          "SET_USER_OPTIONS": [
+            "json"
+          ]
+        },
+        "burp/category": "Configuration & Utilities",
+        "burp/help": "Use burp_help with tool='burp_config' for full examples and workflows."
       },
       "annotations": {
         "destructiveHint": true,
@@ -1336,7 +2193,7 @@
         "title": "Burp Configuration"
       },
       "category": "Configuration & Utilities",
-      "description": "Read and write Burp Suite PROJECT and USER options as JSON. General config primitive for settings the typed tools don't expose, and for troubleshooting Burp's current state. Actions: GET_PROJECT_OPTIONS / GET_USER_OPTIONS (omit 'path' to export the FULL current config — every setting at its current value, including defaults, not just modified ones: useful for troubleshooting/backup, but large). To scope the export, pass a 'path' rooted like the JSON itself: PROJECT roots are 'target', 'proxy' and 'project_options' (e.g. 'target.scope', 'proxy', 'project_options.connections'); USER paths start with 'user_options.' (e.g. 'user_options.proxy', 'user_options.connections'). A path that matches no real key falls through to the FULL export (e.g. user path 'proxy' WITHOUT the 'user_options.' prefix dumps everything). COMMON PATHS: 'target.scope' (scope); 'proxy' (proxy listeners, intercept rules, match/replace, response modification — note: root 'proxy', not project_options.proxy); 'project_options.connections' (timeouts, upstream proxy, SOCKS, platform-auth); 'project_options.sessions' (session-handling rules, macros, cookie jar); 'project_options.ssl' (TLS, client certs); 'user_options.*' for global settings. Changes apply LIVE (no extension reload needed). ⚠️ When SETting the whole 'proxy' subtree, preserve 'request_listeners' exactly — altering it can restart/disrupt the proxy listener you're testing through. SET_PROJECT_OPTIONS / SET_USER_OPTIONS (import the JSON in 'json'), RESET_PROJECT_OPTIONS (restore a known default for a supported 'path', currently 'target.scope'). ⚠️ SET replaces the options contained in the supplied JSON — always GET the relevant subtree first, modify it, then SET the whole modified subtree back (importing a partial array REPLACES that array, so preserve existing entries). ⚠️ Exports can contain STORED SECRETS IN CLEARTEXT (platform-authentication credentials, upstream-proxy/SOCKS passwords, client-certificate material) — scope the export with 'path' and don't paste full dumps into untrusted places. Example (include-subdomains scope): GET path 'target.scope' → set advanced_mode=true and append {enabled:true,protocol:'any',host:'^(?:.*\\\\.)?example\\\\.com$',port:'',file:''} to include[] → SET_PROJECT_OPTIONS with the modified JSON. For simple scope add/remove use burp_scope instead.",
+      "description": "Read and write Burp project or user options JSON for settings not covered by typed tools.",
       "inputSchema": {
         "properties": {
           "action": {
@@ -1367,14 +2224,73 @@
         "required": [
           "action"
         ],
-        "type": "object"
+        "type": "object",
+        "x-burp-actionRequirements": {
+          "GET_PROJECT_OPTIONS": [],
+          "GET_USER_OPTIONS": [],
+          "RESET_PROJECT_OPTIONS": [
+            "path"
+          ],
+          "SET_PROJECT_OPTIONS": [
+            "json"
+          ],
+          "SET_USER_OPTIONS": [
+            "json"
+          ]
+        }
       },
       "name": "burp_config",
+      "outputSchema": {
+        "additionalProperties": true,
+        "description": "Action-dependent structured result for burp_config. Compact responses expose action-specific fields; verbose responses expose text.",
+        "properties": {
+          "items": {
+            "description": "Array result when a tool returns a top-level list.",
+            "items": {
+              "description": "Array item."
+            },
+            "type": "array"
+          },
+          "limitChars": {
+            "description": "Bridge result-size limit used for truncation.",
+            "type": "integer"
+          },
+          "originalChars": {
+            "description": "Serialized result size before bridge truncation.",
+            "type": "integer"
+          },
+          "text": {
+            "description": "Human-readable response when verbose output is requested.",
+            "type": "string"
+          },
+          "truncated": {
+            "description": "True when the bridge replaced an oversized structured result with a truncation summary.",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "title": "Burp Configuration (project/user options JSON)"
     },
     {
       "_meta": {
-        "anthropic/searchHint": "organize tag label group items"
+        "anthropic/searchHint": "organize tag label group items",
+        "burp/actionRequirements": {
+          "GET_ITEM_BY_ID": [
+            "itemId"
+          ],
+          "GET_ITEM_COUNT": [],
+          "GET_ITEM_STATUS": [
+            "itemId"
+          ],
+          "LIST_ITEMS": [],
+          "LIST_ITEMS_FILTERED": [],
+          "SEND_TO_ORGANIZER": [
+            "url"
+          ]
+        },
+        "burp/category": "Configuration & Utilities",
+        "burp/help": "Use burp_help with tool='burp_organizer' for full examples and workflows."
       },
       "annotations": {
         "destructiveHint": false,
@@ -1384,7 +2300,7 @@
         "title": "Request Organizer"
       },
       "category": "Configuration & Utilities",
-      "description": "Manage and organize HTTP requests/responses in Burp's Organizer tool. Use this to bookmark interesting requests, track testing progress, and organize findings. Actions: SEND_TO_ORGANIZER (add requests), LIST_ITEMS (view all with filters), GET_ITEM_BY_ID, GET_ITEM_COUNT, GET_ITEM_STATUS. Supports status types: NEW, IN_PROGRESS, POSTPONED, DONE, IGNORED.",
+      "description": "Send requests to Organizer and query Organizer items, counts, filters, and status.",
       "inputSchema": {
         "properties": {
           "action": {
@@ -1452,14 +2368,90 @@
         "required": [
           "action"
         ],
-        "type": "object"
+        "type": "object",
+        "x-burp-actionRequirements": {
+          "GET_ITEM_BY_ID": [
+            "itemId"
+          ],
+          "GET_ITEM_COUNT": [],
+          "GET_ITEM_STATUS": [
+            "itemId"
+          ],
+          "LIST_ITEMS": [],
+          "LIST_ITEMS_FILTERED": [],
+          "SEND_TO_ORGANIZER": [
+            "url"
+          ]
+        }
       },
       "name": "burp_organizer",
+      "outputSchema": {
+        "additionalProperties": true,
+        "description": "Action-dependent structured result for burp_organizer. Compact responses expose action-specific fields; verbose responses expose text.",
+        "properties": {
+          "items": {
+            "description": "Array result when a tool returns a top-level list.",
+            "items": {
+              "description": "Array item."
+            },
+            "type": "array"
+          },
+          "limitChars": {
+            "description": "Bridge result-size limit used for truncation.",
+            "type": "integer"
+          },
+          "originalChars": {
+            "description": "Serialized result size before bridge truncation.",
+            "type": "integer"
+          },
+          "text": {
+            "description": "Human-readable response when verbose output is requested.",
+            "type": "string"
+          },
+          "truncated": {
+            "description": "True when the bridge replaced an oversized structured result with a truncation summary.",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "title": "Request Organizer"
     },
     {
       "_meta": {
-        "anthropic/searchHint": "comment highlight color notes mark"
+        "anthropic/searchHint": "comment highlight color notes mark",
+        "burp/actionRequirements": {
+          "ANNOTATE_BY_PATTERN": [
+            "pattern"
+          ],
+          "ANNOTATE_COLLABORATOR": [],
+          "ANNOTATE_INTRUDER": [
+            "url"
+          ],
+          "ANNOTATE_ORGANIZER": [
+            "url"
+          ],
+          "ANNOTATE_PROXY": [
+            "entryId|url"
+          ],
+          "ANNOTATE_REPEATER": [
+            "url"
+          ],
+          "ANNOTATE_SCANNER": [],
+          "ANNOTATE_TARGET": [
+            "entryId|url"
+          ],
+          "ANNOTATE_WEBSOCKET": [],
+          "CLEAR_ANNOTATIONS": [],
+          "DISABLE_AUTO_ANNOTATION": [],
+          "ENABLE_AUTO_ANNOTATION": [],
+          "EXPORT_ANNOTATIONS": [],
+          "GET_ANNOTATIONS": [],
+          "IMPORT_ANNOTATIONS": [],
+          "SEARCH_BY_ANNOTATION": []
+        },
+        "burp/category": "Configuration & Utilities",
+        "burp/help": "Use burp_help with tool='burp_annotate' for full examples and workflows."
       },
       "annotations": {
         "destructiveHint": true,
@@ -1469,7 +2461,7 @@
         "title": "Annotations"
       },
       "category": "Configuration & Utilities",
-      "description": "Add notes and highlight colors to entries across all Burp Suite components. Use this to mark interesting items, add testing notes, and organize findings visually. Supports Proxy, Target, Organizer, Repeater, Intruder, Scanner, WebSocket, and Collaborator. Actions: ANNOTATE_* (per component), GET_ANNOTATIONS, ANNOTATE_BY_PATTERN (bulk), SEARCH_BY_ANNOTATION, ENABLE/DISABLE_AUTO_ANNOTATION.",
+      "description": "Add notes and highlights across Burp data sources, search annotations, and manage auto-annotation rules.",
       "inputSchema": {
         "properties": {
           "action": {
@@ -1495,7 +2487,38 @@
             "type": "string"
           },
           "autoRules": {
-            "description": "Rules for auto-annotation",
+            "additionalProperties": false,
+            "description": "Auto-annotation rules applied to matching proxy request URLs.",
+            "properties": {
+              "color": {
+                "description": "Highlight color to apply.",
+                "enum": [
+                  "RED",
+                  "ORANGE",
+                  "YELLOW",
+                  "GREEN",
+                  "CYAN",
+                  "BLUE",
+                  "PINK",
+                  "MAGENTA",
+                  "GRAY",
+                  "NONE"
+                ],
+                "type": "string"
+              },
+              "notes": {
+                "description": "Notes to apply to matching requests.",
+                "type": "string"
+              },
+              "urlPatterns": {
+                "description": "URL substrings to match.",
+                "items": {
+                  "description": "URL substring.",
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
             "type": "object"
           },
           "entryId": {
@@ -1586,14 +2609,88 @@
         "required": [
           "action"
         ],
-        "type": "object"
+        "type": "object",
+        "x-burp-actionRequirements": {
+          "ANNOTATE_BY_PATTERN": [
+            "pattern"
+          ],
+          "ANNOTATE_COLLABORATOR": [],
+          "ANNOTATE_INTRUDER": [
+            "url"
+          ],
+          "ANNOTATE_ORGANIZER": [
+            "url"
+          ],
+          "ANNOTATE_PROXY": [
+            "entryId|url"
+          ],
+          "ANNOTATE_REPEATER": [
+            "url"
+          ],
+          "ANNOTATE_SCANNER": [],
+          "ANNOTATE_TARGET": [
+            "entryId|url"
+          ],
+          "ANNOTATE_WEBSOCKET": [],
+          "CLEAR_ANNOTATIONS": [],
+          "DISABLE_AUTO_ANNOTATION": [],
+          "ENABLE_AUTO_ANNOTATION": [],
+          "EXPORT_ANNOTATIONS": [],
+          "GET_ANNOTATIONS": [],
+          "IMPORT_ANNOTATIONS": [],
+          "SEARCH_BY_ANNOTATION": []
+        }
       },
       "name": "burp_annotate",
+      "outputSchema": {
+        "additionalProperties": true,
+        "description": "Action-dependent structured result for burp_annotate. Compact responses expose action-specific fields; verbose responses expose text.",
+        "properties": {
+          "items": {
+            "description": "Array result when a tool returns a top-level list.",
+            "items": {
+              "description": "Array item."
+            },
+            "type": "array"
+          },
+          "limitChars": {
+            "description": "Bridge result-size limit used for truncation.",
+            "type": "integer"
+          },
+          "originalChars": {
+            "description": "Serialized result size before bridge truncation.",
+            "type": "integer"
+          },
+          "text": {
+            "description": "Human-readable response when verbose output is requested.",
+            "type": "string"
+          },
+          "truncated": {
+            "description": "True when the bridge replaced an oversized structured result with a truncation summary.",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "title": "Annotations"
     },
     {
       "_meta": {
-        "anthropic/searchHint": "directory tree technology fingerprint attack surface site-wide"
+        "anthropic/searchHint": "directory tree technology fingerprint attack surface site-wide",
+        "burp/actionRequirements": {
+          "ANALYZE_STRUCTURE": [],
+          "CONTENT_ANALYSIS": [],
+          "CORRELATE_ISSUES": [],
+          "CREATE_ISSUES_FROM_ANALYSIS": [],
+          "DETECT_TECHNOLOGY": [],
+          "FULL_ANALYSIS": [],
+          "KEYWORD_ANALYSIS": [],
+          "MAP_ATTACK_SURFACE": [],
+          "RESPONSE_STATS": [],
+          "RESPONSE_VARIATIONS": []
+        },
+        "burp/category": "Site Map Analysis",
+        "burp/help": "Use burp_help with tool='burp_sitemap_analysis' for full examples and workflows."
       },
       "annotations": {
         "destructiveHint": false,
@@ -1603,7 +2700,7 @@
         "title": "Site Map Analysis (Site-Wide)"
       },
       "category": "Site Map Analysis",
-      "description": "SITE-WIDE structure analysis from Burp's Site Map (directory tree, tech detection, attack surface). For per-response content analysis (reflection, keyword search in bodies), use burp_response_analyzer. Analyze site structure, detect technologies, map attack surface, and identify potential vulnerabilities from captured traffic. Actions: ANALYZE_STRUCTURE (directory tree), DETECT_TECHNOLOGY (stack fingerprinting), MAP_ATTACK_SURFACE (input points), CONTENT_ANALYSIS (sensitive data), RESPONSE_STATS (metrics), CORRELATE_ISSUES, RESPONSE_VARIATIONS, KEYWORD_ANALYSIS, FULL_ANALYSIS, CREATE_ISSUES_FROM_ANALYSIS. Data source is Burp's deduplicated URL tree (Site Map), not chronological proxy history — for chronological traffic, use burp_proxy_history.",
+      "description": "Analyze Burp Site Map structure, technologies, attack surface, response statistics, and site-wide findings.",
       "inputSchema": {
         "properties": {
           "action": {
@@ -1644,11 +2741,40 @@
             "type": "string"
           }
         },
-        "type": "object"
+        "type": "object",
+        "x-burp-actionRequirements": {
+          "ANALYZE_STRUCTURE": [],
+          "CONTENT_ANALYSIS": [],
+          "CORRELATE_ISSUES": [],
+          "CREATE_ISSUES_FROM_ANALYSIS": [],
+          "DETECT_TECHNOLOGY": [],
+          "FULL_ANALYSIS": [],
+          "KEYWORD_ANALYSIS": [],
+          "MAP_ATTACK_SURFACE": [],
+          "RESPONSE_STATS": [],
+          "RESPONSE_VARIATIONS": []
+        }
       },
       "name": "burp_sitemap_analysis",
       "outputSchema": {
+        "additionalProperties": true,
+        "description": "Action-dependent structured result for burp_sitemap_analysis. Compact responses expose action-specific fields; verbose responses expose text.",
         "properties": {
+          "items": {
+            "description": "Array result when a tool returns a top-level list.",
+            "items": {
+              "description": "Array item."
+            },
+            "type": "array"
+          },
+          "limitChars": {
+            "description": "Bridge result-size limit used for truncation.",
+            "type": "integer"
+          },
+          "originalChars": {
+            "description": "Serialized result size before bridge truncation.",
+            "type": "integer"
+          },
           "success": {
             "description": "Whether analysis completed successfully",
             "type": "boolean"
@@ -1657,9 +2783,17 @@
             "description": "Target URL prefix that was analyzed",
             "type": "string"
           },
+          "text": {
+            "description": "Human-readable response when verbose output is requested.",
+            "type": "string"
+          },
           "totalEntries": {
             "description": "Total site map entries analyzed",
             "type": "integer"
+          },
+          "truncated": {
+            "description": "True when the bridge replaced an oversized structured result with a truncation summary.",
+            "type": "boolean"
           }
         },
         "type": "object"
@@ -1668,7 +2802,19 @@
     },
     {
       "_meta": {
-        "anthropic/searchHint": "advanced filter lambda expression Java"
+        "anthropic/searchHint": "advanced filter lambda expression Java",
+        "burp/actionRequirements": {
+          "APPLY_FILTER": [
+            "preset|customScript"
+          ],
+          "CREATE_CUSTOM": [
+            "customScript"
+          ],
+          "GET_ACTIVE_FILTER": [],
+          "LIST_PRESETS": []
+        },
+        "burp/category": "Advanced Filtering",
+        "burp/help": "Use burp_help with tool='burp_bambda' for full examples and workflows."
       },
       "annotations": {
         "destructiveHint": false,
@@ -1678,7 +2824,7 @@
         "title": "Bambda Filters"
       },
       "category": "Advanced Filtering",
-      "description": "Create and apply advanced Bambda filters for intelligent traffic filtering using Java code. Bambdas are powerful filters written in Java that can filter Proxy history, Site map, and Logger. Actions: APPLY_FILTER (use preset or custom), LIST_PRESETS (available filters), CREATE_CUSTOM (write Java filter), GET_ACTIVE_FILTER. Presets include: authenticated_requests, api_endpoints, sql_injection_candidates, error_responses, xss_candidates.",
+      "description": "Apply preset or custom Bambda filters to Burp views and inspect the active filter.",
       "inputSchema": {
         "properties": {
           "action": {
@@ -1734,14 +2880,112 @@
         "required": [
           "action"
         ],
-        "type": "object"
+        "type": "object",
+        "x-burp-actionRequirements": {
+          "APPLY_FILTER": [
+            "preset|customScript"
+          ],
+          "CREATE_CUSTOM": [
+            "customScript"
+          ],
+          "GET_ACTIVE_FILTER": [],
+          "LIST_PRESETS": []
+        }
       },
       "name": "burp_bambda",
+      "outputSchema": {
+        "additionalProperties": true,
+        "description": "Action-dependent structured result for burp_bambda. Compact responses expose action-specific fields; verbose responses expose text.",
+        "properties": {
+          "items": {
+            "description": "Array result when a tool returns a top-level list.",
+            "items": {
+              "description": "Array item."
+            },
+            "type": "array"
+          },
+          "limitChars": {
+            "description": "Bridge result-size limit used for truncation.",
+            "type": "integer"
+          },
+          "originalChars": {
+            "description": "Serialized result size before bridge truncation.",
+            "type": "integer"
+          },
+          "text": {
+            "description": "Human-readable response when verbose output is requested.",
+            "type": "string"
+          },
+          "truncated": {
+            "description": "True when the bridge replaced an oversized structured result with a truncation summary.",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "title": "Bambda Filters"
     },
     {
       "_meta": {
-        "anthropic/searchHint": "inject auth header match replace rules auto-modify browser playwright scanner traffic"
+        "anthropic/searchHint": "inject auth header match replace rules auto-modify browser playwright scanner traffic",
+        "burp/actionRequirements": {
+          "add_header": [
+            "header_name",
+            "header_value"
+          ],
+          "add_request_rule": [
+            "rule_id",
+            "rule"
+          ],
+          "add_response_rule": [
+            "rule_id",
+            "rule"
+          ],
+          "add_websocket_rule": [
+            "rule_id",
+            "rule"
+          ],
+          "clear_auth": [],
+          "clear_stats": [],
+          "disable": [],
+          "enable": [],
+          "export_rules": [],
+          "get_stats": [],
+          "get_status": [],
+          "get_timing_data": [],
+          "get_tool_filter": [],
+          "import_rules": [
+            "rules_data"
+          ],
+          "list_headers": [],
+          "list_rules": [],
+          "list_websocket_rules": [],
+          "remove_header": [
+            "header_name"
+          ],
+          "remove_rule": [
+            "rule_id"
+          ],
+          "remove_websocket_rule": [
+            "rule_id"
+          ],
+          "reset_tool_filter": [],
+          "set_auth": [
+            "auth_type",
+            "auth_value"
+          ],
+          "set_mode": [
+            "mode"
+          ],
+          "set_rate_limit": [
+            "delay"
+          ],
+          "set_tool_filter": [
+            "tools"
+          ]
+        },
+        "burp/category": "Core HTTP/Proxy",
+        "burp/help": "Use burp_help with tool='burp_global_interceptor' for full examples and workflows."
       },
       "annotations": {
         "destructiveHint": false,
@@ -1751,7 +2995,7 @@
         "title": "Global Interceptor (All Burp Tools)"
       },
       "category": "Core HTTP/Proxy",
-      "description": "SET-AND-FORGET RULE ENGINE for traffic from ALL Burp tools AND the Playwright browser (which is proxied through Burp by default). This tool NEVER holds/queues traffic — it transforms matching requests/responses inline and forwards immediately, so it is fully automatic and cannot deadlock an agent. USAGE: enable, then add rules — set_auth (auth_type=bearer|basic|api_key|custom + auth_value, optional header_name), add_header, add_request_rule / add_response_rule (match/replace). Rules then apply to all subsequent traffic across Scanner, Intruder, Repeater, custom_http-via-proxy, and the Playwright browser. Set rules FIRST, then drive the browser or start a scan. Because the Playwright browser routes through Burp, these rules transparently modify pages the agent navigates — the clean way to manipulate browser traffic (unlike burp_proxy_interceptor's manual breakpoint queue, which blocks). Scope with set_tool_filter. For browser-proxy-only manual interception use burp_proxy_interceptor; for WebSocket frames use burp_websocket_interceptor. Common use cases: inject auth before a scan or browser session, WAF-bypass header injection, response rewriting, WebSocket handshake headers.",
+      "description": "Automatically apply auth, headers, match/replace rules, and rate limits across traffic from all Burp tools.",
       "inputSchema": {
         "properties": {
           "action": {
@@ -1812,7 +3056,26 @@
             "type": "string"
           },
           "mode": {
-            "description": "Mode settings (intercept_requests, intercept_responses, use_event_queue, etc.)",
+            "additionalProperties": false,
+            "description": "Inline interception mode settings.",
+            "properties": {
+              "intercept_requests": {
+                "description": "Enable request transformations.",
+                "type": "boolean"
+              },
+              "intercept_responses": {
+                "description": "Enable response transformations.",
+                "type": "boolean"
+              },
+              "intercept_websockets": {
+                "description": "Enable WebSocket transformations.",
+                "type": "boolean"
+              },
+              "use_event_queue": {
+                "description": "Use the internal event queue.",
+                "type": "boolean"
+              }
+            },
             "type": "object"
           },
           "priority": {
@@ -1820,7 +3083,109 @@
             "type": "integer"
           },
           "rule": {
-            "description": "Rule object. Required keys: pattern (regex matching URL or content), action ('add_header'|'remove_header'|'replace_body'|'modify_body'|'drop'), priority (int, lower=earlier). Optional: value (for add_header/replace_body), match_target ('url'|'header'|'body'). Example: {pattern: '.*api.*', action: 'add_header', value: 'X-Test: 1', priority: 10}.",
+            "additionalProperties": false,
+            "description": "Rule config used by add_request_rule/add_response_rule/add_websocket_rule. HTTP rules match url_pattern/method/headers/status and modify headers, body, method, path, or status. WebSocket rules use match_pattern/replace_text/direction/drop.",
+            "properties": {
+              "add_headers": {
+                "additionalProperties": {
+                  "description": "Value.",
+                  "type": "string"
+                },
+                "description": "Headers to add or replace.",
+                "properties": {},
+                "type": "object"
+              },
+              "body_replace": {
+                "description": "Replacement body text.",
+                "type": "string"
+              },
+              "body_search": {
+                "description": "Body text or regex to replace.",
+                "type": "string"
+              },
+              "change_method": {
+                "description": "Replacement request method.",
+                "type": "string"
+              },
+              "change_path": {
+                "description": "Replacement request path.",
+                "type": "string"
+              },
+              "change_reason": {
+                "description": "Replacement response reason phrase.",
+                "type": "string"
+              },
+              "change_status": {
+                "description": "Replacement response status code.",
+                "type": "integer"
+              },
+              "content_type": {
+                "description": "Response Content-Type substring to match.",
+                "type": "string"
+              },
+              "description": {
+                "description": "Human-readable rule description.",
+                "type": "string"
+              },
+              "direction": {
+                "description": "WebSocket direction filter.",
+                "enum": [
+                  "both",
+                  "client_to_server",
+                  "server_to_client"
+                ],
+                "type": "string"
+              },
+              "drop": {
+                "description": "Drop matching WebSocket messages.",
+                "type": "boolean"
+              },
+              "match_pattern": {
+                "description": "WebSocket payload text or regex to match.",
+                "type": "string"
+              },
+              "method": {
+                "description": "HTTP method to match for request rules.",
+                "type": "string"
+              },
+              "remove_headers": {
+                "description": "Header names to remove.",
+                "items": {
+                  "description": "Header name.",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "replace_text": {
+                "description": "Replacement WebSocket payload text.",
+                "type": "string"
+              },
+              "required_headers": {
+                "additionalProperties": {
+                  "description": "Value.",
+                  "type": "string"
+                },
+                "description": "Headers that must already be present for a request rule to match.",
+                "properties": {},
+                "type": "object"
+              },
+              "status_code": {
+                "description": "Exact response status code to match.",
+                "type": "integer"
+              },
+              "status_range": {
+                "description": "Response status range to match, for example 400-499.",
+                "type": "string"
+              },
+              "url_pattern": {
+                "description": "URL substring or regex to match for HTTP rules.",
+                "type": "string"
+              },
+              "use_regex": {
+                "description": "Treat url_pattern or match_pattern as a regex.",
+                "type": "boolean"
+              }
+            },
             "type": "object"
           },
           "rule_id": {
@@ -1828,11 +3193,153 @@
             "type": "string"
           },
           "rules_data": {
-            "description": "Exported rules data",
+            "additionalProperties": false,
+            "description": "Object returned by export_rules and accepted by import_rules.",
+            "properties": {
+              "globalHeaders": {
+                "additionalProperties": {
+                  "description": "Value.",
+                  "type": "string"
+                },
+                "description": "Global headers.",
+                "properties": {},
+                "type": "object"
+              },
+              "requestRules": {
+                "description": "Exported request rules.",
+                "items": {
+                  "additionalProperties": false,
+                  "description": "Exported rule.",
+                  "properties": {
+                    "config": {
+                      "additionalProperties": true,
+                      "description": "Rule config.",
+                      "properties": {},
+                      "type": "object"
+                    },
+                    "id": {
+                      "description": "Rule ID.",
+                      "type": "string"
+                    },
+                    "priority": {
+                      "description": "Rule priority.",
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "responseRules": {
+                "description": "Exported response rules.",
+                "items": {
+                  "additionalProperties": false,
+                  "description": "Exported rule.",
+                  "properties": {
+                    "config": {
+                      "additionalProperties": true,
+                      "description": "Rule config.",
+                      "properties": {},
+                      "type": "object"
+                    },
+                    "id": {
+                      "description": "Rule ID.",
+                      "type": "string"
+                    },
+                    "priority": {
+                      "description": "Rule priority.",
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "settings": {
+                "additionalProperties": true,
+                "description": "Exported interceptor settings.",
+                "properties": {
+                  "authHeader": {
+                    "description": "Configured authentication header.",
+                    "type": "string"
+                  },
+                  "authType": {
+                    "description": "Configured authentication type.",
+                    "type": "string"
+                  },
+                  "authValue": {
+                    "description": "Configured authentication value.",
+                    "type": "string"
+                  },
+                  "rateLimitDelay": {
+                    "description": "Rate limit delay in milliseconds.",
+                    "type": "integer"
+                  },
+                  "requestInterception": {
+                    "description": "Whether request interception is enabled.",
+                    "type": "boolean"
+                  },
+                  "responseInterception": {
+                    "description": "Whether response interception is enabled.",
+                    "type": "boolean"
+                  },
+                  "webSocketInterception": {
+                    "description": "Whether WebSocket interception is enabled.",
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
+              },
+              "webSocketRules": {
+                "description": "Exported WebSocket rules.",
+                "items": {
+                  "additionalProperties": false,
+                  "description": "Exported rule.",
+                  "properties": {
+                    "config": {
+                      "additionalProperties": true,
+                      "description": "Rule config.",
+                      "properties": {},
+                      "type": "object"
+                    },
+                    "id": {
+                      "description": "Rule ID.",
+                      "type": "string"
+                    },
+                    "priority": {
+                      "description": "Rule priority.",
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            },
             "type": "object"
           },
           "tools": {
-            "description": "List of tools to filter (PROXY, SCANNER, INTRUDER, etc.)",
+            "description": "Burp tool sources allowed to pass through the global interceptor.",
+            "items": {
+              "description": "Burp tool source.",
+              "enum": [
+                "SUITE",
+                "TARGET",
+                "PROXY",
+                "SCANNER",
+                "INTRUDER",
+                "REPEATER",
+                "LOGGER",
+                "SEQUENCER",
+                "DECODER",
+                "COMPARER",
+                "EXTENSIONS",
+                "RECORDED_LOGIN_REPLAYER",
+                "ORGANIZER",
+                "BURP_AI"
+              ],
+              "type": "string"
+            },
             "type": "array"
           },
           "verbose": {
@@ -1844,15 +3351,120 @@
         "required": [
           "action"
         ],
-        "type": "object"
+        "type": "object",
+        "x-burp-actionRequirements": {
+          "add_header": [
+            "header_name",
+            "header_value"
+          ],
+          "add_request_rule": [
+            "rule_id",
+            "rule"
+          ],
+          "add_response_rule": [
+            "rule_id",
+            "rule"
+          ],
+          "add_websocket_rule": [
+            "rule_id",
+            "rule"
+          ],
+          "clear_auth": [],
+          "clear_stats": [],
+          "disable": [],
+          "enable": [],
+          "export_rules": [],
+          "get_stats": [],
+          "get_status": [],
+          "get_timing_data": [],
+          "get_tool_filter": [],
+          "import_rules": [
+            "rules_data"
+          ],
+          "list_headers": [],
+          "list_rules": [],
+          "list_websocket_rules": [],
+          "remove_header": [
+            "header_name"
+          ],
+          "remove_rule": [
+            "rule_id"
+          ],
+          "remove_websocket_rule": [
+            "rule_id"
+          ],
+          "reset_tool_filter": [],
+          "set_auth": [
+            "auth_type",
+            "auth_value"
+          ],
+          "set_mode": [
+            "mode"
+          ],
+          "set_rate_limit": [
+            "delay"
+          ],
+          "set_tool_filter": [
+            "tools"
+          ]
+        }
       },
       "name": "burp_global_interceptor",
+      "outputSchema": {
+        "additionalProperties": true,
+        "description": "Action-dependent structured result for burp_global_interceptor. Compact responses expose action-specific fields; verbose responses expose text.",
+        "properties": {
+          "items": {
+            "description": "Array result when a tool returns a top-level list.",
+            "items": {
+              "description": "Array item."
+            },
+            "type": "array"
+          },
+          "limitChars": {
+            "description": "Bridge result-size limit used for truncation.",
+            "type": "integer"
+          },
+          "originalChars": {
+            "description": "Serialized result size before bridge truncation.",
+            "type": "integer"
+          },
+          "text": {
+            "description": "Human-readable response when verbose output is requested.",
+            "type": "string"
+          },
+          "truncated": {
+            "description": "True when the bridge replaced an oversized structured result with a truncation summary.",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "title": "Global Interceptor (All Burp Tools)"
     },
     {
       "_meta": {
         "anthropic/alwaysLoad": true,
-        "anthropic/searchHint": "send raw HTTP request modify replay fuzz"
+        "anthropic/searchHint": "send raw HTTP request modify replay fuzz",
+        "burp/actionRequirements": {
+          "ANALYZE_PROTOCOL": [
+            "request|url"
+          ],
+          "SEND_PARALLEL": [
+            "requests"
+          ],
+          "SEND_PIPELINED": [
+            "requests"
+          ],
+          "SEND_REQUEST": [
+            "request"
+          ],
+          "TOGGLE_REQUEST_METHOD": [
+            "request|url"
+          ]
+        },
+        "burp/category": "Core HTTP/Proxy",
+        "burp/help": "Use burp_help with tool='burp_custom_http' for full examples and workflows."
       },
       "annotations": {
         "destructiveHint": false,
@@ -1862,7 +3474,7 @@
         "title": "HTTP Client (Primary)"
       },
       "category": "Core HTTP/Proxy",
-      "description": "PRIMARY TOOL for sending HTTP requests and receiving responses programmatically. CRITICAL: ALWAYS specify port in Host header - use 'Host: example.com:80' for HTTP or 'Host: example.com:443' for HTTPS. Without explicit port, defaults to HTTPS:443 which causes timeouts on HTTP-only servers. Content-Length is automatically calculated - no need to specify it accurately. Line endings are auto-normalized (LF to CRLF). Actions: SEND_REQUEST (single request), SEND_PARALLEL (race condition testing with array of requests), SEND_PIPELINED (HTTP/1.1 only — write 2-20 raw requests back-to-back on ONE TLS socket, for CL.0/TE.CL/CL.TE/TE.0/0.CL/connection-state smuggling labs), TOGGLE_REQUEST_METHOD (GET<>POST), ANALYZE_PROTOCOL (HTTP/HTTPS detection). Supports HTTP/1.1, HTTP/2, SNI, redirects, and connection reuse. BROWSER SYNC: By default, copies headers from proxy traffic and cookies from Burp's cookie jar. ADVANCED: Use target_host/target_port to decouple TCP destination from Host header (host-header SSRF). Use raw_request=true to preserve absolute-URI request lines verbatim (parser-discrepancy / request-smuggling tests). SEND_PARALLEL: defaults to max_concurrency=10 to prevent tail-of-batch drops; pass max_concurrency=50 to opt back into fire-all-at-once behavior for race-condition tests. Use this instead of burp_repeater (which only opens UI tabs). HISTORY VISIBILITY: route_via_proxy tunnels the request through Burp's local proxy listener (default 127.0.0.1:8080) so it appears in Proxy → HTTP history. Default is TRUE for SEND_REQUEST (normal day-to-day testing) and FALSE for SEND_PARALLEL / SEND_PIPELINED (proxy may serialize parallel work or break pipelined smuggling semantics). Set route_via_proxy=false on SEND_REQUEST when you need byte-exact wire behavior (raw_request smuggling, host-header tricks that proxy match/replace would clobber). Set route_via_proxy=true on SEND_PARALLEL/SEND_PIPELINED only when you accept those caveats and want history visibility. When route_via_proxy is on, http_mode is forced to HTTP/1.1, redirection_mode is ignored (handle redirects yourself), and connection_id is ignored — all options that only the Montoya direct-send path supports.",
+      "description": "Primary programmatic HTTP client for single, parallel, and pipelined requests, protocol analysis, and raw request work.",
       "inputSchema": {
         "properties": {
           "action": {
@@ -2033,21 +3645,135 @@
         "required": [
           "action"
         ],
-        "type": "object"
+        "type": "object",
+        "x-burp-actionRequirements": {
+          "ANALYZE_PROTOCOL": [
+            "request|url"
+          ],
+          "SEND_PARALLEL": [
+            "requests"
+          ],
+          "SEND_PIPELINED": [
+            "requests"
+          ],
+          "SEND_REQUEST": [
+            "request"
+          ],
+          "TOGGLE_REQUEST_METHOD": [
+            "request|url"
+          ]
+        }
       },
       "name": "burp_custom_http",
       "outputSchema": {
+        "additionalProperties": true,
+        "description": "Action-dependent structured result for burp_custom_http. Compact responses expose action-specific fields; verbose responses expose text.",
         "properties": {
+          "items": {
+            "description": "Array result when a tool returns a top-level list.",
+            "items": {
+              "description": "Array item."
+            },
+            "type": "array"
+          },
+          "limitChars": {
+            "description": "Bridge result-size limit used for truncation.",
+            "type": "integer"
+          },
+          "originalChars": {
+            "description": "Serialized result size before bridge truncation.",
+            "type": "integer"
+          },
           "request": {
-            "description": "Request metadata (url, method, http_version)",
+            "additionalProperties": true,
+            "description": "Request metadata",
+            "properties": {
+              "http_version": {
+                "description": "HTTP version",
+                "type": "string"
+              },
+              "method": {
+                "description": "HTTP method",
+                "type": "string"
+              },
+              "url": {
+                "description": "Request URL",
+                "type": "string"
+              }
+            },
             "type": "object"
           },
           "response": {
-            "description": "Response data (status_code, headers, body, response_time_ms)",
+            "additionalProperties": true,
+            "description": "Single-response data for SEND_REQUEST",
+            "properties": {
+              "body": {
+                "description": "Response body, capped by max_body_bytes",
+                "type": "string"
+              },
+              "body_length": {
+                "description": "Full response body length in bytes",
+                "type": "integer"
+              },
+              "http_version": {
+                "description": "HTTP version",
+                "type": "string"
+              },
+              "reason_phrase": {
+                "description": "HTTP reason phrase",
+                "type": "string"
+              },
+              "response_time_ms": {
+                "description": "Response time in milliseconds",
+                "type": "integer"
+              },
+              "status_code": {
+                "description": "HTTP status code",
+                "type": "integer"
+              }
+            },
             "type": "object"
+          },
+          "responses": {
+            "description": "Per-response summaries for SEND_PARALLEL and SEND_PIPELINED",
+            "items": {
+              "additionalProperties": true,
+              "properties": {
+                "body_length": {
+                  "description": "Response body length in bytes",
+                  "type": "integer"
+                },
+                "index": {
+                  "description": "Input request index",
+                  "type": "integer"
+                },
+                "response_time_ms": {
+                  "description": "Response time in milliseconds",
+                  "type": "integer"
+                },
+                "status_code": {
+                  "description": "HTTP status code",
+                  "type": "integer"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "routed_via_proxy": {
+            "description": "Whether the request was tunneled through Burp's proxy listener",
+            "type": "boolean"
           },
           "success": {
             "description": "Whether the request was sent successfully",
+            "type": "boolean"
+          },
+          "text": {
+            "description": "Human-readable response when verbose output is requested.",
+            "type": "string"
+          },
+          "truncated": {
+            "description": "True when the bridge replaced an oversized structured result with a truncation summary.",
             "type": "boolean"
           }
         },
@@ -2057,7 +3783,19 @@
     },
     {
       "_meta": {
-        "anthropic/searchHint": "extension log debug error diagnostic"
+        "anthropic/searchHint": "extension log debug error diagnostic",
+        "burp/actionRequirements": {
+          "CLEAR_LOGS": [],
+          "GET_LOGS": [],
+          "RAISE_EVENT": [
+            "message"
+          ],
+          "WRITE_LOG": [
+            "message|object|exceptionMessage"
+          ]
+        },
+        "burp/category": "Documentation & Logging",
+        "burp/help": "Use burp_help with tool='burp_logs' for full examples and workflows."
       },
       "annotations": {
         "destructiveHint": true,
@@ -2067,7 +3805,7 @@
         "title": "Extension Logs"
       },
       "category": "Documentation & Logging",
-      "description": "Access and manage Burp Suite extension logs. Use this to retrieve output logs, error logs, write custom log entries, and raise debug events. Actions: GET_LOGS (retrieve logs), WRITE_LOG (add entry), RAISE_EVENT (debug/info/error/critical), CLEAR_LOGS. Useful for debugging and monitoring extension behavior.",
+      "description": "Read extension logs, write diagnostic entries, raise Burp events, and clear captured logs.",
       "inputSchema": {
         "properties": {
           "action": {
@@ -2114,7 +3852,9 @@
             "type": "string"
           },
           "object": {
-            "description": "Complex object (JSON, array, etc.) to log with WRITE_LOG action. Automatically converted to string. Uses Montoya API's logToOutput(Object) method",
+            "additionalProperties": true,
+            "description": "Arbitrary JSON object to write with WRITE_LOG.",
+            "properties": {},
             "type": "object"
           },
           "stackTrace": {
@@ -2130,14 +3870,70 @@
         "required": [
           "action"
         ],
-        "type": "object"
+        "type": "object",
+        "x-burp-actionRequirements": {
+          "CLEAR_LOGS": [],
+          "GET_LOGS": [],
+          "RAISE_EVENT": [
+            "message"
+          ],
+          "WRITE_LOG": [
+            "message|object|exceptionMessage"
+          ]
+        }
       },
       "name": "burp_logs",
+      "outputSchema": {
+        "additionalProperties": true,
+        "description": "Action-dependent structured result for burp_logs. Compact responses expose action-specific fields; verbose responses expose text.",
+        "properties": {
+          "items": {
+            "description": "Array result when a tool returns a top-level list.",
+            "items": {
+              "description": "Array item."
+            },
+            "type": "array"
+          },
+          "limitChars": {
+            "description": "Bridge result-size limit used for truncation.",
+            "type": "integer"
+          },
+          "originalChars": {
+            "description": "Serialized result size before bridge truncation.",
+            "type": "integer"
+          },
+          "text": {
+            "description": "Human-readable response when verbose output is requested.",
+            "type": "string"
+          },
+          "truncated": {
+            "description": "True when the bridge replaced an oversized structured result with a truncation summary.",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "title": "Extension Logs"
     },
     {
       "_meta": {
-        "anthropic/searchHint": "websocket message send receive frames"
+        "anthropic/searchHint": "websocket message send receive frames",
+        "burp/actionRequirements": {
+          "close": [
+            "connectionId"
+          ],
+          "create": [
+            "url"
+          ],
+          "list_connections": [],
+          "proxy_history": [],
+          "send": [
+            "connectionId",
+            "message"
+          ]
+        },
+        "burp/category": "WebSocket Support",
+        "burp/help": "Use burp_help with tool='burp_websocket' for full examples and workflows."
       },
       "annotations": {
         "destructiveHint": false,
@@ -2147,7 +3943,7 @@
         "title": "WebSocket Client"
       },
       "category": "WebSocket Support",
-      "description": "View WebSocket proxy history and create WebSocket connections. Use this to analyze captured WebSocket traffic, create new WebSocket connections, send messages, and manage connection lifecycle. Actions: proxy_history (view captured messages), create (new connection), send (send message), close (disconnect), list_connections. Workflow: create→returns connectionId→send messages with that ID→close. proxy_history is read-only on captured WebSocket traffic and the default action.",
+      "description": "Inspect WebSocket proxy history and create, send on, list, or close extension WebSocket connections.",
       "inputSchema": {
         "properties": {
           "action": {
@@ -2205,14 +4001,90 @@
         "required": [
           "action"
         ],
-        "type": "object"
+        "type": "object",
+        "x-burp-actionRequirements": {
+          "close": [
+            "connectionId"
+          ],
+          "create": [
+            "url"
+          ],
+          "list_connections": [],
+          "proxy_history": [],
+          "send": [
+            "connectionId",
+            "message"
+          ]
+        }
       },
       "name": "burp_websocket",
+      "outputSchema": {
+        "additionalProperties": true,
+        "description": "Action-dependent structured result for burp_websocket. Compact responses expose action-specific fields; verbose responses expose text.",
+        "properties": {
+          "items": {
+            "description": "Array result when a tool returns a top-level list.",
+            "items": {
+              "description": "Array item."
+            },
+            "type": "array"
+          },
+          "limitChars": {
+            "description": "Bridge result-size limit used for truncation.",
+            "type": "integer"
+          },
+          "originalChars": {
+            "description": "Serialized result size before bridge truncation.",
+            "type": "integer"
+          },
+          "text": {
+            "description": "Human-readable response when verbose output is requested.",
+            "type": "string"
+          },
+          "truncated": {
+            "description": "True when the bridge replaced an oversized structured result with a truncation summary.",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "title": "WebSocket Client"
     },
     {
       "_meta": {
-        "anthropic/searchHint": "intercept modify websocket messages live"
+        "anthropic/searchHint": "intercept modify websocket messages live",
+        "burp/actionRequirements": {
+          "add_auto_modify": [
+            "rule_name",
+            "search_pattern"
+          ],
+          "add_filter": [
+            "filter_name",
+            "filter_pattern"
+          ],
+          "disable": [],
+          "drop": [
+            "message_id"
+          ],
+          "enable": [],
+          "forward": [
+            "message_id"
+          ],
+          "get_queue": [],
+          "modify": [
+            "message_id",
+            "new_payload"
+          ],
+          "remove_auto_modify": [
+            "rule_name"
+          ],
+          "remove_filter": [
+            "filter_name"
+          ],
+          "status": []
+        },
+        "burp/category": "WebSocket Support",
+        "burp/help": "Use burp_help with tool='burp_websocket_interceptor' for full examples and workflows."
       },
       "annotations": {
         "destructiveHint": false,
@@ -2222,7 +4094,7 @@
         "title": "WebSocket Interceptor (WS Only)"
       },
       "category": "WebSocket Support",
-      "description": "WebSocket frames ONLY (text/binary messages). For HTTP traffic in browser proxy, use burp_proxy_interceptor. For HTTP traffic across all Burp tools, use burp_global_interceptor. Intercept and modify WebSocket messages in real-time. Use this for testing WebSocket-based applications by intercepting, modifying, and filtering messages. Supports text and binary messages with match/replace rules. Actions: enable/disable, status, get_queue, forward/drop/modify (message control), add/remove_filter, add/remove_auto_modify.",
+      "description": "Intercept, inspect, modify, forward, or drop WebSocket frames and manage frame filters and auto-modify rules.",
       "inputSchema": {
         "properties": {
           "action": {
@@ -2280,14 +4152,86 @@
         "required": [
           "action"
         ],
-        "type": "object"
+        "type": "object",
+        "x-burp-actionRequirements": {
+          "add_auto_modify": [
+            "rule_name",
+            "search_pattern"
+          ],
+          "add_filter": [
+            "filter_name",
+            "filter_pattern"
+          ],
+          "disable": [],
+          "drop": [
+            "message_id"
+          ],
+          "enable": [],
+          "forward": [
+            "message_id"
+          ],
+          "get_queue": [],
+          "modify": [
+            "message_id",
+            "new_payload"
+          ],
+          "remove_auto_modify": [
+            "rule_name"
+          ],
+          "remove_filter": [
+            "filter_name"
+          ],
+          "status": []
+        }
       },
       "name": "burp_websocket_interceptor",
+      "outputSchema": {
+        "additionalProperties": true,
+        "description": "Action-dependent structured result for burp_websocket_interceptor. Compact responses expose action-specific fields; verbose responses expose text.",
+        "properties": {
+          "items": {
+            "description": "Array result when a tool returns a top-level list.",
+            "items": {
+              "description": "Array item."
+            },
+            "type": "array"
+          },
+          "limitChars": {
+            "description": "Bridge result-size limit used for truncation.",
+            "type": "integer"
+          },
+          "originalChars": {
+            "description": "Serialized result size before bridge truncation.",
+            "type": "integer"
+          },
+          "text": {
+            "description": "Human-readable response when verbose output is requested.",
+            "type": "string"
+          },
+          "truncated": {
+            "description": "True when the bridge replaced an oversized structured result with a truncation summary.",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "title": "WebSocket Interceptor (WS Only)"
     },
     {
       "_meta": {
-        "anthropic/searchHint": "reflection xss keywords anomaly per-response body content"
+        "anthropic/searchHint": "reflection xss keywords anomaly per-response body content",
+        "burp/actionRequirements": {
+          "all": [],
+          "keywords": [],
+          "pattern": [
+            "pattern"
+          ],
+          "rank_anomalies": [],
+          "reflection": [],
+          "variations": []
+        },
+        "burp/category": "Response Analysis",
+        "burp/help": "Use burp_help with tool='burp_response_analyzer' for full examples and workflows."
       },
       "annotations": {
         "destructiveHint": false,
@@ -2297,7 +4241,7 @@
         "title": "Response Analyzer (Per-Response)"
       },
       "category": "Response Analysis",
-      "description": "PER-RESPONSE content analysis (XSS reflection, response keywords, anomaly ranking on individual HTTP responses). For SITE-WIDE structure/technology fingerprinting, use burp_sitemap_analysis. Analyze HTTP responses for keywords, variations, reflection points, and anomalies. Use this to find dynamic content, identify reflection points for XSS testing, detect security-related keywords, and rank anomalous responses. Actions are LOWERCASE: keywords, variations, reflection, pattern, rank_anomalies, all. keywords (find security terms), variations (detect dynamic content), reflection (XSS testing), pattern (regex search), rank_anomalies (AI-powered anomaly detection), all (complete analysis).",
+      "description": "Analyze individual HTTP responses for keywords, variations, reflection points, patterns, and anomalies.",
       "inputSchema": {
         "properties": {
           "action": {
@@ -2327,7 +4271,11 @@
             "type": "boolean"
           },
           "keywords": {
-            "description": "Keywords to search for in responses (for keywords action)",
+            "description": "Keywords to search for in responses.",
+            "items": {
+              "description": "Keyword.",
+              "type": "string"
+            },
             "type": "array"
           },
           "limit": {
@@ -2340,12 +4288,16 @@
             "type": "string"
           },
           "proxyIds": {
-            "description": "Proxy history IDs to analyze for reflection points",
+            "description": "Proxy history IDs to inspect for reflections.",
+            "items": {
+              "description": "Proxy history entry ID.",
+              "type": "integer"
+            },
             "type": "array"
           },
           "testString": {
             "default": "REFLECTED_TEST_12345",
-            "description": "Test string to look for in responses (for reflection analysis)",
+            "description": "Optional label echoed in reflection output for caller correlation. Reflection detection inspects request values from proxy history.",
             "type": "string"
           },
           "topN": {
@@ -2354,7 +4306,11 @@
             "type": "integer"
           },
           "urls": {
-            "description": "URLs to analyze for response variations (for variations action)",
+            "description": "URLs to send or analyze for response variations.",
+            "items": {
+              "description": "URL.",
+              "type": "string"
+            },
             "type": "array"
           },
           "verbose": {
@@ -2366,14 +4322,115 @@
         "required": [
           "action"
         ],
-        "type": "object"
+        "type": "object",
+        "x-burp-actionRequirements": {
+          "all": [],
+          "keywords": [],
+          "pattern": [
+            "pattern"
+          ],
+          "rank_anomalies": [],
+          "reflection": [],
+          "variations": []
+        }
       },
       "name": "burp_response_analyzer",
+      "outputSchema": {
+        "additionalProperties": true,
+        "description": "Action-dependent structured result for burp_response_analyzer. Compact responses expose action-specific fields; verbose responses expose text.",
+        "properties": {
+          "items": {
+            "description": "Array result when a tool returns a top-level list.",
+            "items": {
+              "description": "Array item."
+            },
+            "type": "array"
+          },
+          "limitChars": {
+            "description": "Bridge result-size limit used for truncation.",
+            "type": "integer"
+          },
+          "originalChars": {
+            "description": "Serialized result size before bridge truncation.",
+            "type": "integer"
+          },
+          "text": {
+            "description": "Human-readable response when verbose output is requested.",
+            "type": "string"
+          },
+          "truncated": {
+            "description": "True when the bridge replaced an oversized structured result with a truncation summary.",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "title": "Response Analyzer (Per-Response)"
     },
     {
       "_meta": {
-        "anthropic/searchHint": "encode decode hash URL base64 convert"
+        "anthropic/searchHint": "encode decode hash URL base64 convert",
+        "burp/actionRequirements": {
+          "ascii_to_hex": [
+            "input"
+          ],
+          "base64_decode": [
+            "input"
+          ],
+          "base64_encode": [
+            "input"
+          ],
+          "byte_search": [
+            "input",
+            "searchPattern"
+          ],
+          "compress": [
+            "input"
+          ],
+          "decompress": [
+            "input"
+          ],
+          "hash": [
+            "input"
+          ],
+          "hex_to_ascii": [
+            "input"
+          ],
+          "html_decode": [
+            "input"
+          ],
+          "html_encode": [
+            "input"
+          ],
+          "json_beautify": [
+            "input"
+          ],
+          "json_path": [
+            "input",
+            "jsonPath"
+          ],
+          "json_validate": [
+            "input"
+          ],
+          "number_convert": [
+            "input"
+          ],
+          "random": [],
+          "shell_execute": [
+            "commandArgs"
+          ],
+          "shell_execute_dangerous": [
+            "command"
+          ],
+          "url_decode": [
+            "input"
+          ],
+          "url_encode": [
+            "input"
+          ]
+        },
+        "burp/category": "Utilities",
+        "burp/help": "Use burp_help with tool='burp_utilities' for full examples and workflows."
       },
       "annotations": {
         "destructiveHint": true,
@@ -2383,7 +4440,7 @@
         "title": "Utilities"
       },
       "category": "Utilities",
-      "description": "Access Burp's utility functions for encoding/decoding, hashing, random data generation, JSON manipulation, and shell execution. Actions: base64_encode/decode, url_encode/decode, html_encode/decode, hash (MD5/SHA), random (generate data), json_beautify/validate/path, hex_to_ascii, number_convert, shell_execute (run commands). Essential helper functions for payload crafting and data manipulation.",
+      "description": "Use Burp utilities for encoding, hashing, JSON operations, byte search, number conversion, and opt-in shell execution.",
       "inputSchema": {
         "properties": {
           "action": {
@@ -2439,11 +4496,20 @@
             "type": "string"
           },
           "commandArgs": {
-            "description": "Command arguments as separate strings (for shell_execute - safer than single string)",
+            "description": "Command and arguments for safe shell_execute.",
+            "items": {
+              "description": "Command argument.",
+              "type": "string"
+            },
             "type": "array"
           },
           "envVars": {
-            "description": "Environment variables as key-value pairs",
+            "additionalProperties": {
+              "description": "Value.",
+              "type": "string"
+            },
+            "description": "Environment variables passed to shell execution.",
+            "properties": {},
             "type": "object"
           },
           "fromBase": {
@@ -2535,11 +4601,100 @@
         "required": [
           "action"
         ],
-        "type": "object"
+        "type": "object",
+        "x-burp-actionRequirements": {
+          "ascii_to_hex": [
+            "input"
+          ],
+          "base64_decode": [
+            "input"
+          ],
+          "base64_encode": [
+            "input"
+          ],
+          "byte_search": [
+            "input",
+            "searchPattern"
+          ],
+          "compress": [
+            "input"
+          ],
+          "decompress": [
+            "input"
+          ],
+          "hash": [
+            "input"
+          ],
+          "hex_to_ascii": [
+            "input"
+          ],
+          "html_decode": [
+            "input"
+          ],
+          "html_encode": [
+            "input"
+          ],
+          "json_beautify": [
+            "input"
+          ],
+          "json_path": [
+            "input",
+            "jsonPath"
+          ],
+          "json_validate": [
+            "input"
+          ],
+          "number_convert": [
+            "input"
+          ],
+          "random": [],
+          "shell_execute": [
+            "commandArgs"
+          ],
+          "shell_execute_dangerous": [
+            "command"
+          ],
+          "url_decode": [
+            "input"
+          ],
+          "url_encode": [
+            "input"
+          ]
+        }
       },
       "name": "burp_utilities",
+      "outputSchema": {
+        "additionalProperties": true,
+        "description": "Action-dependent structured result for burp_utilities. Compact responses expose action-specific fields; verbose responses expose text.",
+        "properties": {
+          "items": {
+            "description": "Array result when a tool returns a top-level list.",
+            "items": {
+              "description": "Array item."
+            },
+            "type": "array"
+          },
+          "limitChars": {
+            "description": "Bridge result-size limit used for truncation.",
+            "type": "integer"
+          },
+          "originalChars": {
+            "description": "Serialized result size before bridge truncation.",
+            "type": "integer"
+          },
+          "text": {
+            "description": "Human-readable response when verbose output is requested.",
+            "type": "string"
+          },
+          "truncated": {
+            "description": "True when the bridge replaced an oversized structured result with a truncation summary.",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "title": "Utilities"
     }
   ],
-  "version": "2.8.0"
+  "version": "2.8.1"
 }
