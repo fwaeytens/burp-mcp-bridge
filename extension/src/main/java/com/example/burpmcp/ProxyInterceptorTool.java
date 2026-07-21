@@ -91,6 +91,32 @@ public class ProxyInterceptorTool implements McpTool {
             }
         }
     }
+
+    @Override
+    public void close() {
+        synchronized (registrationLock) {
+            interceptorEnabled.set(false);
+            deregisterRegistrations();
+            clearPendingState();
+            activeWebSockets.clear();
+            interceptedCount.set(0);
+            modifiedCount.set(0);
+            timeoutCount.set(0);
+            responsesIntercepted.set(0);
+            responsesModified.set(0);
+            responsesDropped.set(0);
+            webSocketsIntercepted.set(0);
+            webSocketMessagesIntercepted.set(0);
+            filterPath = null;
+            filterMethod = null;
+            filterHost = null;
+            filterRegex = false;
+            requestHandler = null;
+            responseHandler = null;
+            webSocketHandler = null;
+            handlersRegistered = false;
+        }
+    }
     
     private static void initializeHandlers(MontoyaApi api) {
         Proxy proxy = api.proxy();
@@ -665,39 +691,13 @@ public class ProxyInterceptorTool implements McpTool {
                 return McpUtils.createSuccessResponse("⚠️ Proxy interceptor already disabled");
             }
             interceptorEnabled.set(false);
-            if (requestHandlerRegistration != null && requestHandlerRegistration.isRegistered()) {
-                requestHandlerRegistration.deregister();
-                requestHandlerRegistration = null;
-            }
-            if (responseHandlerRegistration != null && responseHandlerRegistration.isRegistered()) {
-                responseHandlerRegistration.deregister();
-                responseHandlerRegistration = null;
-            }
-            if (webSocketHandlerRegistration != null && webSocketHandlerRegistration.isRegistered()) {
-                webSocketHandlerRegistration.deregister();
-                webSocketHandlerRegistration = null;
-            }
+            deregisterRegistrations();
 
             // Queue/future cleanup stays INSIDE the lock: deregister only stops new
             // interceptions, but a concurrent enable that re-registers handlers could start
             // queueing fresh requests/responses before this cleanup runs and have them wiped.
             // Holding the lock blocks enable until cleanup is done.
-            pendingQueue.clear();
-            for (CompletableFuture<ModificationResponse> future : responseMap.values()) {
-                future.cancel(true);
-            }
-            responseMap.clear();
-
-            // Response side — mirror the request-side cleanup. Without this, response handler
-            // threads blocked in future.get() stay stuck until the 30s timeout and these
-            // collections leak entries across a disable/re-enable cycle. cancel(true) unblocks
-            // them immediately; the handler's catch forwards the original (unmodified) response.
-            pendingResponseQueue.clear();
-            for (CompletableFuture<ModificationResponse> future : responseDecisionMap.values()) {
-                future.cancel(true);
-            }
-            responseDecisionMap.clear();
-            pendingWebSocketQueue.clear();
+            clearPendingState();
 
             // Clear the hold filter so a later filterless enable() reverts to holding all.
             filterPath = null;
@@ -708,6 +708,43 @@ public class ProxyInterceptorTool implements McpTool {
 
         if (!verbose) return McpUtils.createJsonResponse(Map.of("enabled", false));
         return McpUtils.createSuccessResponse("❌ Proxy interceptor disabled and handlers deregistered");
+    }
+
+    private static void deregisterRegistrations() {
+        if (requestHandlerRegistration != null) {
+            if (requestHandlerRegistration.isRegistered()) {
+                requestHandlerRegistration.deregister();
+            }
+            requestHandlerRegistration = null;
+        }
+        if (responseHandlerRegistration != null) {
+            if (responseHandlerRegistration.isRegistered()) {
+                responseHandlerRegistration.deregister();
+            }
+            responseHandlerRegistration = null;
+        }
+        if (webSocketHandlerRegistration != null) {
+            if (webSocketHandlerRegistration.isRegistered()) {
+                webSocketHandlerRegistration.deregister();
+            }
+            webSocketHandlerRegistration = null;
+        }
+    }
+
+    private static void clearPendingState() {
+        pendingQueue.clear();
+        for (CompletableFuture<ModificationResponse> future : responseMap.values()) {
+            future.cancel(true);
+        }
+        responseMap.clear();
+
+        // Cancel response futures so handler threads forward unmodified responses immediately.
+        pendingResponseQueue.clear();
+        for (CompletableFuture<ModificationResponse> future : responseDecisionMap.values()) {
+            future.cancel(true);
+        }
+        responseDecisionMap.clear();
+        pendingWebSocketQueue.clear();
     }
 
     private Object getQueuedRequests(boolean verbose) {

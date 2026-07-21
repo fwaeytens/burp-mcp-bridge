@@ -7,9 +7,9 @@ package com.example.burpmcp;
 public class Version {
     
     // Version components
-    public static final String VERSION = "2.7.0";
-    public static final String BUILD_DATE = "2026-07-13";
-    public static final String RELEASE_NAME = "burp_config tool (project/user options JSON) + working scope 'include subdomains'";
+    public static final String VERSION = "2.8.0";
+    public static final String BUILD_DATE = "2026-07-21";
+    public static final String RELEASE_NAME = "ordered tool registry, automated contract tests, and lifecycle cleanup";
 
     // Feature tracking
     public static final int TOOL_COUNT = 23; // Total number of registered tools
@@ -54,7 +54,20 @@ public class Version {
      * Get detailed changelog for this version.
      */
     public static String getChangelog() {
-        return "## Version 2.7.0 - burp_config tool + working scope 'include subdomains' (2026-07-13)\n\n" +
+        return "## Version 2.8.0 - ordered tool registry, automated contract tests, and lifecycle cleanup (2026-07-21)\n\n" +
+               "### Tool registry and documentation consistency\n" +
+               "- Added ToolRegistry as the ordered source of truth for all 23 tool factories, help categories, search metadata, and action requirements.\n" +
+               "- McpServer and ToolDocumentationStore now consume the registry instead of maintaining separate registration and metadata tables. tools/list order is deterministic with burp_help first.\n" +
+               "- Fixed burp_session_management COOKIE_JAR_SET / COOKIE_JAR_DELETE help requirements to use the runtime parameter names tokenName and tokenValue.\n" +
+               "- Added docs/export plus bridge npm run docs:export so docs/tools.json is generated from the same live getToolInfo() metadata used by tools/list.\n\n" +
+               "### Automated verification\n" +
+               "- Added JUnit contract tests for registry uniqueness/order, JSON-RPC routing/export behavior, help action requirements, and singleton session state persistence/cleanup.\n" +
+               "- Added Node built-in tests for bridge configuration, Burp JSON-RPC transport, tool argument preparation, Content-Length repair, result truncation, and IPv6/env parsing helpers.\n" +
+               "- Split JSON-RPC dispatch out of McpServer and extracted bridge config/client/tool-handler modules so protocol contracts can be tested without starting Burp or the bridge transports.\n\n" +
+               "### Extension reload cleanup\n" +
+               "- McpTool now has an explicit close lifecycle, and McpServer closes tool resources on unload and JVM shutdown.\n" +
+               "- Stateful tools now release interceptor registrations, pending queues/futures, scanner jobs, WebSocket connections/executors, scope handlers, annotations, session tokens, and log buffers during shutdown.\n\n" +
+               "## Version 2.7.0 - burp_config tool + working scope 'include subdomains' (2026-07-13)\n\n" +
                "### 🆕 New tool: burp_config (project/user options as JSON)\n" +
                "- ✅ Read/write Burp PROJECT and USER options via Montoya's export/import JSON API. Actions: GET_PROJECT_OPTIONS / SET_PROJECT_OPTIONS / GET_USER_OPTIONS / SET_USER_OPTIONS. `path` scopes the export (e.g. `target.scope`, `proxy`); `json` carries the import. General primitive for settings the typed tools don't expose (advanced scope, proxy listeners, session-handling rules, upstream proxies).\n" +
                "- ⚠️ SET replaces the options in the supplied JSON — GET the subtree first, modify, then SET it back.\n\n" +

@@ -109,6 +109,51 @@ public class GlobalInterceptorTool implements McpTool {
         this.api = api;
         this.objectMapper = new ObjectMapper();
     }
+
+    @Override
+    public void close() {
+        synchronized (registrationLock) {
+            if (httpHandlerRegistration != null) {
+                if (httpHandlerRegistration.isRegistered()) {
+                    httpHandlerRegistration.deregister();
+                }
+                httpHandlerRegistration = null;
+            }
+            if (webSocketRegistration != null) {
+                if (webSocketRegistration.isRegistered()) {
+                    webSocketRegistration.deregister();
+                }
+                webSocketRegistration = null;
+            }
+            interceptorEnabled.set(false);
+        }
+
+        for (CompletableFuture<ModificationInstructions> future : responseMap.values()) {
+            future.cancel(true);
+        }
+        responseMap.clear();
+        pendingQueue.clear();
+        requestRules.clear();
+        responseRules.clear();
+        webSocketRules.clear();
+        globalHeaders.clear();
+        timingHistory.clear();
+        requestStartTimes.clear();
+
+        authType = null;
+        authValue = null;
+        authHeader = "Authorization";
+        requestInterceptionEnabled.set(true);
+        responseInterceptionEnabled.set(false);
+        webSocketInterceptionEnabled.set(false);
+        useEventQueue.set(false);
+        rateLimitDelay.set(0);
+        lastRequestTime = 0;
+        nextRulePriority.set(100);
+        enabledToolSources.clear();
+        enabledToolSources.addAll(Arrays.asList(ToolType.values()));
+        resetStatistics();
+    }
     
     @Override
     public Map<String, Object> getToolInfo() {
@@ -709,6 +754,12 @@ public class GlobalInterceptorTool implements McpTool {
     }
 
     private Object clearStatistics(boolean verbose) {
+        resetStatistics();
+        if (!verbose) return McpUtils.createJsonResponse(Map.of("success", true, "action", "clear_stats"));
+        return McpUtils.createSuccessResponse("✅ Statistics cleared");
+    }
+
+    private static void resetStatistics() {
         requestsIntercepted.set(0);
         responsesIntercepted.set(0);
         requestsModified.set(0);
@@ -718,8 +769,6 @@ public class GlobalInterceptorTool implements McpTool {
         webSocketMessagesModified.set(0);
         webSocketMessagesDropped.set(0);
         timingHistory.clear();
-        if (!verbose) return McpUtils.createJsonResponse(Map.of("success", true, "action", "clear_stats"));
-        return McpUtils.createSuccessResponse("✅ Statistics cleared");
     }
 
     private Object setToolFilter(Map<String, Object> args, boolean verbose) {

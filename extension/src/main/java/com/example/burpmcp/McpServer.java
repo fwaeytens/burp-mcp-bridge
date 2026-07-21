@@ -17,13 +17,9 @@ import java.io.IOException;
 import java.io.ByteArrayOutputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 
 public class McpServer {
     private final MontoyaApi api;
@@ -31,9 +27,11 @@ public class McpServer {
     private final ObjectMapper objectMapper;
     private final BurpMcpConfig config;
     private final AsyncRequestHandler asyncHandler;
+    private final JsonRpcDispatcher jsonRpcDispatcher;
     private Server server;
     private Thread shutdownHook;
     private final Map<String, McpTool> tools;
+    private boolean stopped;
     private static final Set<String> DOCUMENTATION_TOOL_IDS = Set.of(
         "burp_help"
     );
@@ -47,14 +45,10 @@ public class McpServer {
         this.logging = api.logging();
         this.objectMapper = new ObjectMapper();
         this.config = BurpMcpConfig.getInstance();
-        this.tools = new HashMap<>();
+        this.tools = ToolRegistry.createTools(api);
 
         // Load configuration from system properties/environment
         config.loadFromSystemProperties();
-
-        // Register the singleton tool instances BEFORE the async handler so it can execute
-        // against them (preserving per-tool in-memory state across tools/call requests).
-        initializeTools();
 
         // Initialize async handler, sharing the registered tool instances
         this.asyncHandler = new AsyncRequestHandler(api, tools);
@@ -67,62 +61,16 @@ public class McpServer {
 
         ToolDocumentationStore docStore = ToolDocumentationStore.getInstance();
         docStore.syncWithToolSchemas(tools);
+        this.jsonRpcDispatcher = new JsonRpcDispatcher(
+            objectMapper,
+            tools,
+            asyncHandler,
+            config::getRequestTimeoutMs,
+            config::getServerPort,
+            config::getConfigSummary,
+            new ToolDocumentationExporter(tools)
+        );
         validateToolRegistration();
-    }
-
-    private void initializeTools() {
-        // DOCUMENTATION TOOL FIRST - Critical for AI discovery
-        tools.put("burp_help", new BurpHelpTool(api));
-        
-        // Core HTTP/Proxy Tools
-        tools.put("burp_proxy_history", new ProxyHistoryTool(api));
-        tools.put("burp_repeater", new RepeaterTool(api));
-        tools.put("burp_proxy_interceptor", new ProxyInterceptorTool(api));
-        
-        // Scanning & Analysis
-        tools.put("burp_scanner", new ScannerTool(api));
-        tools.put("burp_intruder", new IntruderTool(api));
-        
-        // Issue Management
-        tools.put("burp_add_issue", new AddIssueTool(api));
-        
-        // Session Management
-        tools.put("burp_session_management", new SessionManagementTool(api));
-        
-        // Analysis & Comparison
-        tools.put("burp_comparer", new ComparerTool(api));
-        tools.put("burp_collaborator", new CollaboratorTool(api));
-
-        // Configuration & Utilities
-        tools.put("burp_scope", new ScopeTool(api));
-        tools.put("burp_config", new ConfigTool(api));
-        tools.put("burp_organizer", new OrganizerTool(api));
-        tools.put("burp_annotate", new AnnotateTool(api));
-        
-        // Site Map Analysis
-        tools.put("burp_sitemap_analysis", new SiteMapAnalysisTool(api));
-        
-        // Advanced Filtering
-        tools.put("burp_bambda", new BambdaTool(api));
-        
-        // Global Interceptor
-        tools.put("burp_global_interceptor", new GlobalInterceptorTool(api));
-        
-        // Custom HTTP Tool - Full HTTP interface implementation
-        tools.put("burp_custom_http", new CustomHttpTool(api));
-        
-        // Logging & Diagnostics
-        tools.put("burp_logs", new LogsTool(api));
-        
-        // WebSocket Support
-        tools.put("burp_websocket", new WebSocketTool(api));
-        tools.put("burp_websocket_interceptor", new WebSocketInterceptorTool(api));
-        
-        // Response Analysis
-        tools.put("burp_response_analyzer", new ResponseAnalysisTool(api));
-        
-        // Utilities
-        tools.put("burp_utilities", new UtilitiesTool(api));
     }
 
     private void validateToolRegistration() {
@@ -185,15 +133,8 @@ public class McpServer {
         // on extension unload/reload — otherwise each reload leaks a hook (and the old
         // McpServer instance it closes over) for the JVM's lifetime.
         shutdownHook = new Thread(() -> {
-            if (server != null && server.isRunning()) {
-                try {
-                    logging.logToOutput("Shutdown hook: stopping MCP Server");
-                    server.stop();
-                } catch (Exception e) {
-                    // Log errors during shutdown
-                    System.err.println("Error in shutdown hook: " + e.getMessage());
-                }
-            }
+            logging.logToOutput("Shutdown hook: stopping MCP Server");
+            stop();
         });
         Runtime.getRuntime().addShutdownHook(shutdownHook);
     }
@@ -202,7 +143,12 @@ public class McpServer {
         return tools;
     }
 
-    public void stop() {
+    public synchronized void stop() {
+        if (stopped) {
+            return;
+        }
+        stopped = true;
+
         // Remove the shutdown hook so a reload doesn't accumulate hooks referencing
         // stale McpServer instances. Ignore if shutdown is already underway.
         if (shutdownHook != null) {
@@ -210,12 +156,13 @@ public class McpServer {
             catch (IllegalStateException ignored) {}
             shutdownHook = null;
         }
+
+        asyncHandler.shutdown();
+        closeTools();
+
         if (server != null) {
             try {
                 logging.logToOutput("Stopping MCP Server on port " + config.getServerPort() + "...");
-
-                // Shutdown async handler first
-                asyncHandler.shutdown();
 
                 server.stop();
                 server.join(); // Wait for server to fully stop
@@ -224,6 +171,17 @@ public class McpServer {
                 logging.logToOutput("MCP Server stopped and resources cleaned up");
             } catch (Exception e) {
                 logging.logToError("Error stopping MCP Server: " + McpUtils.sanitizeForLogging(e.getMessage()));
+            }
+        }
+    }
+
+    private void closeTools() {
+        for (Map.Entry<String, McpTool> entry : tools.entrySet()) {
+            try {
+                entry.getValue().close();
+            } catch (Exception e) {
+                logging.logToError("Error closing tool " + entry.getKey() + ": " +
+                    McpUtils.sanitizeForLogging(e.getMessage()));
             }
         }
     }
@@ -240,7 +198,7 @@ public class McpServer {
             if (!originAllowed) {
                 response.setStatus(403);
                 objectMapper.writeValue(response.getOutputStream(),
-                    createJsonRpcErrorResponse(null, -32000, "Origin not allowed"));
+                    jsonRpcDispatcher.createErrorResponse(null, -32000, "Origin not allowed"));
                 return;
             }
 
@@ -260,12 +218,12 @@ public class McpServer {
             } catch (PayloadTooLargeException e) {
                 response.setStatus(413);
                 objectMapper.writeValue(response.getOutputStream(),
-                    createJsonRpcErrorResponse(null, -32001, e.getMessage()));
+                    jsonRpcDispatcher.createErrorResponse(null, -32001, e.getMessage()));
                 return;
             } catch (Exception e) {
                 response.setStatus(400);
                 objectMapper.writeValue(response.getOutputStream(),
-                    createJsonRpcErrorResponse(null, -32700, "Invalid JSON payload: " + e.getMessage()));
+                    jsonRpcDispatcher.createErrorResponse(null, -32700, "Invalid JSON payload: " + e.getMessage()));
                 return;
             }
 
@@ -273,7 +231,7 @@ public class McpServer {
             if (requestNode == null) {
                 response.setStatus(400);
                 objectMapper.writeValue(response.getOutputStream(),
-                    createJsonRpcErrorResponse(null, -32700, "Empty JSON payload"));
+                    jsonRpcDispatcher.createErrorResponse(null, -32700, "Empty JSON payload"));
                 return;
             }
 
@@ -281,18 +239,18 @@ public class McpServer {
             if (methodNode == null || !methodNode.isTextual()) {
                 response.setStatus(400);
                 objectMapper.writeValue(response.getOutputStream(),
-                    createJsonRpcErrorResponse(requestNode.get("id"), -32600, "Missing or invalid 'method'"));
+                    jsonRpcDispatcher.createErrorResponse(requestNode.get("id"), -32600, "Missing or invalid 'method'"));
                 return;
             }
 
             try {
-                JsonNode responseNode = handleMcpRequest(methodNode.asText(), requestNode, clientHost);
+                JsonNode responseNode = jsonRpcDispatcher.handle(methodNode.asText(), requestNode, clientHost);
                 objectMapper.writeValue(response.getOutputStream(), responseNode);
             } catch (Exception e) {
                 logging.logToError("Error handling MCP request: " + e.getMessage());
                 response.setStatus(500);
                 objectMapper.writeValue(response.getOutputStream(),
-                    createJsonRpcErrorResponse(requestNode.get("id"), -32603, "Internal error: " + e.getMessage()));
+                    jsonRpcDispatcher.createErrorResponse(requestNode.get("id"), -32603, "Internal error: " + e.getMessage()));
             }
         }
         
@@ -313,265 +271,6 @@ public class McpServer {
             response.setHeader("Access-Control-Allow-Headers", "Content-Type");
             response.setHeader("Access-Control-Max-Age", "600");
             response.setStatus(200);
-        }
-    }
-
-    private JsonNode handleMcpRequest(String method, JsonNode request, String clientHost) throws Exception {
-        Map<String, Object> response = new HashMap<>();
-        
-        // Add JSON-RPC fields
-        response.put("jsonrpc", "2.0");
-        if (request.has("id")) {
-            response.put("id", request.get("id"));
-        }
-        
-        Map<String, Object> result = new HashMap<>();
-        
-        switch (method) {
-            case "initialize":
-                result.put("protocolVersion", "2025-06-18");
-
-                Map<String, Object> capabilities = new HashMap<>();
-                capabilities.put("tools", Map.of());
-                capabilities.put("logging", Map.of());
-                result.put("capabilities", capabilities);
-
-                Map<String, Object> serverInfo = new HashMap<>();
-                serverInfo.put("name", "burp-mcp-bridge");
-                serverInfo.put("version", Version.VERSION);
-                result.put("serverInfo", serverInfo);
-
-                result.put("instructions",
-                    "CRITICAL RULES for Burp MCP Bridge tools:\n\n" +
-                    "1. SENDING HTTP REQUESTS: Use burp_custom_http for ALL HTTP sending. " +
-                    "burp_repeater only creates UI tabs and CANNOT send requests. " +
-                    "burp_intruder only configures attacks and CANNOT execute them.\n\n" +
-                    "2. HOST HEADER PORT: ALWAYS specify port in Host header. " +
-                    "HTTP: Host: example.com:80 | HTTPS: Host: example.com:443. " +
-                    "Without explicit port, defaults to HTTPS:443 which causes timeouts on HTTP-only servers.\n\n" +
-                    "3. CONTENT-LENGTH: Automatically calculated - no need to specify it.\n\n" +
-                    "4. LINE ENDINGS: Both \\n and \\r\\n work (auto-normalized to CRLF).\n\n" +
-                    "5. PARALLEL REQUESTS: Use burp_custom_http SEND_PARALLEL with 'requests' array (not 'request' + 'count').\n\n" +
-                    "6. DISCOVERY: Use burp_help to list tools or search by capability before starting.\n\n" +
-                    "7. SCANNING: Always use burp_scanner GET_STATUS to check scan progress after starting a scan. " +
-                    "Use insertionPointParams to scan specific parameters by name (like Burp UI's 'Scan selected insertion point').\n\n" +
-                    "8. VISIBILITY: burp_custom_http requests appear in the Target tab (Site Map), NOT in Proxy History. " +
-                    "Proxy History only contains traffic that flowed through the proxy (browser requests).\n\n" +
-                    "9. BROWSER = PLAYWRIGHT THROUGH BURP: The Playwright browser is proxied through Burp by default, so pages the agent " +
-                    "navigates show up in burp_proxy_history and the Site Map, and can be transformed by Burp rules. " +
-                    "For AUTOMATIC modification, set burp_global_interceptor rules FIRST (enable, then set_auth/add_header/add_request_rule), THEN navigate — " +
-                    "it transforms-and-forwards inline (no queue, no polling, no deadlock; works with normal browser_click). " +
-                    "For MANUAL hold/modify/forward with burp_proxy_interceptor, you MUST trigger the held request NON-BLOCKING — " +
-                    "fire-and-forget via browser_evaluate running an un-awaited fetch(), then get_queue -> modify_request -> disable. " +
-                    "Do NOT trigger held traffic with a blocking browser_click/browser_navigate: the agent gets stuck in that call and cannot poll/forward (deadlock).\n\n" +
-                    "Tool quick reference:\n" +
-                    "- Send/modify HTTP requests -> burp_custom_http\n" +
-                    "- Scan for vulnerabilities -> burp_scanner\n" +
-                    "- View captured traffic -> burp_proxy_history (proxy only, not burp_custom_http requests)\n" +
-                    "- Out-of-band testing -> burp_collaborator: " +
-                    "Use GENERATE_PAYLOAD to get a unique *.burpcollaborator.net domain, " +
-                    "inject it into requests (SSRF, blind XXE, blind SQLi, email header injection), " +
-                    "then CHECK_INTERACTIONS to check if the target made DNS/HTTP requests to it.\n" +
-                    "- Inject auth/headers or match-replace across browser + all Burp tools -> burp_global_interceptor (AUTOMATIC rules)\n" +
-                    "- Manage target scope -> burp_scope"
-                );
-                break;
-                
-            case "initialized":
-                // Empty response for initialized notification
-                return objectMapper.valueToTree(Map.of("jsonrpc", "2.0"));
-                
-            case "tools/list":
-                result.put("tools", tools.values().stream()
-                    .map(McpTool::getToolInfo)
-                    .toArray());
-                break;
-                
-            case "tools/call":
-                return handleAsyncToolCall(request, clientHost);
-                
-            case "tools/call_sync":
-                // Fallback synchronous tool call for compatibility
-                JsonNode params = request.get("params");
-                if (params == null || !params.has("name")) {
-                    return createJsonRpcErrorResponse(request.get("id"), -32600, "Missing params.name");
-                }
-                String toolName = params.get("name").asText();
-                JsonNode arguments = params.has("arguments") ? params.get("arguments") : objectMapper.createObjectNode();
-                
-                McpTool tool = tools.get(toolName);
-                if (tool != null) {
-                    applyToolResult(result, tool.execute(arguments));
-                } else {
-                    return createJsonRpcErrorResponse(request.get("id"), -32601, "Unknown tool: " + toolName);
-                }
-                break;
-                
-            case "ping":
-                // Simple ping/pong for keep-alive
-                return objectMapper.valueToTree(Map.of("jsonrpc", "2.0", "id", request.get("id"), "result", Map.of()));
-                
-            case "stats":
-                // Return server statistics
-                Map<String, Object> stats = new HashMap<>();
-                stats.put("asyncStats", asyncHandler.getStats().toString());
-                stats.put("toolCount", tools.size());
-                stats.put("serverPort", config.getServerPort());
-                stats.put("configSummary", config.getConfigSummary());
-                result.put("stats", stats);
-                break;
-                
-            default:
-                return createJsonRpcErrorResponse(request.get("id"), -32601, "Method not found: " + method);
-        }
-        
-        response.put("result", result);
-        return objectMapper.valueToTree(response);
-    }
-    
-    /**
-     * Handle asynchronous tool calls with timeout and rate limiting.
-     */
-    private JsonNode handleAsyncToolCall(JsonNode request, String clientHost) throws Exception {
-        JsonNode params = request.get("params");
-        if (params == null || !params.has("name")) {
-            return createJsonRpcErrorResponse(request.get("id"), -32600, "Missing params.name");
-        }
-        String toolName = params.get("name").asText();
-        JsonNode arguments = params.has("arguments") ? params.get("arguments") : objectMapper.createObjectNode();
-
-        // Short-circuit unknown tools with a JSON-RPC error
-        if (!tools.containsKey(toolName)) {
-            return createJsonRpcErrorResponse(request.get("id"), -32601, "Unknown tool: " + toolName);
-        }
-        
-        try {
-            // Execute asynchronously with timeout
-            CompletableFuture<Object> future = asyncHandler.executeAsync(toolName, arguments, clientHost);
-            
-            // Wait for result with configured timeout
-            Object toolResult = future.get(config.getRequestTimeoutMs(), TimeUnit.MILLISECONDS);
-            
-            Map<String, Object> response = new HashMap<>();
-            response.put("jsonrpc", "2.0");
-            if (request.has("id")) {
-                response.put("id", request.get("id"));
-            }
-            
-            Map<String, Object> result = new HashMap<>();
-            applyToolResult(result, toolResult);
-            response.put("result", result);
-            
-            return objectMapper.valueToTree(response);
-            
-        } catch (java.util.concurrent.TimeoutException e) {
-            Map<String, Object> response = new HashMap<>();
-            response.put("jsonrpc", "2.0");
-            if (request.has("id")) {
-                response.put("id", request.get("id"));
-            }
-            
-            Map<String, Object> error = new HashMap<>();
-            error.put("code", -32603);
-            error.put("message", "Tool execution timed out after " + config.getRequestTimeoutMs() + "ms");
-            response.put("error", error);
-            
-            return objectMapper.valueToTree(response);
-            
-        } catch (Exception e) {
-            Map<String, Object> response = new HashMap<>();
-            response.put("jsonrpc", "2.0");
-            if (request.has("id")) {
-                response.put("id", request.get("id"));
-            }
-            
-            Map<String, Object> error = new HashMap<>();
-            error.put("code", -32603);
-            error.put("message", "Tool execution failed: " + e.getMessage());
-            response.put("error", error);
-            
-            return objectMapper.valueToTree(response);
-        }
-    }
-
-    private JsonNode createJsonRpcErrorResponse(JsonNode idNode, int code, String message) {
-        Map<String, Object> response = new HashMap<>();
-        response.put("jsonrpc", "2.0");
-        if (idNode != null) {
-            response.put("id", idNode);
-        }
-        Map<String, Object> error = new HashMap<>();
-        error.put("code", code);
-        error.put("message", message);
-        response.put("error", error);
-        return objectMapper.valueToTree(response);
-    }
-
-    @SuppressWarnings("unchecked")
-    private void applyToolResult(Map<String, Object> result, Object toolResult) {
-        if (toolResult instanceof Map<?, ?> map &&
-            (map.containsKey("content") || map.containsKey("structuredContent") || map.containsKey("isError"))) {
-            Map<String, Object> wrapped = (Map<String, Object>) map;
-            if (wrapped.containsKey("content")) {
-                result.put("content", wrapped.get("content"));
-            }
-            if (wrapped.containsKey("structuredContent")) {
-                result.put("structuredContent", wrapped.get("structuredContent"));
-            }
-            if (wrapped.containsKey("isError")) {
-                result.put("isError", wrapped.get("isError"));
-            }
-            attachStructuredContentIfMissing(result);
-            return;
-        }
-
-        result.put("content", toolResult);
-        attachStructuredContentIfMissing(result);
-    }
-
-    /**
-     * Defensive fallback: when a tool result has text content but no
-     * {@code structuredContent}, and the text is parseable JSON, attach the parsed
-     * object as {@code structuredContent}. MCP clients that enforce the spec (e.g.
-     * opencode) reject responses lacking {@code structuredContent} when the tool
-     * declares an {@code outputSchema}. This keeps all tools spec-compliant without
-     * per-tool changes.
-     */
-    @SuppressWarnings("unchecked")
-    private void attachStructuredContentIfMissing(Map<String, Object> result) {
-        if (result.containsKey("structuredContent")) {
-            return;
-        }
-        Object content = result.get("content");
-        if (!(content instanceof List<?> list) || list.isEmpty()) {
-            return;
-        }
-        Object first = list.get(0);
-        if (!(first instanceof Map<?, ?> blockMap)) {
-            return;
-        }
-        Map<String, Object> block = (Map<String, Object>) blockMap;
-        if (!"text".equals(block.get("type"))) {
-            return;
-        }
-        Object textValue = block.get("text");
-        if (!(textValue instanceof String text)) {
-            return;
-        }
-        String trimmed = text.trim();
-        if (trimmed.isEmpty() || (trimmed.charAt(0) != '{' && trimmed.charAt(0) != '[')) {
-            return;
-        }
-        try {
-            Object parsed = objectMapper.readValue(trimmed, Object.class);
-            // MCP spec: structuredContent must be a JSON object. Wrap arrays.
-            if (parsed instanceof Map) {
-                result.put("structuredContent", parsed);
-            } else if (parsed instanceof List) {
-                result.put("structuredContent", Map.of("items", parsed));
-            }
-        } catch (Exception ignored) {
-            // Not valid JSON — leave content as-is.
         }
     }
 
@@ -633,37 +332,7 @@ public class McpServer {
      */
     @Deprecated
     public static McpTool getToolInstance(String toolName, MontoyaApi api) {
-        // This is a simplified version for the async handler
-        // In production, you might want to use a factory pattern
-        switch (toolName) {
-            // Documentation tools FIRST
-            case "burp_help": return new BurpHelpTool(api);
-
-            // Existing tools
-            case "burp_proxy_history": return new ProxyHistoryTool(api);
-            case "burp_repeater": return new RepeaterTool(api);
-            case "burp_proxy_interceptor": return new ProxyInterceptorTool(api);
-            case "burp_global_interceptor": return new GlobalInterceptorTool(api);
-            case "burp_scanner": return new ScannerTool(api);
-            case "burp_intruder": return new IntruderTool(api);
-            case "burp_add_issue": return new AddIssueTool(api);
-            case "burp_session_management": return new SessionManagementTool(api);
-            case "burp_comparer": return new ComparerTool(api);
-            case "burp_collaborator": return new CollaboratorTool(api);
-            case "burp_scope": return new ScopeTool(api);
-            case "burp_config": return new ConfigTool(api);
-            case "burp_organizer": return new OrganizerTool(api);
-            case "burp_annotate": return new AnnotateTool(api);
-            case "burp_sitemap_analysis": return new SiteMapAnalysisTool(api);
-            case "burp_bambda": return new BambdaTool(api);
-            case "burp_custom_http": return new CustomHttpTool(api);
-            case "burp_logs": return new LogsTool(api);
-            case "burp_websocket": return new WebSocketTool(api);
-            case "burp_websocket_interceptor": return new WebSocketInterceptorTool(api);
-            case "burp_response_analyzer": return new ResponseAnalysisTool(api);
-            case "burp_utilities": return new UtilitiesTool(api);
-            default: return null;
-        }
+        return ToolRegistry.createTool(toolName, api);
     }
     
     // Static methods for session handler persistence

@@ -62,6 +62,18 @@ public class AnnotateTool implements McpTool {
     }
 
     @Override
+    public void close() {
+        for (Registration registration : handlerRegistrations.values()) {
+            if (registration != null && registration.isRegistered()) {
+                registration.deregister();
+            }
+        }
+        handlerRegistrations.clear();
+        activeHandlers.clear();
+        annotationDatabase.clear();
+    }
+
+    @Override
     public Map<String, Object> getToolInfo() {
         Map<String, Object> tool = new HashMap<>();
         tool.put("name", "burp_annotate");

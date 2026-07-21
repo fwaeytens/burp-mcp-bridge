@@ -58,6 +58,13 @@ public class SessionManagementTool implements McpTool {
     }
 
     @Override
+    public void close() {
+        McpServer.clearSessionHandler();
+        sessionTokens.clear();
+        sessionUrls.clear();
+    }
+
+    @Override
     public Map<String, Object> getToolInfo() {
         Map<String, Object> tool = new HashMap<>();
         tool.put("name", "burp_session_management");

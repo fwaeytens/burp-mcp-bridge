@@ -61,6 +61,22 @@ public class ScopeTool implements McpTool {
         }
     }
 
+    @Override
+    public void close() {
+        synchronized (ScopeTool.class) {
+            if (scopeChangeRegistration != null) {
+                if (scopeChangeRegistration.isRegistered()) {
+                    scopeChangeRegistration.deregister();
+                }
+                scopeChangeRegistration = null;
+            }
+            recentScopeChanges.clear();
+            knownInScopeUrls.clear();
+            knownOutOfScopeUrls.clear();
+            scopeCheckCount.set(0);
+        }
+    }
+
     /** Extract the bare hostname from a full URL, "*.host", or bare "host[:port][/path]". */
     static String extractHost(String input) {
         if (input == null) return null;

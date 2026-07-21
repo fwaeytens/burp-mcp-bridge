@@ -19,7 +19,6 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 import { createServer as createNodeHttpServer } from 'node:http';
 import { createServer as createNodeHttpsServer } from 'node:https';
@@ -28,196 +27,31 @@ import { execSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
+import {
+  hostHeaderToHostname,
+  normalizeBareHostEntry,
+  stripIpv6Brackets,
+  toInt
+} from './lib/bridge-utils.js';
+import { createBridgeConfig } from './lib/bridge-config.js';
+import { BurpJsonRpcClient } from './lib/burp-json-rpc-client.js';
+import { registerMcpToolHandlers } from './lib/mcp-tool-handlers.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-/** Attempt to read version from package.json to keep a single source of truth. */
-function getBridgeVersion() {
-  try {
-    const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
-    return pkg.version || '0.0.0-dev';
-  } catch {
-    // Fallback if package.json is not co-located (e.g., single-file deployment)
-    return '0.0.0-dev';
-  }
-}
-
-/**
- * Auto-fix Content-Length in raw HTTP requests.
- * LLMs frequently miscount body bytes, causing servers to hang waiting for data.
- */
-function fixContentLength(rawRequest) {
-  const separator = '\r\n\r\n';
-  const sepIndex = rawRequest.indexOf(separator);
-  if (sepIndex === -1) return rawRequest;
-
-  const headersPart = rawRequest.substring(0, sepIndex);
-  const body = rawRequest.substring(sepIndex + separator.length);
-
-  if (!body) return rawRequest;
-
-  const actualLength = Buffer.byteLength(body, 'utf-8');
-
-  const clRegex = /^Content-Length:\s*\d+$/mi;
-  let fixedHeaders;
-  if (clRegex.test(headersPart)) {
-    fixedHeaders = headersPart.replace(clRegex, `Content-Length: ${actualLength}`);
-  } else {
-    fixedHeaders = headersPart + `\r\nContent-Length: ${actualLength}`;
-  }
-
-  return fixedHeaders + separator + body;
-}
-
-/**
- * Truncate MCP tool results that exceed the size limit.
- * Claude Code caps MCP results at 100,000 chars — anything beyond is silently dropped.
- * We measure the full serialized size (content + structuredContent) and truncate to fit.
- */
-const MAX_RESULT_CHARS = 95_000;
-
-function truncateResult(result) {
-  if (!result) return result;
-
-  // Measure total serialized size including structuredContent
-  const serialized = JSON.stringify(result);
-  if (serialized.length <= MAX_RESULT_CHARS) return result;
-
-  // Drop structuredContent first — it's a duplicate of the text content
-  const trimmed = { ...result };
-  delete trimmed.structuredContent;
-
-  // Re-check after dropping structuredContent
-  const afterDrop = JSON.stringify(trimmed);
-  if (afterDrop.length <= MAX_RESULT_CHARS) return trimmed;
-
-  // Still too large — truncate text content blocks
-  if (!Array.isArray(trimmed.content)) return trimmed;
-
-  let remaining = MAX_RESULT_CHARS;
-  const truncatedContent = [];
-
-  for (const block of trimmed.content) {
-    if (block.type === 'text' && typeof block.text === 'string') {
-      if (remaining <= 0) continue;
-      if (block.text.length <= remaining) {
-        truncatedContent.push(block);
-        remaining -= block.text.length;
-      } else {
-        truncatedContent.push({ ...block, text: block.text.slice(0, remaining) });
-        remaining = 0;
-      }
-    } else {
-      truncatedContent.push(block);
-    }
-  }
-
-  truncatedContent.push({
-    type: 'text',
-    text: `\n\n⚠️ Result truncated (${serialized.length.toLocaleString()} chars exceeded ${MAX_RESULT_CHARS.toLocaleString()} char limit). Use 'limit' parameter or narrower filters to reduce output size.`
-  });
-
-  return { ...trimmed, content: truncatedContent };
-}
-
-/** Parse integer envs safely with default; trims and handles empty strings. */
-function toInt(v, def) {
-  const n = Number.parseInt(String(v ?? '').trim(), 10);
-  return Number.isFinite(n) ? n : def;
-}
-
-/** Extract bare hostname from a Host header value (handles IPv6 [::1]:port). */
-function hostHeaderToHostname(hostHeader = '') {
-  const s = String(hostHeader);
-  if (s.startsWith('[')) {
-    // IPv6 form: [::1]:3000
-    const end = s.indexOf(']');
-    return end > 1 ? s.slice(1, end) : s;
-  }
-  // IPv4/hostname form: localhost:3000 or 127.0.0.1:3000
-  return s.split(':')[0];
-}
-
-/** True if the host string is a bare (unbracketed) IPv6 literal, e.g. "::1", "fe80::1". */
-function isBareIpv6(host = '') {
-  const s = String(host);
-  return s.includes(':') && !s.startsWith('[');
-}
-
-/** Strip a single surrounding pair of brackets from an IPv6 literal: "[::1]" -> "::1". */
-function stripIpv6Brackets(host = '') {
-  const s = String(host);
-  return s.startsWith('[') && s.endsWith(']') ? s.slice(1, -1) : s;
-}
-
-/** Wrap a bare IPv6 literal in brackets for URL use: "::1" -> "[::1]" (idempotent). */
-function bracketIpv6(host = '') {
-  return isBareIpv6(host) ? `[${host}]` : String(host);
-}
-
-/**
- * Normalize a bare host[:port] allowlist entry to the same form the origin check
- * produces (unbracketed IPv6): "[::1]" -> "::1", "[::1]:3000" -> "::1:3000",
- * "example.com:3000" -> "example.com:3000".
- */
-function normalizeBareHostEntry(entry = '') {
-  const s = String(entry).trim();
-  if (s.startsWith('[')) {
-    const end = s.indexOf(']');
-    if (end > 1) return s.slice(1, end) + s.slice(end + 1); // strip brackets, keep any :port
-  }
-  return s;
-}
-
 class BurpMcpBridge {
   constructor() {
-    // ---- Core configuration
-    this.debug = process.env.BURP_MCP_DEBUG === 'true';
+    const bridgeConfig = createBridgeConfig({ bridgeDir: __dirname });
+    Object.assign(this, bridgeConfig);
+    this.BRIDGE_VERSION = bridgeConfig.bridgeVersion;
 
-    // Burp target
-    const burpPortInt = toInt(process.env.BURP_MCP_SERVER_PORT, 8081);
-    this.burpPort = String(burpPortInt);
-    this.burpHost = process.env.BURP_MCP_SERVER_HOST ?? 'localhost';
-
-    // Build a robust base URL (IPv4, IPv6, hostname). A bare IPv6 literal (e.g. "::1")
-    // must be bracketed before assignment — otherwise URL.hostname silently rejects it
-    // and the host stays "localhost".
-    const burpUrl = new URL('http://localhost');
-    burpUrl.hostname = bracketIpv6(this.burpHost);
-    burpUrl.port = this.burpPort;
-    this.burpBaseUrl = burpUrl.toString();
-
-    // Timeouts and limits
-    this.requestTimeout = toInt(process.env.BURP_MCP_REQUEST_TIMEOUT, 30_000);
-    this.maxSseSessions = toInt(process.env.MCP_MAX_SSE, 100);
-    this.maxHttpSessions = toInt(process.env.MCP_MAX_HTTP_SESSIONS, 100);
-    this.maxPostBytes = toInt(process.env.MCP_MAX_POST_BYTES, 1_048_576); // 1 MiB
-    this.sessionIdleMs = toInt(process.env.MCP_SESSION_IDLE_MS, 30 * 60 * 1000); // 30 minutes
-
-    // HTTP server config
-    this.httpPort = toInt(process.env.MCP_HTTP_PORT, 3000);
-    this.useHttps = process.env.MCP_USE_HTTPS !== 'false'; // default: HTTPS enabled
-    this.certPath = process.env.MCP_CERT_PATH || join(__dirname, 'certs');
-    this.keyFile = process.env.MCP_KEY_FILE || join(this.certPath, 'key.pem');
-    this.certFile = process.env.MCP_CERT_FILE || join(this.certPath, 'cert.pem');
-
-    // Host binding
-    this.bindLoopbackOnly = process.env.MCP_BIND_LOOPBACK_ONLY !== 'false'; // default: true
-    const requestedHost = process.env.MCP_HTTP_HOST ?? '127.0.0.1';
-    this.httpHost = this.bindLoopbackOnly ? '127.0.0.1' : requestedHost;
-
-    // Transport mode
-    const mode = (process.env.MCP_TRANSPORT_MODE ?? 'both').toLowerCase();
-    const validModes = new Set(['stdio', 'http', 'both']);
-    this.transportMode = validModes.has(mode) ? mode : 'both';
-
-    // Derived transport names for HTTP
-    this.httpSseTransportName = this.useHttps ? 'https-sse' : 'http-sse';
-    this.streamableHttpTransportName = 'streamable-http';
-
-    // Version
-    this.BRIDGE_VERSION = getBridgeVersion();
+    this.burpClient = new BurpJsonRpcClient({
+      baseUrl: this.burpBaseUrl,
+      version: this.BRIDGE_VERSION,
+      requestTimeout: this.requestTimeout,
+      logDebug: (message) => this.logDebug(message)
+    });
 
     // MCP server for stdio and SSE transports
     this.server = this.createMcpServer();
@@ -263,141 +97,18 @@ class BurpMcpBridge {
   }
 
   setupHandlers(server = this.server) {
-    server.setRequestHandler(ListToolsRequestSchema, async () => {
-      const rid = randomUUID();
-      try {
-        this.logDebug(`[${rid}] Requesting tools list from Burp extension`);
-        const response = await this.callBurpExtension('tools/list', {}, { rid });
-        const count = response?.result?.tools?.length ?? 0;
-        this.logDebug(`[${rid}] Received ${count} tools from Burp extension`);
-        return response.result;
-      } catch (error) {
-        this.logError(`[${rid}] Error getting tools list: ${error.message}`);
-        return { tools: [] };
-      }
-    });
-
-    server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      const rid = randomUUID();
-      const toolName = request.params.name;
-      try {
-        this.logDebug(`[${rid}] Calling tool: ${toolName}`);
-
-        // Auto-fix Content-Length for burp_custom_http requests.
-        // Skip when byte-exactness is required: raw_request preserves bytes verbatim,
-        // and SEND_PIPELINED smuggling relies on a deliberately-wrong Content-Length.
-        const args = { ...(request.params.arguments || {}) };
-        if (toolName === 'burp_custom_http') {
-          const preserveBytes = args.raw_request === true || args.action === 'SEND_PIPELINED';
-          if (!preserveBytes) {
-            if (typeof args.request === 'string') {
-              args.request = fixContentLength(args.request);
-            }
-            if (Array.isArray(args.requests)) {
-              args.requests = args.requests.map(r => typeof r === 'string' ? fixContentLength(r) : r);
-            }
-          }
-        }
-
-        // Forward tool call to Burp extension (async handling)
-        const response = await this.callBurpExtension(
-          'tools/call',
-          { name: toolName, arguments: args },
-          { rid, toolName }
-        );
-
-        if (response.error) {
-          const msg = String(response.error.message || 'Unknown error');
-          this.logError(`[${rid}] Tool ${toolName} returned error: ${msg}`);
-          return { content: [{ type: 'text', text: `❌ Error: ${msg}` }], isError: true };
-        }
-
-        this.logDebug(`[${rid}] Tool ${toolName} completed successfully`);
-        return truncateResult(response.result);
-      } catch (error) {
-        this.logError(`[${rid}] Error calling tool ${toolName}: ${error.message}`);
-        return {
-          content: [{
-            type: 'text',
-            text:
-              `❌ Connection Error: ${error.message}\n\n` +
-              `Troubleshooting:\n` +
-              `• Ensure Burp Suite Professional is running\n` +
-              `• Verify Burp MCP Bridge extension is loaded\n` +
-              `• Check that ${this.burpBaseUrl} is reachable`
-          }],
-          isError: true
-        };
-      }
+    registerMcpToolHandlers({
+      server,
+      callBurpExtension: (method, params, context) => this.callBurpExtension(method, params, context),
+      burpBaseUrl: this.burpBaseUrl,
+      logDebug: (message) => this.logDebug(message),
+      logError: (message) => this.logError(message)
     });
   }
 
   // ---------- Burp JSON-RPC call
   async callBurpExtension(method, params, { rid, toolName } = {}) {
-    const requestBody = {
-      jsonrpc: '2.0',
-      id: Date.now(),
-      method,
-      params
-    };
-
-    const headers = {
-      'Content-Type': 'application/json',
-      'User-Agent': `Burp-MCP-Bridge/${this.BRIDGE_VERSION}`,
-      ...(rid ? { 'X-Request-Id': rid } : {}),
-      ...(toolName ? { 'X-Tool-Name': String(toolName) } : {})
-    };
-
-    this.logDebug(`${rid ? `[${rid}] ` : ''}Sending request to Burp: ${method}`);
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.requestTimeout);
-
-    try {
-      const response = await fetch(this.burpBaseUrl, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(requestBody),
-        signal: controller.signal
-      });
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        if (response.status === 404) {
-          throw new Error(`Burp MCP extension endpoint not found at ${this.burpBaseUrl}. Is the extension loaded?`);
-        }
-        if (response.status >= 500) {
-          throw new Error(`Burp extension server error (${response.status}): ${response.statusText}`);
-        }
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      // Parse body defensively
-      const raw = await response.text();
-      let result;
-      try {
-        result = JSON.parse(raw);
-      } catch {
-        throw new Error('Invalid JSON response from Burp extension');
-      }
-
-      // Minimal JSON-RPC shape validation
-      const valid = result && result.jsonrpc === '2.0' && ('result' in result || 'error' in result);
-      if (!valid) throw new Error('Invalid JSON-RPC response from Burp extension');
-
-      this.logDebug(`${rid ? `[${rid}] ` : ''}Received response from Burp: ${result.error ? 'ERROR' : 'SUCCESS'}`);
-      return result;
-    } catch (error) {
-      clearTimeout(timeoutId);
-      if (error.name === 'AbortError') {
-        throw new Error(`Request timeout after ${this.requestTimeout}ms. Burp extension may be overloaded.`);
-      }
-      const code = error.code || error.cause?.code;
-      if (code === 'ECONNREFUSED') {
-        throw new Error(`Cannot connect to Burp extension at ${this.burpBaseUrl}. Is Burp Suite running with the MCP Bridge extension loaded?`);
-      }
-      throw error;
-    }
+    return this.burpClient.call(method, params, { rid, toolName });
   }
 
   // ---------- Optional extension stats (non-fatal)

@@ -1,6 +1,6 @@
 {
   "name": "burp-mcp-bridge",
-  "version": "2.7.0",
+  "version": "2.8.0",
   "description": "Dual-transport MCP server bridge for Burp Suite Professional supporting both stdio (Claude Code) and HTTP/SSE (OpenAI, Google Gemini) connections. Features self-documentation system, AI discovery tools, enhanced organizer management, advanced session management, native cookie jar integration, proxy history filtering, WebSocket interception, response analysis, and 23 comprehensive security tools focused on Montoya API",
   "main": "index.js",
   "type": "module",
@@ -17,7 +17,8 @@
     "start": "node index.js",
     "start:http": "MCP_TRANSPORT_MODE=http node index.js",
     "start:both": "MCP_TRANSPORT_MODE=both node index.js",
-    "test": "echo \"Bridge connection test\" && node -e \"console.log('MCP Bridge v2.7.0 ready')\""
+    "docs:export": "node scripts/export-tools-docs.js",
+    "test": "node --test"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0"

@@ -32,6 +32,26 @@ public class WebSocketInterceptorTool implements McpTool {
     public WebSocketInterceptorTool(MontoyaApi api) {
         this.api = api;
     }
+
+    @Override
+    public void close() {
+        if (currentRegistration != null) {
+            if (currentRegistration.isRegistered()) {
+                currentRegistration.deregister();
+            }
+            currentRegistration = null;
+        }
+        interceptEnabled.set(false);
+        forwardPendingMessages();
+        messageQueue.clear();
+        pendingMessages.clear();
+        activeFilters.clear();
+        autoModifyRules.clear();
+        messageIdCounter.set(0);
+        totalIntercepted.set(0);
+        totalModified.set(0);
+        totalDropped.set(0);
+    }
     
     @Override
     public Map<String, Object> getToolInfo() {
@@ -180,14 +200,21 @@ public class WebSocketInterceptorTool implements McpTool {
         }
         interceptEnabled.set(false);
 
+        int forwarded = forwardPendingMessages();
+        messageQueue.clear();
+        pendingMessages.clear();
+
+        if (!verbose) return McpUtils.createJsonResponse(Map.of("enabled", false, "messagesForwarded", forwarded));
+        return McpUtils.createSuccessResponse("✅ WebSocket interceptor disabled. Forwarded " + forwarded + " pending messages.");
+    }
+
+    private int forwardPendingMessages() {
         int forwarded = 0;
         for (InterceptedMessage msg : pendingMessages.values()) {
             msg.action = MessageAction.FORWARD;
             forwarded++;
         }
-
-        if (!verbose) return McpUtils.createJsonResponse(Map.of("enabled", false, "messagesForwarded", forwarded));
-        return McpUtils.createSuccessResponse("✅ WebSocket interceptor disabled. Forwarded " + forwarded + " pending messages.");
+        return forwarded;
     }
 
     private Object getStatus(boolean verbose) {

@@ -17,6 +17,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.ExecutionException;
@@ -37,7 +38,7 @@ public class WebSocketTool implements McpTool {
     // a hard timeout guarantees the MCP worker is released within WS_SEND_TIMEOUT_MS, so
     // a hung send can never drain the worker pool and wedge the whole bridge. A genuinely
     // stuck send leaks at most one ephemeral daemon thread (cached, reused once it frees).
-    private static final ExecutorService WS_SEND_EXECUTOR = Executors.newCachedThreadPool(r -> {
+    private final ExecutorService wsSendExecutor = Executors.newCachedThreadPool(r -> {
         Thread t = new Thread(r, "burp-mcp-ws-send");
         t.setDaemon(true);
         return t;
@@ -46,6 +47,21 @@ public class WebSocketTool implements McpTool {
     
     public WebSocketTool(MontoyaApi api) {
         this.api = api;
+    }
+
+    @Override
+    public void close() {
+        for (ExtensionWebSocket webSocket : activeConnections.values()) {
+            try {
+                webSocket.close();
+            } catch (Exception ignored) {
+                // Best-effort close during extension shutdown.
+            }
+        }
+        activeConnections.clear();
+        messageHistory.clear();
+        connectionCounter.set(0);
+        wsSendExecutor.shutdownNow();
     }
 
     @Override
@@ -278,14 +294,19 @@ public class WebSocketTool implements McpTool {
         }
 
         // Run the blocking Montoya send on a dedicated executor with a hard timeout so a
-        // stalled connection cannot wedge the MCP worker pool (see WS_SEND_EXECUTOR above).
-        Future<?> sendFuture = WS_SEND_EXECUTOR.submit(() -> {
-            if (binary) {
-                webSocket.sendBinaryMessage(ByteArray.byteArray(binaryBytes));
-            } else {
-                webSocket.sendTextMessage(message);
-            }
-        });
+        // stalled connection cannot wedge the MCP worker pool (see wsSendExecutor above).
+        final Future<?> sendFuture;
+        try {
+            sendFuture = wsSendExecutor.submit(() -> {
+                if (binary) {
+                    webSocket.sendBinaryMessage(ByteArray.byteArray(binaryBytes));
+                } else {
+                    webSocket.sendTextMessage(message);
+                }
+            });
+        } catch (RejectedExecutionException ree) {
+            return McpUtils.createErrorResponse("Failed to send message: WebSocket send executor is shutting down");
+        }
 
         try {
             sendFuture.get(WS_SEND_TIMEOUT_MS, TimeUnit.MILLISECONDS);

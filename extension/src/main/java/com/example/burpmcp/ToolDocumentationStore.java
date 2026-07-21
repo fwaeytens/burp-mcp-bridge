@@ -15,87 +15,31 @@ public class ToolDocumentationStore {
     );
 
     private ToolDocumentationStore() {
-        this.documentation = new HashMap<>();
-        this.categories = new HashMap<>();
-        // Documentation is now fully dynamic via syncWithToolSchemas()
-        // But we populate curated metadata (keywords/capabilities/examples) here
-        populateCuratedMetadata();
-        // Then enhance with examples, related tools, and best practices
+        this.documentation = new LinkedHashMap<>();
+        this.categories = new LinkedHashMap<>();
+        populateRegistryMetadata();
         populateEnhancedMetadata();
-        // Finally attach per-action required-parameter maps. These cannot be derived
-        // from the JSON Schema (allOf/if-then was stripped for Claude API compatibility),
-        // so they are curated here from each tool's runtime validation.
-        populateActionRequirements();
     }
 
     /**
-     * Per-action required parameters, curated to match each tool's runtime validation.
-     * Surfaced by burp_help as {@code action_requirements} so an agent can see which
-     * parameters each action needs before calling a tool.
+     * Seed documentation from the ordered registry. Live descriptions and schemas are
+     * overlaid later by syncWithToolSchemas().
      */
-    private void populateActionRequirements() {
-        Map<String, Map<String, List<String>>> byTool = new LinkedHashMap<>();
-
-        byTool.put("burp_scanner", Map.of(
-            "START_SCAN", List.of("urls"),
-            "CRAWL_ONLY", List.of("urls"),
-            "GET_STATUS", List.of("scanId"),
-            "GET_ISSUES", List.of("scanId"),
-            "CANCEL_SCAN", List.of("scanId"),
-            "ADD_TO_SCAN", List.of("scanId"),
-            "GENERATE_REPORT", List.of("scanId"),
-            "IMPORT_BCHECK", List.of("definition"),
-            "SCAN_SPECIFIC_REQUEST", List.of("request", "useHttps")));
-
-        byTool.put("burp_custom_http", Map.of(
-            "SEND_REQUEST", List.of("request"),
-            "SEND_PARALLEL", List.of("requests"),
-            "SEND_PIPELINED", List.of("requests"),
-            "TOGGLE_REQUEST_METHOD", List.of("request|url")));
-
-        byTool.put("burp_collaborator", Map.of(
-            "RESTORE_CLIENT", List.of("secretKey")));
-
-        byTool.put("burp_session_management", Map.of(
-            "SET_TOKEN", List.of("tokenName", "tokenValue"),
-            "TEST_SESSION", List.of("url"),
-            "COOKIE_JAR_SET", List.of("name", "value", "domain"),
-            "COOKIE_JAR_DELETE", List.of("name", "domain"),
-            "ANALYZE_SESSION_VALIDITY", List.of("url")));
-
-        byTool.put("burp_annotate", Map.of(
-            "ANNOTATE_PROXY", List.of("entryId|url"),
-            "ANNOTATE_TARGET", List.of("entryId|url"),
-            "ANNOTATE_ORGANIZER", List.of("url"),
-            "ANNOTATE_REPEATER", List.of("url"),
-            "ANNOTATE_INTRUDER", List.of("url"),
-            "ANNOTATE_BY_PATTERN", List.of("pattern")));
-
-        byTool.put("burp_organizer", Map.of(
-            "GET_ITEM_BY_ID", List.of("itemId"),
-            "GET_ITEM_STATUS", List.of("itemId")));
-
-        byTool.put("burp_repeater", Map.of(
-            "SEND_TO_REPEATER", List.of("url"),
-            "SEND_FROM_PROXY", List.of("proxyUrl")));
-
-        byTool.put("burp_comparer", Map.of(
-            "COMPARE_RESPONSES", List.of("url1", "url2"),
-            "COMPARE_REQUESTS", List.of("url1", "url2"),
-            "COMPARE_TEXT", List.of("text1", "text2"),
-            "COMPARE_PROXY_ENTRIES", List.of("url1", "url2")));
-
-        byTool.put("burp_config", Map.of(
-            "SET_PROJECT_OPTIONS", List.of("json"),
-            "SET_USER_OPTIONS", List.of("json"),
-            "RESET_PROJECT_OPTIONS", List.of("path")));
-
-        byTool.forEach((toolName, reqs) -> {
-            ToolDocumentation doc = documentation.get(toolName);
-            if (doc != null) {
-                doc.setActionRequirements(reqs);
+    private void populateRegistryMetadata() {
+        for (ToolDescriptor descriptor : ToolRegistry.documentationDescriptors()) {
+            ToolDocumentation.Builder builder = new ToolDocumentation.Builder(descriptor.getName())
+                .category(descriptor.getCategory())
+                .description("");
+            for (String keyword : descriptor.getKeywords()) {
+                builder.addKeyword(keyword);
             }
-        });
+            for (String capability : descriptor.getCapabilities()) {
+                builder.addCapability(capability);
+            }
+            ToolDocumentation doc = builder.build();
+            doc.setActionRequirements(descriptor.getActionRequirements());
+            documentation.put(descriptor.getName(), doc);
+        }
     }
     
     public static synchronized ToolDocumentationStore getInstance() {
@@ -118,7 +62,9 @@ public class ToolDocumentationStore {
     }
     
     public Map<String, List<String>> getCategorizedTools() {
-        return new HashMap<>(categories);
+        Map<String, List<String>> copy = new LinkedHashMap<>();
+        categories.forEach((category, tools) -> copy.put(category, new ArrayList<>(tools)));
+        return copy;
     }
     
     public List<String> getCategories() {
@@ -342,150 +288,20 @@ public class ToolDocumentationStore {
         return null;
     }
 
-    /**
-     * Populate curated metadata (keywords, capabilities, examples) for tools
-     * This fixes the search functionality in burp_help
-     */
-    private void populateCuratedMetadata() {
-        // burp_scanner
-        addToolMetadata("burp_scanner", "Scanning & Analysis",
-            List.of("scan", "vulnerability", "active", "passive", "audit", "inject", "xss", "sqli", "security"),
-            List.of("scan for vulnerabilities", "detect security issues", "audit endpoints", "find SQL injection",
-                    "discover XSS", "security testing", "automated scanning", "vulnerability assessment"));
+    private void addToolEnhancements(String toolName,
+                                     List<String> relatedTools,
+                                     List<Map<String, Object>> examples,
+                                     List<String> bestPractices) {
+        ToolDescriptor descriptor = ToolRegistry.get(toolName);
+        String effectiveCategory = descriptor != null ? descriptor.getCategory() : "Uncategorized";
+        List<String> effectiveKeywords = descriptor != null ? descriptor.getKeywords() : List.of();
+        List<String> effectiveCapabilities = descriptor != null ? descriptor.getCapabilities() : List.of();
 
-        // burp_custom_http
-        addToolMetadata("burp_custom_http", "Core HTTP/Proxy",
-            List.of("http", "request", "send", "post", "get", "parallel", "race", "http2", "redirect",
-                    "smuggling", "host-header", "ssrf", "raw", "target_host"),
-            List.of("send HTTP requests", "test race conditions", "modify requests", "HTTP/2 support",
-                    "parallel requests", "custom headers", "SNI configuration",
-                    "host-header SSRF", "request smuggling", "parser discrepancy",
-                    "decouple TCP destination from Host header", "send raw verbatim bytes"));
-
-        // burp_proxy_history
-        addToolMetadata("burp_proxy_history", "Core HTTP/Proxy",
-            List.of("history", "traffic", "filter", "search", "proxy", "log", "requests"),
-            List.of("view proxy traffic", "search requests", "filter by host", "analyze traffic",
-                    "inspect requests", "query history"));
-
-        // burp_proxy_interceptor
-        addToolMetadata("burp_proxy_interceptor", "Core HTTP/Proxy",
-            List.of("intercept", "modify", "block", "tamper", "real-time", "proxy"),
-            List.of("intercept requests", "modify in real-time", "block requests", "tamper traffic",
-                    "real-time modification", "request filtering"));
-
-        // burp_global_interceptor
-        addToolMetadata("burp_global_interceptor", "Core HTTP/Proxy",
-            List.of("global", "intercept", "all-tools", "auth", "header", "inject"),
-            List.of("intercept all tools", "add authentication", "inject headers globally",
-                    "modify scanner requests", "global request modification"));
-
-        // burp_intruder
-        addToolMetadata("burp_intruder", "Scanning & Analysis",
-            List.of("fuzz", "brute", "payload", "attack", "parameter", "wordlist"),
-            List.of("configure fuzzing", "setup attacks", "parameter fuzzing", "payload positions",
-                    "brute force setup"));
-
-        // burp_repeater
-        addToolMetadata("burp_repeater", "Core HTTP/Proxy",
-            List.of("manual", "test", "ui", "tab", "workspace"),
-            List.of("send to repeater", "manual testing", "create repeater tab"));
-
-        // burp_collaborator
-        addToolMetadata("burp_collaborator", "Analysis & Comparison",
-            List.of("oob", "out-of-band", "dns", "http", "payload", "external", "callback"),
-            List.of("generate payloads", "monitor out-of-band", "DNS interactions", "HTTP callbacks",
-                    "external interaction detection"));
-
-        // burp_websocket
-        addToolMetadata("burp_websocket", "WebSocket Support",
-            List.of("websocket", "ws", "wss", "real-time", "bidirectional"),
-            List.of("view websocket traffic", "create websocket connections", "send websocket messages",
-                    "websocket history"));
-
-        // burp_websocket_interceptor
-        addToolMetadata("burp_websocket_interceptor", "WebSocket Support",
-            List.of("websocket", "intercept", "modify", "ws", "binary", "text"),
-            List.of("intercept websockets", "modify websocket messages", "websocket interception",
-                    "binary message handling"));
-
-        // burp_session_management
-        addToolMetadata("burp_session_management", "Session Management",
-            List.of("cookie", "session", "auth", "token", "jwt", "csrf"),
-            List.of("manage cookies", "extract tokens", "session handling", "JWT analysis",
-                    "cookie jar operations", "automatic session handling"));
-
-        // burp_scope
-        addToolMetadata("burp_scope", "Configuration & Utilities",
-            List.of("scope", "target", "include", "exclude", "filter", "domain"),
-            List.of("manage scope", "add to scope", "check scope", "filter targets",
-                    "scope configuration"));
-
-        // burp_add_issue
-        addToolMetadata("burp_add_issue", "Issue Management",
-            List.of("issue", "finding", "vulnerability", "report", "create", "custom"),
-            List.of("create issues", "add findings", "custom vulnerabilities", "report issues",
-                    "issue grouping"));
-
-        // burp_response_analyzer
-        addToolMetadata("burp_response_analyzer", "Response Analysis",
-            List.of("analyze", "response", "keywords", "variations", "reflection", "xss", "pattern"),
-            List.of("analyze responses", "detect variations", "find reflections", "keyword search",
-                    "response patterns", "anomaly detection"));
-
-        // burp_utilities
-        addToolMetadata("burp_utilities", "Utilities",
-            List.of("encode", "decode", "base64", "url", "hash", "md5", "sha", "compress", "json",
-                    "shell", "execute", "command", "process"),
-            List.of("encode data", "decode base64", "URL encoding", "hash generation",
-                    "JSON operations", "compression", "hex conversion",
-                    "shell execution", "run commands", "execute processes"));
-
-        // burp_bambda
-        addToolMetadata("burp_bambda", "Advanced Filtering",
-            List.of("filter", "bambda", "query", "search", "advanced", "java", "scripting"),
-            List.of("apply filters", "bambda scripting", "advanced filtering", "custom queries",
-                    "traffic filtering"));
-
-        // burp_sitemap_analysis
-        addToolMetadata("burp_sitemap_analysis", "Site Map Analysis",
-            List.of("sitemap", "structure", "technology", "fingerprint", "attack-surface", "endpoints"),
-            List.of("analyze site structure", "detect technology stack", "map attack surface",
-                    "technology fingerprinting", "endpoint discovery"));
-
-        // burp_annotate
-        addToolMetadata("burp_annotate", "Configuration & Utilities",
-            List.of("annotate", "note", "comment", "highlight", "color", "organize"),
-            List.of("add annotations", "highlight entries", "add notes", "color code",
-                    "organize findings"));
-
-        // burp_organizer
-        addToolMetadata("burp_organizer", "Configuration & Utilities",
-            List.of("organize", "manage", "track", "status", "workflow"),
-            List.of("organize requests", "track progress", "manage workflow", "status tracking"));
-
-        // burp_comparer
-        addToolMetadata("burp_comparer", "Analysis & Comparison",
-            List.of("compare", "diff", "difference", "analyze", "side-by-side"),
-            List.of("compare responses", "find differences", "diff requests", "side-by-side comparison"));
-
-        // burp_logs
-        addToolMetadata("burp_logs", "Documentation & Logging",
-            List.of("logs", "debug", "errors", "output", "diagnostics", "events"),
-            List.of("view logs", "debug extension", "check errors", "diagnostic information"));
-    }
-
-    private void addToolMetadata(String toolName, String category, List<String> keywords, List<String> capabilities) {
-        addToolMetadata(toolName, category, keywords, capabilities, List.of(), List.of(), List.of());
-    }
-
-    private void addToolMetadata(String toolName, String category, List<String> keywords, List<String> capabilities,
-                                  List<String> relatedTools, List<Map<String, Object>> examples, List<String> bestPractices) {
         ToolDocumentation doc = documentation.get(toolName);
         if (doc == null) {
             // Create new documentation entry
             doc = new ToolDocumentation.Builder(toolName)
-                .category(category)
+                .category(effectiveCategory)
                 .description("") // Will be populated by syncWithToolSchemas
                 .build();
             documentation.put(toolName, doc);
@@ -493,14 +309,14 @@ public class ToolDocumentationStore {
 
         // Rebuild with all metadata
         ToolDocumentation.Builder builder = new ToolDocumentation.Builder(toolName)
-            .category(category)
+            .category(effectiveCategory)
             .description(doc.getDescription());
 
         // Add keywords and capabilities
-        for (String keyword : keywords) {
+        for (String keyword : effectiveKeywords) {
             builder.addKeyword(keyword);
         }
-        for (String capability : capabilities) {
+        for (String capability : effectiveCapabilities) {
             builder.addCapability(capability);
         }
 
@@ -524,7 +340,11 @@ public class ToolDocumentationStore {
             builder.addBestPractice(practice);
         }
 
-        documentation.put(toolName, builder.build());
+        ToolDocumentation updated = builder.build();
+        updated.setActionRequirements(descriptor != null
+            ? descriptor.getActionRequirements()
+            : doc.getActionRequirements());
+        documentation.put(toolName, updated);
     }
 
     /**
@@ -532,13 +352,7 @@ public class ToolDocumentationStore {
      */
     private void populateEnhancedMetadata() {
         // burp_custom_http - PRIMARY HTTP tool with examples
-        addToolMetadata("burp_custom_http", "Core HTTP/Proxy",
-            List.of("http", "request", "send", "post", "get", "parallel", "race", "http2", "redirect",
-                    "smuggling", "host-header", "ssrf", "raw", "target_host"),
-            List.of("send HTTP requests", "test race conditions", "modify requests", "HTTP/2 support",
-                    "parallel requests", "custom headers", "SNI configuration",
-                    "host-header SSRF", "request smuggling", "parser discrepancy",
-                    "decouple TCP destination from Host header", "send raw verbatim bytes"),
+        addToolEnhancements("burp_custom_http",
             List.of("burp_response_analyzer", "burp_session_management", "burp_proxy_history"),
             List.of(
                 Map.of(
@@ -650,10 +464,7 @@ public class ToolDocumentationStore {
             ));
 
         // burp_scanner with examples
-        addToolMetadata("burp_scanner", "Scanning & Analysis",
-            List.of("scan", "vulnerability", "active", "passive", "audit", "inject", "xss", "sqli", "security"),
-            List.of("scan for vulnerabilities", "detect security issues", "audit endpoints", "find SQL injection",
-                    "discover XSS", "security testing", "automated scanning", "vulnerability assessment"),
+        addToolEnhancements("burp_scanner",
             List.of("burp_add_issue", "burp_scope", "burp_proxy_history"),
             List.of(
                 Map.of(
@@ -702,10 +513,7 @@ public class ToolDocumentationStore {
             ));
 
         // burp_proxy_history with examples
-        addToolMetadata("burp_proxy_history", "Core HTTP/Proxy",
-            List.of("history", "traffic", "filter", "search", "proxy", "log", "requests"),
-            List.of("view proxy traffic", "search requests", "filter by host", "analyze traffic",
-                    "inspect requests", "query history"),
+        addToolEnhancements("burp_proxy_history",
             List.of("burp_custom_http", "burp_scope", "burp_response_analyzer"),
             List.of(
                 Map.of(
@@ -734,9 +542,7 @@ public class ToolDocumentationStore {
             ));
 
         // burp_repeater - UI only warning
-        addToolMetadata("burp_repeater", "Core HTTP/Proxy",
-            List.of("manual", "test", "ui", "tab", "workspace"),
-            List.of("send to repeater", "manual testing", "create repeater tab"),
+        addToolEnhancements("burp_repeater",
             List.of("burp_custom_http"),
             List.of(
                 Map.of(
@@ -752,10 +558,7 @@ public class ToolDocumentationStore {
             ));
 
         // burp_intruder - UI only warning
-        addToolMetadata("burp_intruder", "Scanning & Analysis",
-            List.of("fuzz", "brute", "payload", "attack", "parameter", "wordlist"),
-            List.of("configure fuzzing", "setup attacks", "parameter fuzzing", "payload positions",
-                    "brute force setup"),
+        addToolEnhancements("burp_intruder",
             List.of("burp_custom_http"),
             List.of(
                 Map.of(
@@ -772,10 +575,7 @@ public class ToolDocumentationStore {
             ));
 
         // burp_collaborator with examples
-        addToolMetadata("burp_collaborator", "Analysis & Comparison",
-            List.of("oob", "out-of-band", "dns", "http", "payload", "external", "callback"),
-            List.of("generate payloads", "monitor out-of-band", "DNS interactions", "HTTP callbacks",
-                    "external interaction detection"),
+        addToolEnhancements("burp_collaborator",
             List.of("burp_custom_http", "burp_scanner"),
             List.of(
                 Map.of(
@@ -797,10 +597,7 @@ public class ToolDocumentationStore {
             ));
 
         // burp_sitemap_analysis with examples
-        addToolMetadata("burp_sitemap_analysis", "Site Map Analysis",
-            List.of("sitemap", "structure", "technology", "fingerprint", "attack-surface", "endpoints"),
-            List.of("analyze site structure", "detect technology stack", "map attack surface",
-                    "technology fingerprinting", "endpoint discovery"),
+        addToolEnhancements("burp_sitemap_analysis",
             List.of("burp_proxy_history", "burp_scanner", "burp_scope"),
             List.of(
                 Map.of(
@@ -836,10 +633,7 @@ public class ToolDocumentationStore {
             ));
 
         // burp_response_analyzer with examples
-        addToolMetadata("burp_response_analyzer", "Response Analysis",
-            List.of("response", "analyze", "keywords", "variations", "reflection", "xss", "anomaly", "pattern"),
-            List.of("analyze responses", "detect variations", "find reflections", "keyword search",
-                    "response patterns", "anomaly detection"),
+        addToolEnhancements("burp_response_analyzer",
             List.of("burp_proxy_history", "burp_custom_http", "burp_scanner"),
             List.of(
                 Map.of(
@@ -875,9 +669,7 @@ public class ToolDocumentationStore {
             ));
 
         // burp_scope with examples
-        addToolMetadata("burp_scope", "Configuration & Utilities",
-            List.of("scope", "target", "filter", "include", "exclude", "url"),
-            List.of("manage scope", "add to scope", "check scope", "filter targets", "scope configuration"),
+        addToolEnhancements("burp_scope",
             List.of("burp_proxy_history", "burp_scanner", "burp_sitemap_analysis"),
             List.of(
                 Map.of(
@@ -907,12 +699,7 @@ public class ToolDocumentationStore {
             ));
 
         // burp_config - project/user options as JSON
-        addToolMetadata("burp_config", "Configuration & Utilities",
-            List.of("config", "settings", "options", "project", "user", "import", "export", "json",
-                    "scope", "proxy", "upstream", "session-handling", "macro", "credentials", "reset"),
-            List.of("read burp settings", "write burp settings", "export project options",
-                    "import project options", "export user options", "configure advanced scope",
-                    "configure upstream proxy", "configure platform auth", "reset scope"),
+        addToolEnhancements("burp_config",
             List.of("burp_scope", "burp_session_management", "burp_global_interceptor"),
             List.of(
                 Map.of(
@@ -966,10 +753,7 @@ public class ToolDocumentationStore {
             ));
 
         // burp_session_management with examples
-        addToolMetadata("burp_session_management", "Session Management",
-            List.of("session", "cookie", "token", "jwt", "auth", "login", "credential"),
-            List.of("manage cookies", "extract tokens", "session handling", "JWT analysis",
-                    "cookie jar operations", "automatic session handling"),
+        addToolEnhancements("burp_session_management",
             List.of("burp_custom_http", "burp_proxy_history", "burp_scope"),
             List.of(
                 Map.of(
@@ -1004,10 +788,7 @@ public class ToolDocumentationStore {
             ));
 
         // burp_global_interceptor with examples
-        addToolMetadata("burp_global_interceptor", "Core HTTP/Proxy",
-            List.of("intercept", "global", "modify", "header", "auth", "inject", "rule", "scanner", "all-tools"),
-            List.of("intercept all tools", "add authentication", "inject headers globally",
-                    "modify scanner requests", "global request modification"),
+        addToolEnhancements("burp_global_interceptor",
             List.of("burp_proxy_interceptor", "burp_custom_http", "burp_scanner"),
             List.of(
                 Map.of(
@@ -1045,10 +826,7 @@ public class ToolDocumentationStore {
             ));
 
         // burp_annotate with examples
-        addToolMetadata("burp_annotate", "Configuration & Utilities",
-            List.of("annotate", "note", "comment", "highlight", "color", "organize"),
-            List.of("add annotations", "highlight entries", "add notes", "color code",
-                    "organize findings"),
+        addToolEnhancements("burp_annotate",
             List.of("burp_proxy_history", "burp_organizer"),
             List.of(
                 Map.of(
@@ -1079,10 +857,7 @@ public class ToolDocumentationStore {
             ));
 
         // burp_bambda with examples
-        addToolMetadata("burp_bambda", "Advanced Filtering",
-            List.of("filter", "bambda", "query", "search", "advanced", "java", "scripting"),
-            List.of("apply filters", "bambda scripting", "advanced filtering", "custom queries",
-                    "traffic filtering"),
+        addToolEnhancements("burp_bambda",
             List.of("burp_proxy_history", "burp_sitemap_analysis"),
             List.of(
                 Map.of(
@@ -1113,9 +888,7 @@ public class ToolDocumentationStore {
             ));
 
         // burp_comparer with examples
-        addToolMetadata("burp_comparer", "Analysis & Comparison",
-            List.of("compare", "diff", "difference", "analyze", "side-by-side"),
-            List.of("compare responses", "find differences", "diff requests", "side-by-side comparison"),
+        addToolEnhancements("burp_comparer",
             List.of("burp_proxy_history", "burp_custom_http"),
             List.of(
                 Map.of(
@@ -1144,12 +917,7 @@ public class ToolDocumentationStore {
             ));
 
         // burp_utilities with examples
-        addToolMetadata("burp_utilities", "Utilities",
-            List.of("encode", "decode", "base64", "url", "hash", "md5", "sha", "compress", "json",
-                    "shell", "execute", "command", "process"),
-            List.of("encode data", "decode base64", "URL encoding", "hash generation",
-                    "JSON operations", "compression", "hex conversion",
-                    "shell execution", "run commands", "execute processes"),
+        addToolEnhancements("burp_utilities",
             List.of("burp_custom_http"),
             List.of(
                 Map.of(
@@ -1184,9 +952,7 @@ public class ToolDocumentationStore {
             ));
 
         // burp_organizer with examples
-        addToolMetadata("burp_organizer", "Configuration & Utilities",
-            List.of("organize", "manage", "track", "status", "workflow"),
-            List.of("organize requests", "track progress", "manage workflow", "status tracking"),
+        addToolEnhancements("burp_organizer",
             List.of("burp_proxy_history", "burp_annotate"),
             List.of(
                 Map.of(
@@ -1215,9 +981,7 @@ public class ToolDocumentationStore {
             ));
 
         // burp_logs with examples
-        addToolMetadata("burp_logs", "Documentation & Logging",
-            List.of("logs", "debug", "errors", "output", "diagnostics", "events"),
-            List.of("view logs", "debug extension", "check errors", "diagnostic information"),
+        addToolEnhancements("burp_logs",
             List.of(),
             List.of(
                 Map.of(
@@ -1239,10 +1003,7 @@ public class ToolDocumentationStore {
             ));
 
         // burp_websocket with examples
-        addToolMetadata("burp_websocket", "WebSocket Support",
-            List.of("websocket", "ws", "wss", "real-time", "bidirectional"),
-            List.of("view websocket traffic", "create websocket connections", "send websocket messages",
-                    "websocket history"),
+        addToolEnhancements("burp_websocket",
             List.of("burp_websocket_interceptor", "burp_proxy_history"),
             List.of(
                 Map.of(
@@ -1271,10 +1032,7 @@ public class ToolDocumentationStore {
             ));
 
         // burp_websocket_interceptor with examples
-        addToolMetadata("burp_websocket_interceptor", "WebSocket Support",
-            List.of("websocket", "intercept", "modify", "ws", "binary", "text"),
-            List.of("intercept websockets", "modify websocket messages", "websocket interception",
-                    "binary message handling"),
+        addToolEnhancements("burp_websocket_interceptor",
             List.of("burp_websocket", "burp_proxy_interceptor"),
             List.of(
                 Map.of(
@@ -1303,10 +1061,7 @@ public class ToolDocumentationStore {
             ));
 
         // burp_proxy_interceptor with examples
-        addToolMetadata("burp_proxy_interceptor", "Core HTTP/Proxy",
-            List.of("intercept", "modify", "block", "tamper", "real-time", "proxy"),
-            List.of("intercept requests", "modify in real-time", "block requests", "tamper traffic",
-                    "real-time modification", "request filtering"),
+        addToolEnhancements("burp_proxy_interceptor",
             List.of("burp_global_interceptor", "burp_custom_http"),
             List.of(
                 Map.of(
@@ -1351,10 +1106,7 @@ public class ToolDocumentationStore {
             ));
 
         // burp_add_issue with examples
-        addToolMetadata("burp_add_issue", "Issue Management",
-            List.of("issue", "finding", "vulnerability", "report", "create", "custom"),
-            List.of("create issues", "add findings", "custom vulnerabilities", "report issues",
-                    "issue grouping"),
+        addToolEnhancements("burp_add_issue",
             List.of("burp_scanner", "burp_proxy_history"),
             List.of(
                 Map.of(

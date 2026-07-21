@@ -50,6 +50,14 @@ public class LogsTool implements McpTool {
         this.api = api;
         installLogInterceptors();
     }
+
+    @Override
+    public void close() {
+        outputLogs.clear();
+        errorLogs.clear();
+        eventLogs.clear();
+        interceptorsInstalled = false;
+    }
     
     @SuppressWarnings("deprecation") // No non-deprecated API to obtain the underlying PrintStreams
     private synchronized void installLogInterceptors() {

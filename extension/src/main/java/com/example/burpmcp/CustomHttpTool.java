@@ -66,6 +66,11 @@ public class CustomHttpTool implements McpTool {
     }
 
     @Override
+    public void close() {
+        connectionLastUsed.clear();
+    }
+
+    @Override
     public Map<String, Object> getToolInfo() {
         Map<String, Object> tool = new HashMap<>();
         tool.put("name", "burp_custom_http");

@@ -74,6 +74,27 @@ public class ScannerTool implements McpTool {
     }
 
     @Override
+    public void close() {
+        for (Audit audit : activeAudits.values()) {
+            try {
+                audit.delete();
+            } catch (Exception ignored) {
+                // Best-effort cancellation during extension shutdown.
+            }
+        }
+        for (Crawl crawl : activeCrawls.values()) {
+            try {
+                crawl.delete();
+            } catch (Exception ignored) {
+                // Best-effort cancellation during extension shutdown.
+            }
+        }
+        activeAudits.clear();
+        activeCrawls.clear();
+        scanMetadata.clear();
+    }
+
+    @Override
     public Map<String, Object> getToolInfo() {
         Map<String, Object> tool = new HashMap<>();
         tool.put("name", "burp_scanner");

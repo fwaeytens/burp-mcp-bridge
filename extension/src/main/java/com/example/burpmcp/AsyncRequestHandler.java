@@ -13,7 +13,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * Asynchronous request handler for improved performance and non-blocking operations.
  * Manages thread pools, request queuing, and timeout handling.
  */
-public class AsyncRequestHandler {
+public class AsyncRequestHandler implements AsyncToolExecutor {
     
     private final MontoyaApi api;
     private final BurpMcpConfig config;
@@ -21,7 +21,7 @@ public class AsyncRequestHandler {
     private final ScheduledExecutorService scheduledExecutor;
     private final ObjectMapper objectMapper;
 
-    // Registered singleton tool instances (same map McpServer builds in initializeTools()).
+    // Registered singleton tool instances (same ordered map McpServer builds from ToolRegistry).
     // Async execution MUST run against these so per-tool in-memory state (e.g.
     // SessionManagementTool's token map, AnnotateTool's handler registry) survives across
     // tools/call requests. Newing up a fresh instance per call silently dropped that state.
