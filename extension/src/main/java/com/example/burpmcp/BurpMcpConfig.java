@@ -58,7 +58,7 @@ public class BurpMcpConfig {
     private BurpMcpConfig() {
         // Initialize with default values
         this.serverPort = DEFAULT_PORT;
-        this.serverHost = "127.0.0.1";
+        this.serverHost = "0.0.0.0";
         this.maxRequestBytes = DEFAULT_MAX_REQUEST_BYTES;
         this.requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT;
         this.maxResponseSizeTokens = DEFAULT_MAX_RESPONSE_SIZE;
@@ -78,6 +78,7 @@ public class BurpMcpConfig {
         // Add localhost by default
         this.allowedHosts.add("localhost");
         this.allowedHosts.add("127.0.0.1");
+        this.allowedHosts.add("*");
     }
     
     /**
