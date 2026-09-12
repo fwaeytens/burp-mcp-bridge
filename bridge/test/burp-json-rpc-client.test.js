@@ -44,3 +44,14 @@ test('BurpJsonRpcClient rejects malformed JSON-RPC responses', async () => {
 
   await assert.rejects(() => client.call('ping', {}), /Invalid JSON-RPC response/);
 });
+
+test('guidance lookup can use a shorter deadline without changing tool request deadlines', async () => {
+  const client = new BurpJsonRpcClient({
+    baseUrl: 'http://localhost:8081/', version: '2.9.0', requestTimeout: 10000,
+    fetchImpl: async (url, { signal }) => new Promise((resolve, reject) => {
+      signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+    })
+  });
+  await assert.rejects(() => client.call('initialize', {}, { timeoutMs: 10 }), /timeout after 10ms/);
+  assert.equal(client.requestTimeout, 10000);
+});

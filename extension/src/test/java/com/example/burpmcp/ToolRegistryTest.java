@@ -23,7 +23,7 @@ public class ToolRegistryTest {
         assertEquals("burp_help", names.get(0));
         assertEquals(Version.TOOL_COUNT, descriptors.size());
         assertEquals(descriptors.size(), uniqueNames.size());
-        assertEquals(22, ToolRegistry.documentationDescriptors().size());
+        assertEquals(23, ToolRegistry.documentationDescriptors().size());
         assertFalse(ToolRegistry.get("burp_help").isIncludedInHelpDocs());
     }
 

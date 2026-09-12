@@ -165,6 +165,7 @@ public class LogsTool implements McpTool {
         inputSchema.put("required", required);
         inputSchema.put("type", "object");
         tool.put("inputSchema", inputSchema);
+        tool.put("outputSchema", UtilityOutputSchemas.forTool((String) tool.get("name")));
         return tool;
     }
     

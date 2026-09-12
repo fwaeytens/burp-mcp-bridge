@@ -138,6 +138,7 @@ public class UtilitiesTool implements McpTool {
 
 
         tool.put("inputSchema", inputSchema);
+        tool.put("outputSchema", UtilityOutputSchemas.forTool((String) tool.get("name")));
         return tool;
     }
 

@@ -177,6 +177,7 @@ public class AddIssueTool implements McpTool {
         inputSchema.put("required", List.of("url", "detail"));
         
         tool.put("inputSchema", inputSchema);
+        tool.put("outputSchema", UtilityOutputSchemas.forTool((String) tool.get("name")));
         
         return tool;
     }
@@ -396,12 +397,7 @@ public class AddIssueTool implements McpTool {
                 standardIssueType
             ));
 
-            try {
-                String json = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(result);
-                return McpUtils.createSuccessResponse(json);
-            } catch (Exception jsonException) {
-                return McpUtils.createSuccessResponse(result.get("message").toString());
-            }
+            return McpUtils.createJsonResponse(result);
             
         } catch (Exception e) {
             api.logging().logToError("Error adding issue: " + e.getMessage());

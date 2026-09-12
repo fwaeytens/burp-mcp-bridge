@@ -2,7 +2,6 @@ package com.example.burpmcp;
 
 import burp.api.montoya.MontoyaApi;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
@@ -19,7 +18,6 @@ public class AsyncRequestHandler implements AsyncToolExecutor {
     private final BurpMcpConfig config;
     private final ExecutorService executorService;
     private final ScheduledExecutorService scheduledExecutor;
-    private final ObjectMapper objectMapper;
 
     // Registered singleton tool instances (same ordered map McpServer builds from ToolRegistry).
     // Async execution MUST run against these so per-tool in-memory state (e.g.
@@ -33,12 +31,13 @@ public class AsyncRequestHandler implements AsyncToolExecutor {
     
     // Rate limiting
     private final Map<String, RateLimiter> rateLimiters = new ConcurrentHashMap<>();
+    // Guarded by this together with request admission and executor shutdown.
+    private boolean shutdownStarted;
     
     public AsyncRequestHandler(MontoyaApi api, Map<String, McpTool> tools) {
         this.api = api;
         this.tools = tools;
         this.config = BurpMcpConfig.getInstance();
-        this.objectMapper = new ObjectMapper();
         
         // Create thread pool with configured size
         this.executorService = Executors.newFixedThreadPool(
@@ -64,15 +63,11 @@ public class AsyncRequestHandler implements AsyncToolExecutor {
     /**
      * Execute a tool request asynchronously with timeout and rate limiting.
      */
-    public CompletableFuture<Object> executeAsync(String toolName, JsonNode arguments, String clientHost) {
-        long requestId = requestIdCounter.incrementAndGet();
-        
-        // Check rate limiting
-        if (config.isEnableRateLimiting() && !checkRateLimit(clientHost)) {
-            return CompletableFuture.completedFuture(
-                McpUtils.createErrorResponse("Rate limit exceeded for host: " + clientHost)
-            );
+    public synchronized CompletableFuture<Object> executeAsync(String toolName, JsonNode arguments, String clientHost) {
+        if (shutdownStarted) {
+            return CompletableFuture.failedFuture(new RejectedExecutionException("Async request handler is shutting down"));
         }
+        long requestId = requestIdCounter.incrementAndGet();
         
         // Check host access
         if (!config.isHostAllowed(clientHost)) {
@@ -80,8 +75,17 @@ public class AsyncRequestHandler implements AsyncToolExecutor {
                 McpUtils.createErrorResponse("Host not allowed: " + clientHost)
             );
         }
+
+        if (!checkRateLimit(clientHost)) {
+            return CompletableFuture.completedFuture(
+                McpUtils.createErrorResponse("Rate limit exceeded for host: " + clientHost)
+            );
+        }
         
-        CompletableFuture<Object> future = CompletableFuture.supplyAsync(() -> {
+        CompletableFuture<Object> resultFuture = new CompletableFuture<>();
+        // FutureTask cancellation interrupts the actual worker. Cancelling a
+        // CompletableFuture from supplyAsync only changes the reported result.
+        FutureTask<Object> task = new FutureTask<>(() -> {
             try {
                 if (config.isEnableAuditLogging()) {
                     api.logging().logToOutput(String.format(
@@ -98,21 +102,38 @@ public class AsyncRequestHandler implements AsyncToolExecutor {
                 
                 return tool.execute(arguments);
                 
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw e;
             } catch (Exception e) {
                 String errorMsg = "Error executing tool " + toolName + ": " + e.getMessage();
                 api.logging().logToError(McpUtils.sanitizeForLogging(errorMsg));
                 return McpUtils.createErrorResponse(errorMsg);
             }
-        }, executorService);
-        
-        // Add timeout
-        CompletableFuture<Object> timeoutFuture = addTimeout(future, requestId);
-        
-        // Track the request
-        pendingRequests.put(requestId, timeoutFuture);
-        
-        // Remove from tracking when completed
-        timeoutFuture.whenComplete((result, throwable) -> {
+        }) {
+            @Override
+            protected void done() {
+                try {
+                    resultFuture.complete(get());
+                } catch (CancellationException e) {
+                    resultFuture.cancel(false);
+                } catch (ExecutionException e) {
+                    resultFuture.completeExceptionally(e.getCause());
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    resultFuture.completeExceptionally(e);
+                }
+            }
+        };
+
+        pendingRequests.put(requestId, resultFuture);
+        resultFuture.whenComplete((result, throwable) -> {
+            if (!task.isDone()) {
+                task.cancel(true);
+                if (executorService instanceof ThreadPoolExecutor pool) {
+                    pool.remove(task);
+                }
+            }
             pendingRequests.remove(requestId);
             
             if (config.isEnableAuditLogging()) {
@@ -127,44 +148,21 @@ public class AsyncRequestHandler implements AsyncToolExecutor {
                 }
             }
         });
-        
-        return timeoutFuture;
-    }
-    
-    /**
-     * Add timeout handling to a future.
-     */
-    private CompletableFuture<Object> addTimeout(CompletableFuture<Object> future, long requestId) {
-        CompletableFuture<Object> timeoutFuture = new CompletableFuture<>();
-        
-        // Schedule timeout
-        ScheduledFuture<?> timeoutTask = scheduledExecutor.schedule(() -> {
-            if (!future.isDone()) {
-                future.cancel(true);
-                timeoutFuture.completeExceptionally(new TimeoutException(
-                    "Request " + requestId + " timed out after " + config.getRequestTimeoutMs() + "ms"
-                ));
-            }
-        }, config.getRequestTimeoutMs(), TimeUnit.MILLISECONDS);
-        
-        // Complete when original future completes
-        future.whenComplete((result, throwable) -> {
-            timeoutTask.cancel(false); // Cancel timeout
-            
-            if (throwable != null) {
-                if (throwable instanceof CancellationException) {
-                    timeoutFuture.completeExceptionally(new TimeoutException(
-                        "Request " + requestId + " was cancelled"
-                    ));
-                } else {
-                    timeoutFuture.completeExceptionally(throwable);
-                }
-            } else {
-                timeoutFuture.complete(result);
-            }
-        });
-        
-        return timeoutFuture;
+
+        try {
+            int timeoutMs = config.getRequestTimeoutMs();
+            ScheduledFuture<?> timeoutTask = scheduledExecutor.schedule(() ->
+                resultFuture.completeExceptionally(new TimeoutException(
+                    "Request " + requestId + " timed out after " + timeoutMs + "ms"
+                )), timeoutMs, TimeUnit.MILLISECONDS);
+            resultFuture.whenComplete((result, throwable) -> timeoutTask.cancel(false));
+            executorService.execute(task);
+        } catch (RejectedExecutionException e) {
+            // A request racing with shutdown must complete and leave no tracking entry.
+            resultFuture.completeExceptionally(e);
+        }
+
+        return resultFuture;
     }
     
     /**
@@ -225,15 +223,20 @@ public class AsyncRequestHandler implements AsyncToolExecutor {
      * Shutdown the async handler gracefully.
      */
     public void shutdown() {
-        api.logging().logToOutput("Shutting down AsyncRequestHandler...");
-        
-        // Cancel all pending requests
-        pendingRequests.values().forEach(future -> future.cancel(true));
-        pendingRequests.clear();
-        
-        // Shutdown thread pools
-        executorService.shutdown();
-        scheduledExecutor.shutdown();
+        synchronized (this) {
+            if (shutdownStarted) {
+                return;
+            }
+            // Close admission before sweeping pending work so a concurrent request
+            // cannot be queued after the sweep and lose both its worker and deadline.
+            shutdownStarted = true;
+            api.logging().logToOutput("Shutting down AsyncRequestHandler...");
+
+            pendingRequests.values().forEach(future -> future.cancel(true));
+            pendingRequests.clear();
+            executorService.shutdown();
+            scheduledExecutor.shutdown();
+        }
         
         try {
             if (!executorService.awaitTermination(5, TimeUnit.SECONDS)) {

@@ -1,4 +1,6 @@
-# Burp MCP Bridge - Agent Context File (v2.8.1)
+# Burp MCP Bridge - Agent Context File (v2.9.0)
+
+The Node bridge forwards the extension's agent instructions in the MCP `initialize` response, with local fallback guidance when unavailable. All 24 tools expose domain output schemas, action requirements, conditional requirements, and side-effect annotations through `tools/list`. Read action-specific fields and structured errors; use `burp_help` for the full workflow.
 
 ## 🚀 MANDATORY: Always Start With Documentation Discovery
 
@@ -28,8 +30,11 @@ await use_mcp_tool("burp-mcp-bridge", "burp_help", {});
 
 ### ✅ Tools That CAN Execute Actions (Automated)
 - **burp_custom_http** - ⭐ PRIMARY TOOL for sending HTTP requests
+- **burp_http_jobs** - Managed background HTTP batches with status, results, pause/resume, and cancellation
 - **burp_scanner** - Automated vulnerability scanning (includes CRAWL_ONLY action for content discovery)
 - **burp_collaborator** - Out-of-band interaction testing
+- **burp_comparer** - `COMPARE_RESPONSES` sends fresh GET requests; other actions compare constructed/captured requests, supplied text, or add UI items
+- **burp_response_analyzer** - `variations` and `all` send fresh GET requests when `urls` is supplied; otherwise they inspect proxy history
 - **burp_proxy_history** - Query and analyze captured traffic
 - **burp_scope** - Manage target scope (add/remove/check); `includeSubdomains:true` = UI 'Include subdomains'
 - **burp_config** - Read/write Burp project & user options as JSON (advanced scope, proxy listeners, match/replace, session-handling rules/macros, upstream proxy, platform auth). GET→modify→SET; changes apply live
@@ -42,9 +47,9 @@ await use_mcp_tool("burp-mcp-bridge", "burp_help", {});
 
 1. **NEVER use burp_repeater to send requests** - Use burp_custom_http
 2. **NEVER use burp_intruder to execute attacks** - Use burp_custom_http
-3. **ALWAYS use burp_custom_http for HTTP operations**
-4. **⚠️ ALWAYS specify port in Host header** - `Host: example.com:80` for HTTP, `Host: example.com:443` for HTTPS
-5. **DEFAULT is HTTPS (port 443)** - Without port, requests go to HTTPS which times out on HTTP-only servers
+3. **Choose the HTTP tool by workflow** - `burp_custom_http` for immediate requests and protocol/byte-level controls; `burp_http_jobs` for managed background batches
+4. **Include the port in raw Host headers** - Scanner raw requests additionally require an explicit `useHttps` boolean
+5. **Custom HTTP and jobs default to HTTPS** - Use the request scheme or the tool's documented TLS option for plaintext; scanner raw requests have no implicit TLS choice
 6. **ALWAYS call burp_help first** - List tools or discover by capability
 7. **ALWAYS use burp_scanner GET_STATUS** to check scan progress
 
@@ -56,6 +61,7 @@ await use_mcp_tool("burp-mcp-bridge", "burp_help", {});
 | Modify and resend | burp_custom_http | ❌ burp_repeater |
 | Fuzz parameters | burp_custom_http (loop) | ❌ burp_intruder |
 | Test race conditions | burp_custom_http (SEND_PARALLEL) | ❌ burp_intruder |
+| Run managed background HTTP batches | burp_http_jobs | ❌ burp_intruder |
 | Scan for vulns | burp_scanner | ✅ |
 | View proxy traffic | burp_proxy_history | ✅ |
 
@@ -90,8 +96,8 @@ await use_mcp_tool("burp-mcp-bridge", "burp_custom_http", {
 await use_mcp_tool("burp-mcp-bridge", "burp_repeater", {...}); // ❌
 ```
 
-**Line endings**: Both `\n` and `\r\n` work (auto-normalized to CRLF).
-**Content-Length**: Automatically calculated — no need to specify it accurately.
+**Line endings**: Ordinary custom HTTP request headers accept `\n` or `\r\n`.
+**Content-Length**: The Node bridge repairs ordinary `burp_custom_http` requests. `raw_request` and `SEND_PIPELINED` preserve framing. Raw `burp_http_jobs` requests must include valid framing and body lengths; their headers are normalized to CRLF while body bytes are preserved.
 
 ### HTTP History Visibility — `route_via_proxy`
 
@@ -180,6 +186,9 @@ await use_mcp_tool("burp-mcp-bridge", "burp_proxy_interceptor", { "action": "dis
 **Do NOT trigger held traffic with a blocking call** (`browser_click`/`browser_navigate`, or a foreground `burp_custom_http` via proxy) — the caller blocks on the held request and you can never reach `get_queue`. For one-off edits where you don't need a true breakpoint, prefer the automatic global rule above or replay with `burp_custom_http`.
 
 ### Scanning with Targeted Parameters (Scan Selected Insertion Points)
+
+`SCAN_SPECIFIC_REQUEST` requires `request` and an explicit boolean `useHttps`. `ADD_TO_SCAN` requires `scanId` plus a nonempty `urls` array or `request`; raw requests additionally require `useHttps`, even with a Host port or absolute request target. URL-only additions use their URL scheme. The scanner's `useHttps` differs from the optional `use_https` on jobs.
+
 ```javascript
 // By parameter name (PREFERRED - auto-finds byte offsets)
 await use_mcp_tool("burp-mcp-bridge", "burp_scanner", {
@@ -200,10 +209,48 @@ await use_mcp_tool("burp-mcp-bridge", "burp_scanner", {
 // By byte offsets (manual - only if you need exact control)
 await use_mcp_tool("burp-mcp-bridge", "burp_scanner", {
   "action": "ADD_TO_SCAN",
-  "request": "POST /login HTTP/1.1\r\n...",
-  "insertionPoints": [{"start": 50, "end": 55}]
+  "scanId": "<scanId from an active audit>",
+  "request": "GET /api?token=abc123 HTTP/1.1\r\nHost: target.com:443\r\n\r\n",
+  "useHttps": true,
+  "insertionPoints": [{"start": 15, "end": 21}]  // ASCII bytes for abc123
 });
 ```
+
+### Comparisons, Filters, and Session Handling
+
+- `COMPARE_TEXT` compares supplied text. `COMPARE_REQUESTS` constructs GET requests without sending them. `COMPARE_RESPONSES` fetches fresh responses. `COMPARE_PROXY_ENTRIES` compares captured requests selected by URL substring and also adds them to Comparer UI.
+- `comparisonType` is `WORDS`, `BYTES`, `HEADERS_ONLY`, or `BODY_ONLY`. The first two compare full messages/text; HTTP section modes require an HTTP comparison action. Results report one changed span between common prefix/suffix regions, with at most 1 MiB per selected input and bounded previews (1024 characters for words, 512 bytes encoded as base64 otherwise). `ignoreWhitespace` is unsupported for `BYTES`.
+- `SEND_TO_COMPARER` only adds UI items. Supply text or URLs in one call and omit `comparisonType` and `ignoreWhitespace`.
+- Bambda `APPLY_FILTER` and `CREATE_CUSTOM` import view filters for `PROXY_HTTP_HISTORY`, `PROXY_WS_HISTORY`, `SITEMAP`, or `LOGGER`. Presets target HTTP history; other views need compatible Java source and bindings. Success means import completed without native errors; inspect/select the active filter in Burp as needed. `GET_ACTIVE_FILTER` is a compatibility action that always returns `supported:false` and `isError:true`.
+- Session auto handling inserts stored tokens. Its legacy `autoRefresh` flag marks missing authentication and increments a counter; it does not log in, renew credentials, or retry after 401 responses.
+
+### Managed Background HTTP Batches
+
+Use `burp_http_jobs` when a batch should continue between tool calls. It requires Burp Suite Professional's managed HTTP engine introduced in Montoya API 2026.7; other tools retain the Burp 2026.4 minimum.
+
+```javascript
+await use_mcp_tool("burp-mcp-bridge", "burp_http_jobs", {
+  "action": "START", "name": "Endpoint checks",
+  "requests": ["https://example.com/", "https://example.com/api/status"],
+  "max_concurrency": 5, "delay_ms": 100
+});
+await use_mcp_tool("burp-mcp-bridge", "burp_http_jobs", {
+  "action": "STATUS", "job_id": "<job_id from START>"
+});
+await use_mcp_tool("burp-mcp-bridge", "burp_http_jobs", {
+  "action": "RESULTS", "job_id": "<job_id from START>",
+  "offset": 0, "limit": 20, "include_response": true
+});
+```
+
+- `START` requires `requests`; each entry is a raw HTTP string or full HTTP(S) URL. URL schemes, including absolute raw request targets, take precedence over `use_https`. Otherwise, an explicit boolean selects TLS; omission infers HTTP for port 80 and HTTPS for port 443, other ports, or no port. Use `use_https: false` for plaintext on nonstandard ports. Include authentication headers explicitly.
+- `LIST` reports engine availability and retained jobs. `STATUS`, `RESULTS`, `PAUSE`, `RESUME`, and `CANCEL` require `job_id`. Cancellation stops scheduling; state remains `cancelling` until in-flight requests finish. Dashboard controls also affect jobs.
+- Pause/resume values in `state` reflect MCP controls. Dashboard pause/resume changes execution and progress counters without necessarily updating `state`; native completion and cancellation are reflected.
+- `max_concurrency` defaults to 10 (maximum 50), `delay_ms` to 0 (maximum 60000), `max_retries` to 0 (maximum 3), and `response_timeout` to 30000 ms (maximum 300000). Retries can repeat requests.
+- Results use stable original input indices, with pending placeholders. Follow `next_offset` rather than assuming `limit` entries were returned; pages are bounded by a serialized JSON budget. Revisit pending entries after completion.
+- `limit` defaults to 20 (maximum 100). `include_response` defaults to false; optional response previews are base64, capped at 16 KiB, with explicit truncation metadata.
+- Limits: 4 active jobs, 50 aggregate concurrent requests, 1000 requests and a 10 MiB internal input ceiling per job (transport limits may be smaller), 10 MiB retained response previews per job, and 20 retained jobs. Older completed jobs are evicted when needed and expire after one hour. Jobs and results are cleared on extension unload.
+- Jobs send directly and do not automatically apply the extension's cookie jar or add Proxy History entries. Use `burp_custom_http` for proxy routing, protocol selection, SNI, connection controls, and byte-exact requests.
 
 ### Parallel Requests / Sweeps (SEND_PARALLEL)
 ```javascript
@@ -288,7 +335,7 @@ await use_mcp_tool("burp-mcp-bridge", "burp_help", {
 
 ## ⚡ Performance Tips
 
-1. Use `burp_custom_http` for ALL HTTP sending operations
+1. Use `burp_http_jobs` for managed background batches and `burp_custom_http` for immediate HTTP sends or protocol/byte-level controls
 2. Start with PASSIVE scans before ACTIVE
 3. Use `insertionPointParams` or `insertionPointValues` for targeted scanning (like "Scan selected insertion point" in Burp UI)
 4. Filter proxy history queries to reduce data
@@ -296,8 +343,8 @@ await use_mcp_tool("burp-mcp-bridge", "burp_help", {
 
 ## 🛠️ Project Info
 
-- **Version**: 2.8.1
-- **Total Tools**: 23 (1 help + 22 security)
+- **Version**: 2.9.0
+- **Total Tools**: 24 (1 help + 23 security)
 - **Port**: 8081 (Burp extension HTTP server)
 - **Transport**: Dual mode (stdio + HTTP/SSE)
 - **MCP Spec**: 2025-06-18 (with annotations)

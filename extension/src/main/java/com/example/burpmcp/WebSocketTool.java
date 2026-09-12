@@ -33,8 +33,7 @@ public class WebSocketTool implements McpTool {
 
     // Dedicated daemon executor for the potentially-blocking Montoya WebSocket send.
     // sendTextMessage()/sendBinaryMessage() can block indefinitely on a stalled
-    // connection, and the MCP worker that calls it cannot be interrupted
-    // (CompletableFuture.cancel() ignores the interrupt flag). Running the send here with
+    // connection, and a native send may ignore thread interruption. Running it here with
     // a hard timeout guarantees the MCP worker is released within WS_SEND_TIMEOUT_MS, so
     // a hung send can never drain the worker pool and wedge the whole bridge. A genuinely
     // stuck send leaks at most one ephemeral daemon thread (cached, reused once it frees).
@@ -77,7 +76,7 @@ public class WebSocketTool implements McpTool {
         // MCP 2025-06-18 annotations
         Map<String, Object> annotations = new HashMap<>();
         annotations.put("readOnlyHint", false);
-        annotations.put("destructiveHint", false);
+        annotations.put("destructiveHint", true);
         annotations.put("idempotentHint", false);
         annotations.put("openWorldHint", true);
         annotations.put("title", "WebSocket Client");
@@ -119,6 +118,7 @@ public class WebSocketTool implements McpTool {
         // Action-specific required parameters validated at runtime (allOf removed for Claude API compatibility)
         
         tool.put("inputSchema", inputSchema);
+        tool.put("outputSchema", TrafficOutputSchemas.forTool("burp_websocket"));
         return tool;
     }
 

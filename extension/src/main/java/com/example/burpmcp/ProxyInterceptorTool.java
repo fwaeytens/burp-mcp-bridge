@@ -460,7 +460,7 @@ public class ProxyInterceptorTool implements McpTool {
         // MCP 2025-06-18 annotations
         Map<String, Object> annotations = new HashMap<>();
         annotations.put("readOnlyHint", false);
-        annotations.put("destructiveHint", false);
+        annotations.put("destructiveHint", true);
         annotations.put("idempotentHint", false);
         annotations.put("openWorldHint", true);
         annotations.put("title", "Proxy Interceptor (Browser Only)");
@@ -533,6 +533,7 @@ public class ProxyInterceptorTool implements McpTool {
 
 
         tool.put("inputSchema", inputSchema);
+        tool.put("outputSchema", TrafficOutputSchemas.forTool("burp_proxy_interceptor"));
         return tool;
     }
     

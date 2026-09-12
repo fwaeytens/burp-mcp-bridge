@@ -4,7 +4,7 @@
 
 ### ALWAYS Start With the Help Tool:
 ```javascript
-// 1. List all 22 available tools
+// 1. List 23 security tools (plus burp_help makes 24 registered tools)
 await use_tool("burp_help", {
   "list": true
 });
@@ -27,8 +27,11 @@ await use_tool("burp_help", {});  // No parameters returns usage guide
 ### ⚠️ Critical: Automated vs Configuration Tools
 **Tools That CAN Send Requests (Automated):**
 - **burp_custom_http** - PRIMARY tool for sending HTTP requests
+- **burp_http_jobs** - Managed background HTTP batches with progress and paginated results
 - **burp_scanner** - Automated vulnerability scanning
 - **burp_collaborator** - Out-of-band testing
+- **burp_comparer** - `COMPARE_RESPONSES` fetches both URLs with fresh GET requests
+- **burp_response_analyzer** - `variations` and `all` fetch fresh responses when `urls` is supplied
 
 **Tools That CANNOT Send Requests (Configuration Only):**
 - **burp_repeater** - Only creates tabs in UI
@@ -84,7 +87,7 @@ BURP_MCP_REQUEST_TIMEOUT=60000 \
 node index.js
 ```
 
-## 🚀 **Features (v2.8.1)**
+## 🚀 **Features (v2.9.0)**
 
 ### **🆕 Dual Transport Support**
 - ✅ **Stdio Transport** - For Claude Code and stdio-based MCP clients
@@ -201,9 +204,48 @@ Press **Ctrl+C** to stop the bridge cleanly at any time.
 - ✅ **Troubleshooting Tips** - Built-in guidance for common issues
 
 ### **Self-Documentation & Tool Discovery**
-- ✅ **Tool Coverage** - Surfaces all 23 tools to connected agents
-- ✅ **Workflow Guidance** - Bridges access to on-demand documentation and workflows via MCP
-- ✅ **Consistency** - Ensures tooling metadata matches Burp MCP Bridge v2.8.1 release
+- ✅ **Tool Coverage** - Surfaces all 24 tools to connected agents
+- ✅ **Initialization Guidance** - Forwards extension `initialize` instructions to MCP clients, with local fallback guidance when unavailable
+- ✅ **Typed Results** - All 24 tool definitions expose domain output schemas for action results and structured error/verbose fallbacks
+- ✅ **Workflow Guidance** - Exposes action requirements, conditional requirements, side-effect annotations, and on-demand documentation via `burp_help`
+- ✅ **Consistency** - Ensures tooling metadata matches Burp MCP Bridge v2.9.0 release
+
+### **Action Contracts**
+
+Scanner raw requests require an explicit boolean `useHttps`: always for `SCAN_SPECIFIC_REQUEST`, and for `ADD_TO_SCAN` when `request` is supplied. Host ports and absolute request targets do not replace this requirement. `ADD_TO_SCAN` needs `scanId` and a nonempty `urls` array or `request`; URL-only additions use each URL's scheme. HTTP jobs use their separate optional `use_https` rules below.
+
+Comparer `WORDS` and `BYTES` modes compare full HTTP messages or supplied text. `HEADERS_ONLY` and `BODY_ONLY` select HTTP message sections. Comparisons return one changed span with bounded previews: 1 MiB maximum per selected input, 1024-character word previews, or 512-byte base64 previews. `ignoreWhitespace` is unavailable for exact `BYTES` comparisons. `COMPARE_RESPONSES` sends fresh GET requests; `COMPARE_REQUESTS` only constructs requests. `COMPARE_PROXY_ENTRIES` compares captured requests and sends them to Comparer UI. `SEND_TO_COMPARER` only adds text or constructed requests to the UI; provide text or URLs per call and omit `comparisonType`/`ignoreWhitespace`.
+
+Bambda `APPLY_FILTER` and `CREATE_CUSTOM` import view-filter YAML for `PROXY_HTTP_HISTORY`, `PROXY_WS_HISTORY`, `SITEMAP`, or `LOGGER`. Presets target HTTP history; other views need compatible Java source and bindings. Import success means `LOADED_WITHOUT_ERRORS`; activation cannot be verified through this tool. `GET_ACTIVE_FILTER` remains available for compatibility but returns `supported:false`, `error:api_limitation`, and `isError:true`. Native import errors also set `isError:true`.
+
+Session auto handling inserts stored tokens into requests. The legacy `autoRefresh` flag marks missing authentication and increments a counter; it does not log in, renew credentials, or retry after a 401 response.
+
+### **Managed HTTP Jobs**
+
+`burp_http_jobs` requires Burp Suite Professional's managed HTTP engine introduced in Montoya API 2026.7. Existing tools retain the Burp 2026.4 minimum. The bridge forwards job commands normally; each job continues inside the extension between MCP calls.
+
+```javascript
+await use_tool("burp_http_jobs", {
+  "action": "START",
+  "requests": ["https://example.com/", "https://example.com/api/status"],
+  "max_concurrency": 5, "delay_ms": 100
+});
+await use_tool("burp_http_jobs", {
+  "action": "STATUS", "job_id": "<job_id from START>"
+});
+await use_tool("burp_http_jobs", {
+  "action": "RESULTS", "job_id": "<job_id from START>",
+  "offset": 0, "limit": 20, "include_response": true
+});
+```
+
+`LIST` reports engine availability and retained jobs; `PAUSE`, `RESUME`, and `CANCEL` take `job_id`. Cancellation stops scheduling, with state `cancelling` until in-flight requests finish. Burp Dashboard controls also affect jobs. Requests may be full HTTP(S) URLs or raw HTTP strings. Full URLs and absolute raw request targets use their scheme; otherwise an explicit `use_https` controls TLS. Omission infers HTTP for port 80, HTTPS for port 443, and HTTPS for other ports or no port. Use `use_https: false` for plaintext on ports such as 8080. Concurrency defaults to 10, delay to 0, retries to 0, and per-response timeout to 30000 ms. Caps are 50 concurrency per job, 60000 ms delay, 3 retries, and 300000 ms per-response timeout.
+
+Pause/resume values in `state` reflect MCP controls. Dashboard pause/resume affects execution and progress counters without necessarily updating `state`; native completion and cancellation do update the job state.
+
+`RESULTS` pages follow the original request indices and include pending placeholders. Follow `next_offset` because the JSON budget can shorten a page below `limit` (default 20, maximum 100). A null `next_offset` ends pagination; use `STATUS` to determine completion. `include_response` defaults to false; optional response previews are capped at 16 KiB and returned as base64 with explicit truncation metadata. Revisit pending entries once the job finishes.
+
+Limits are 4 active jobs, 50 aggregate concurrency, 1000 requests and a 10 MiB internal input ceiling per job (transport limits may be smaller), 10 MiB retained response previews per job, and 20 retained jobs. Older completed jobs are evicted when needed and expire after one hour; extension unload clears jobs and results. Jobs send directly with explicit request headers; they do not inject the extension's cookie jar or Proxy History entries. Raw job requests need valid framing and body lengths; body bytes are preserved. Use `burp_custom_http` for proxy routing, protocol/SNI/connection controls, and byte-exact work.
 
 ## 🔧 **Troubleshooting**
 
@@ -239,7 +281,7 @@ Press **Ctrl+C** to stop the bridge cleanly at any time.
 **Solutions:**
 1. ✅ Reload the Burp MCP Bridge extension
 2. ✅ Check Extensions → Errors tab for extension issues
-3. ✅ Verify `burp-mcp-bridge-2.8.1.jar` is properly loaded
+3. ✅ Verify `burp-mcp-bridge-2.9.0.jar` is properly loaded
 4. ✅ Restart Burp Suite if needed
 
 ### **Configuration Issues**
@@ -284,17 +326,18 @@ BURP_MCP_DEBUG=true node index.js
 
 **Example:**
 ```
-[INFO] 2026-01-27T16:54:23.456Z - Burp MCP Bridge v2.8.1 initializing...
+[INFO] 2026-01-27T16:54:23.456Z - Burp MCP Bridge v2.9.0 initializing...
 [INFO] 2025-10-22T16:54:23.457Z - Connecting to Burp extension at: http://localhost:8081
 [DEBUG] 2025-10-22T16:54:23.458Z - Sending request to Burp: ping
 [INFO] 2025-10-22T16:54:23.480Z - ✅ Successfully connected to Burp extension
-[INFO] 2026-01-27T16:54:23.481Z - 🚀 Burp MCP Bridge v2.8.1 started and ready for Claude Code
+[INFO] 2026-01-27T16:54:23.481Z - 🚀 Burp MCP Bridge v2.9.0 started and ready for Claude Code
 ```
 
 ## 🔄 **Version Compatibility**
 
 | Bridge Version | Extension Version | Features |
 |----------------|-------------------|----------|
+| v2.9.0 | v2.9.0 | 24 tools, including managed background HTTP jobs (requires Professional managed engine, Montoya 2026.7+). Forwarded initialization guidance with fallback; domain output schemas for every tool; corrected scanner TLS requirements, Comparer modes, Bambda import/inspection contracts, and session-handling descriptions. Worker cancellation and shutdown admission fixes; shared synchronous/asynchronous host and rate checks; SSE session routing and browser CORS corrections; HTTP response framing and allocation limits; nullable authentication export/import schemas. |
 | v2.5.1 | v2.5.1 | `burp_custom_http` SEND_REQUEST now writes Set-Cookie into Burp's Cookie Jar and surfaces them as `set_cookies[]` so multi-step lab flows (login → /my-account, CSRF round-trips) carry session forward automatically. Cookie jar reads dedupe by name (no more duplicate `Cookie: session=A; session=B` headers). New `max_body_bytes` param on `burp_custom_http` and `maxBodyBytes` on `burp_proxy_history` action=detail — default 5000 (context-safe), 0 = unlimited; truncation reports `body_truncated_bytes` (`bodyTruncatedBytes` on proxy_history). `burp_collaborator` client secret is now persisted to `~/.config/burp-mcp-bridge/collaborator-secret` so CHECK_INTERACTIONS still sees prior payloads after extension reload; new `RESTORE_CLIENT` action takes a saved `secretKey`; `LIST_PAYLOAD_TYPES` is the preferred name (`LIST_PAYLOADS` kept as deprecated alias — it returns the four built-in formats, NOT a list of issued payloads). `burp_annotate` ANNOTATE_PROXY/TARGET + CLEAR_ANNOTATIONS accept `entryId` (1-based; for PROXY it matches the id `burp_proxy_history` returns; for TARGET it indexes `api.siteMap().requestResponses()` because Montoya exposes no stable sitemap id), honour the `method` filter, and accept `notesMode: "APPEND" \| "REPLACE"`. CLEAR_ANNOTATIONS rejects `entryId` with `source=TARGET` / `source=ALL` to avoid wiping the wrong list. |
 | v2.5.0 | v2.5.0 | `burp_custom_http` new `route_via_proxy` flag: tunnels requests through Burp's local proxy listener (CONNECT + TLS) so they appear in Proxy → HTTP history. Default TRUE for SEND_REQUEST, FALSE for SEND_PARALLEL/SEND_PIPELINED (proxy may serialise parallel work and re-frames pipelined requests). Configurable via proxy_host/proxy_port. |
 | v2.4.3 | v2.4.3 | `burp_custom_http` SEND_PIPELINED: HTTP/1.1 pipelined requests on ONE TLS socket — unblocks request-smuggling labs (CL.0/TE.CL/CL.TE/TE.0/0.CL/connection-state). Includes robust response parser, base64 raw_bytes per response, trailing_bytes for response-queue-poisoning detection. |
@@ -368,7 +411,8 @@ await use_tool("burp_scanner", {
 ### Tool Selection Decision Tree
 ```
 Need to send HTTP requests?
-├─ YES → burp_custom_http (NOT repeater!)
+├─ Managed background batch → burp_http_jobs
+├─ Immediate send or protocol/byte-level controls → burp_custom_http
 └─ NO → Need to scan?
     ├─ YES → burp_scanner
     └─ NO → Need to view traffic?
@@ -377,7 +421,7 @@ Need to send HTTP requests?
 ```
 
 The bridge automatically handles:
-- ✅ **Tool Discovery** - Lists all 22 available Burp tools
+- ✅ **Tool Discovery** - Lists all 24 registered Burp tools
 - ✅ **Request Forwarding** - Translates MCP calls to Burp JSON-RPC
 - ✅ **Error Translation** - Converts Burp errors to MCP format
 - ✅ **Async Support** - Handles long-running security operations
@@ -440,7 +484,7 @@ Response:
 ```json
 {
   "status": "ok",
-  "version": "2.8.1",
+  "version": "2.9.0",
   "burpConnection": "http://localhost:8081",
   "transports": ["stdio", "http-sse", "streamable-http"]
 }

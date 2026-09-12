@@ -13,7 +13,7 @@ export class BurpJsonRpcClient {
     this.logDebug = logDebug;
   }
 
-  async call(method, params, { rid, toolName } = {}) {
+  async call(method, params, { rid, toolName, timeoutMs = this.requestTimeout } = {}) {
     const requestBody = {
       jsonrpc: '2.0',
       id: Date.now(),
@@ -31,7 +31,7 @@ export class BurpJsonRpcClient {
     this.logDebug(`${rid ? `[${rid}] ` : ''}Sending request to Burp: ${method}`);
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.requestTimeout);
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
       const response = await this.fetchImpl(this.baseUrl, {
@@ -68,7 +68,7 @@ export class BurpJsonRpcClient {
       return result;
     } catch (error) {
       if (error.name === 'AbortError') {
-        throw new Error(`Request timeout after ${this.requestTimeout}ms. Burp extension may be overloaded.`);
+        throw new Error(`Request timeout after ${timeoutMs}ms. Burp extension may be overloaded.`);
       }
       const code = error.code || error.cause?.code;
       if (code === 'ECONNREFUSED') {

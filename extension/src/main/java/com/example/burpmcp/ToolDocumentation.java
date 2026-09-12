@@ -23,6 +23,7 @@ public class ToolDocumentation {
     // Kept as an explicit field because the JSON Schema no longer carries allOf/if-then
     // blocks (stripped for Claude API compatibility), so it cannot be derived from the schema.
     private final Map<String, List<String>> actionRequirements;
+    private final List<Map<String, Object>> conditionalRequirements = new ArrayList<>();
 
     private ToolDocumentation(Builder builder) {
         this.name = builder.name;
@@ -56,6 +57,12 @@ public class ToolDocumentation {
     public List<String> getInputTypes() { return new ArrayList<>(inputTypes); }
     public List<String> getOutputTypes() { return new ArrayList<>(outputTypes); }
     public Map<String, List<String>> getActionRequirements() { return new LinkedHashMap<>(actionRequirements); }
+    public List<Map<String, Object>> getConditionalRequirements() { return new ArrayList<>(conditionalRequirements); }
+
+    public void setConditionalRequirements(List<Map<String, Object>> requirements) {
+        conditionalRequirements.clear();
+        if (requirements != null) conditionalRequirements.addAll(requirements);
+    }
 
     public void setDescription(String description) {
         if (description != null && !description.isBlank()) {

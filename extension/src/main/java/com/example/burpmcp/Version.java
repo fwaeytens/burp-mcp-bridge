@@ -7,19 +7,19 @@ package com.example.burpmcp;
 public class Version {
     
     // Version components
-    public static final String VERSION = "2.8.1";
-    public static final String BUILD_DATE = "2026-07-21";
-    public static final String RELEASE_NAME = "agent-facing contracts, concise discovery, and structured outputs";
+    public static final String VERSION = "2.9.0";
+    public static final String BUILD_DATE = "2026-09-12";
+    public static final String RELEASE_NAME = "managed HTTP jobs and reliable request cancellation";
 
     // Feature tracking
-    public static final int TOOL_COUNT = 23; // Total number of registered tools
+    public static final int TOOL_COUNT = 24; // Total number of registered tools
     public static final boolean ASYNC_ENABLED = true;
     public static final boolean CONFIG_ENABLED = true;
 
     // Compatibility
     public static final String MIN_BURP_VERSION = "2026.4";
     public static final String MIN_JAVA_VERSION = "17";
-    public static final String MONTOYA_API_VERSION = "2026.4";
+    public static final String MONTOYA_API_VERSION = "2026.7";
     
     /**
      * Get complete version information.
@@ -38,7 +38,8 @@ public class Version {
         
         info.append("Compatibility: Burp ").append(MIN_BURP_VERSION)
             .append("+, Java ").append(MIN_JAVA_VERSION)
-            .append("+, Montoya API ").append(MONTOYA_API_VERSION);
+            .append("+, Montoya API ").append(MONTOYA_API_VERSION)
+            .append("\nManaged HTTP jobs require Burp Professional's Montoya 2026.7 HTTP engine.");
         
         return info.toString();
     }
@@ -55,6 +56,24 @@ public class Version {
      */
     public static String getChangelog() {
         return new StringBuilder()
+               .append("## Version 2.9.0 - managed HTTP jobs and reliable request cancellation (2026-09-12)\n\n" +
+               "### Managed HTTP jobs\n" +
+               "- Added burp_http_jobs as the 24th tool: START returns a job ID for background HTTP batches; LIST, STATUS, RESULTS, PAUSE, RESUME, and CANCEL manage their lifecycle.\n" +
+               "- Uses Burp Professional's managed HTTP engine with bounded concurrency, dispatch delay, optional retries, per-response timeouts, and stable input-index result pagination.\n" +
+               "- Jobs accept full HTTP(S) URLs or raw HTTP requests. Direct managed sending has no proxy-routing, protocol, SNI, or connection controls; use burp_custom_http for those workflows and byte-level testing.\n" +
+               "- Limits: 4 active jobs, 50 aggregate concurrent requests, 1000 requests and 10 MiB submitted data per job, 20 retained jobs, and a one-hour completed-job retention period. Retained response previews are capped at 10 MiB per job with explicit 16 KiB per-response truncation.\n" +
+               "- Builds against Montoya API 2026.7 while preserving the Burp 2026.4 minimum for existing tools. Managed HTTP jobs require the newer Professional engine capability.\n\n" +
+               "### MCP discovery and tool contracts\n" +
+               "- The Node bridge forwards initialization guidance over every transport, with fallback instructions when the extension cannot supply them.\n" +
+               "- All 24 tools publish domain output schemas; help and discovery include action requirements, scanner conditional TLS requirements, and corrected side-effect annotations.\n" +
+               "- Comparer honors comparison modes with bounded changed-span previews. Bambda reports native import errors and explicitly marks active-filter inspection unsupported.\n" +
+               "- Corrected curated request/result examples and session guidance; stored-token handling does not renew credentials.\n\n" +
+               "### Reliability fixes from code review\n" +
+               "- Timeouts and caller cancellation now interrupt the actual tool worker and remove canceled queued work. Shutdown closes request admission before canceling pending calls.\n" +
+               "- tools/call_sync now shares the same host checks, rate limits, cancellation, and execution deadline as tools/call.\n" +
+               "- Fixed legacy SSE session routing and isolated each HTTP client's MCP server; browser clients can send the MCP protocol version header and read the session ID.\n" +
+               "- Custom HTTP response parsing now handles HEAD, bodyless statuses, and informational responses without consuming the next pipelined response; oversized Content-Length values are rejected before allocation.\n" +
+               "- Global interceptor exports with unset authentication now validate against the import schema and preserve null values on round trip.\n\n")
                .append("## Version 2.8.1 - agent-facing contracts, concise discovery, and structured outputs (2026-07-21)\n\n" +
                "### Agent-facing metadata contracts\n" +
                "- Added an AgentToolMetadata overlay so tools/list and docs/export expose concise descriptions while burp_help keeps the detailed workflow guidance and examples.\n" +

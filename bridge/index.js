@@ -36,6 +36,7 @@ import {
 import { createBridgeConfig } from './lib/bridge-config.js';
 import { BurpJsonRpcClient } from './lib/burp-json-rpc-client.js';
 import { registerMcpToolHandlers } from './lib/mcp-tool-handlers.js';
+import { loadMcpInstructions } from './lib/mcp-instructions.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -53,8 +54,8 @@ class BurpMcpBridge {
       logDebug: (message) => this.logDebug(message)
     });
 
-    // MCP server for stdio and SSE transports
-    this.server = this.createMcpServer();
+    // MCP server for stdio; HTTP connections each get their own server.
+    this.server = null;
 
     // Track active SSE sessions: sessionId -> { transport, lastSeen }
     this.sseTransports = new Map();
@@ -87,10 +88,15 @@ class BurpMcpBridge {
   }
 
   // ---------- MCP Handlers
-  createMcpServer() {
+  async createMcpServer() {
+    const instructions = await loadMcpInstructions(
+      (method, params) => this.callBurpExtension(method, params, { timeoutMs: Math.min(this.requestTimeout, 3000) }),
+      this.BRIDGE_VERSION,
+      (error) => this.logDebug(`Using fallback agent instructions: ${error.message}`)
+    );
     const server = new Server(
       { name: 'burp-mcp-bridge', version: this.BRIDGE_VERSION },
-      { capabilities: { tools: {} } }
+      { capabilities: { tools: {} }, instructions }
     );
     this.setupHandlers(server);
     return server;
@@ -107,8 +113,8 @@ class BurpMcpBridge {
   }
 
   // ---------- Burp JSON-RPC call
-  async callBurpExtension(method, params, { rid, toolName } = {}) {
-    return this.burpClient.call(method, params, { rid, toolName });
+  async callBurpExtension(method, params, context = {}) {
+    return this.burpClient.call(method, params, context);
   }
 
   // ---------- Optional extension stats (non-fatal)
@@ -277,7 +283,7 @@ IP.2 = ::1
     }
     const headers = {
       'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS',
-      'Access-Control-Allow-Headers': 'mcp-session-id, content-type, accept, last-event-id',
+      'Access-Control-Allow-Headers': 'mcp-session-id, mcp-protocol-version, content-type, accept, last-event-id',
       'Access-Control-Expose-Headers': 'mcp-session-id',
       'Access-Control-Max-Age': '600',
       'Vary': 'Origin'
@@ -327,6 +333,34 @@ IP.2 = ::1
     return transport;
   }
 
+  async connectHttpSession(transport, res) {
+    // Guidance lookup may wait on Burp before the SDK installs its close listener.
+    // Track disconnects immediately so abandoned requests cannot retain capacity.
+    let disconnected = false;
+    const onClose = () => {
+      disconnected = true;
+      transport.close().catch((error) => this.logDebug(`Closing abandoned MCP transport: ${error.message}`));
+    };
+    res.once('close', onClose);
+    let server;
+    try {
+      server = await this.createMcpServer();
+      if (disconnected || res.destroyed || res.writableEnded) {
+        await server.close();
+        await transport.close();
+        return false;
+      }
+      await server.connect(transport);
+      return true;
+    } catch (error) {
+      await server?.close();
+      await transport.close();
+      throw error;
+    } finally {
+      res.off('close', onClose);
+    }
+  }
+
   async handleHttpRequest(req, res) {
     // Socket-level loopback enforcement (immune to DNS rebinding / Host header spoofing)
     if (this.bindLoopbackOnly) {
@@ -373,6 +407,7 @@ IP.2 = ::1
     if (origin) {
       res.setHeader('Vary', 'Origin');
       res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Expose-Headers', 'mcp-session-id');
     }
 
     // --- Routing
@@ -421,7 +456,7 @@ IP.2 = ::1
 
       const sessionId = typeof req.headers['mcp-session-id'] === 'string'
         ? req.headers['mcp-session-id']
-        : null;
+        : url.searchParams.get('sessionId');
 
       if (sessionId) {
         const sseRec = this.sseTransports.get(sessionId);
@@ -480,7 +515,7 @@ IP.2 = ::1
         this.sseTransports.set(transport.sessionId, { transport, lastSeen: Date.now() });
 
         // Start
-        await this.server.connect(transport);
+        if (!await this.connectHttpSession(transport, res)) return;
         this.logInfo(`New SSE session started: ${transport.sessionId}`);
         return;
       }
@@ -498,8 +533,7 @@ IP.2 = ::1
       }
 
       const transport = this.createHttpTransport();
-      const server = this.createMcpServer();
-      await server.connect(transport);
+      if (!await this.connectHttpSession(transport, res)) return;
       await transport.handleRequest(req, res);
       return;
     }
@@ -545,6 +579,7 @@ IP.2 = ::1
     // Start stdio transport if enabled
     if (this.transportMode === 'stdio' || this.transportMode === 'both') {
       const transport = new StdioServerTransport();
+      this.server = await this.createMcpServer();
       await this.server.connect(transport);
       this.logInfo('✅ Stdio transport started');
     }

@@ -53,6 +53,7 @@ public class CustomHttpTool implements McpTool {
     private final ObjectMapper mapper = new ObjectMapper();
     private static final Map<String, Long> connectionLastUsed = new ConcurrentHashMap<>();
     private static final long CONNECTION_TIMEOUT_MS = 30000; // 30 seconds
+    private static final int MAX_RESPONSE_BODY_BYTES = 50_000_000;
     private static final List<String> SUPPORTED_ACTIONS = List.of(
         "SEND_REQUEST",
         "SEND_PARALLEL",
@@ -100,7 +101,7 @@ public class CustomHttpTool implements McpTool {
         // MCP 2025-06-18 annotations
         Map<String, Object> annotations = new HashMap<>();
         annotations.put("readOnlyHint", false);
-        annotations.put("destructiveHint", false);
+        annotations.put("destructiveHint", true);
         annotations.put("idempotentHint", false);
         annotations.put("openWorldHint", true);
         annotations.put("title", "HTTP Client (Primary)");
@@ -1087,7 +1088,10 @@ public class CustomHttpTool implements McpTool {
             }
 
             InputStream in = sock.getInputStream();
-            List<ParsedResponse> parsed = parseResponseStream(in, expectResponses, readTimeoutMs);
+            List<String> requestMethods = new ArrayList<>(reqBytes.size());
+            for (byte[] bytes : reqBytes) requestMethods.add(requestMethod(bytes));
+            List<ParsedResponse> parsed = parseResponseStream(in, expectResponses, readTimeoutMs,
+                false, requestMethods);
 
             // Drain any trailing bytes after expected responses (response queue poisoning).
             byte[] trailing = drainTrailing(in, readTimeoutMs);
@@ -1105,7 +1109,7 @@ public class CustomHttpTool implements McpTool {
                         ParsedResponse pr = parsed.get(i);
                         burp.api.montoya.http.message.responses.HttpResponse resp =
                             burp.api.montoya.http.message.responses.HttpResponse.httpResponse(
-                                ByteArray.byteArray(pr.rawBytes));
+                                ByteArray.byteArray(pr.finalResponseBytes));
                         HttpRequestResponse hrr = HttpRequestResponse.httpRequestResponse(req, resp)
                             .withAnnotations(Annotations.annotations(
                                 "MCP: pipelined group=" + groupId + " idx=" + i));
@@ -1353,7 +1357,8 @@ public class CustomHttpTool implements McpTool {
             InputStream in = sock.getInputStream();
             // Single-shot socket — we close right after this response, so EOF framing is
             // safe for unframed responses (Burp/CF sometimes serve without Content-Length).
-            List<ParsedResponse> parsed = parseResponseStream(in, 1, cfg.readTimeoutMs, true);
+            List<ParsedResponse> parsed = parseResponseStream(in, 1, cfg.readTimeoutMs, true,
+                List.of(requestMethod(requestBytes)));
             if (parsed.isEmpty()) {
                 ParsedResponse pr = new ParsedResponse();
                 pr.parseError = "no response from proxy tunnel";
@@ -1419,7 +1424,17 @@ public class CustomHttpTool implements McpTool {
         List<String> setCookies = new ArrayList<>();
         byte[] body = new byte[0];
         byte[] rawBytes = new byte[0];
+        // The final message alone is used when constructing a Montoya HttpResponse;
+        // rawBytes also retains any preceding informational responses for inspection.
+        byte[] finalResponseBytes = new byte[0];
         String parseError;
+    }
+
+    private String requestMethod(byte[] requestBytes) {
+        int end = 0;
+        while (end < requestBytes.length && requestBytes[end] != ' '
+                && requestBytes[end] != '\r' && requestBytes[end] != '\n') end++;
+        return new String(requestBytes, 0, end, StandardCharsets.ISO_8859_1);
     }
 
     /**
@@ -1438,19 +1453,59 @@ public class CustomHttpTool implements McpTool {
      *     sockets so the parser strictly respects framing headers.
      */
     private List<ParsedResponse> parseResponseStream(InputStream in, int expected, int readTimeoutMs, boolean assumeCloseFraming) {
+        return parseResponseStream(in, expected, readTimeoutMs, assumeCloseFraming, List.of());
+    }
+
+    private List<ParsedResponse> parseResponseStream(InputStream in, int expected, int readTimeoutMs,
+            boolean assumeCloseFraming, List<String> requestMethods) {
         List<ParsedResponse> out = new ArrayList<>();
         PushbackByteStream stream = new PushbackByteStream(in);
         for (int i = 0; i < expected; i++) {
+            ByteArrayOutputStream informational = new ByteArrayOutputStream();
+            int informationalCount = 0;
             try {
-                ParsedResponse pr = parseSingleResponse(stream, assumeCloseFraming);
-                if (pr == null) break;
+                String method = i < requestMethods.size() ? requestMethods.get(i) : "";
+                ParsedResponse pr;
+                while (true) {
+                    pr = parseSingleResponse(stream, assumeCloseFraming, method);
+                    if (pr == null || pr.parseError != null || pr.statusCode < 100
+                            || pr.statusCode >= 200 || pr.statusCode == 101) break;
+                    if (++informationalCount > 100) {
+                        pr.parseError = "too many informational responses before final response";
+                        break;
+                    }
+                    // 100/103 do not complete the request or advance its method association.
+                    informational.write(pr.rawBytes);
+                }
+                if (pr == null) {
+                    if (informational.size() > 0) {
+                        ParsedResponse err = new ParsedResponse();
+                        err.parseError = "connection closed before final response";
+                        err.rawBytes = informational.toByteArray();
+                        out.add(err);
+                    }
+                    break;
+                }
+                pr.finalResponseBytes = pr.rawBytes;
+                if (informational.size() > 0) {
+                    informational.write(pr.rawBytes);
+                    pr.rawBytes = informational.toByteArray();
+                }
                 out.add(pr);
                 if (pr.parseError != null) break;
+                if (pr.statusCode == 101) break; // Remaining bytes belong to the upgraded protocol.
             } catch (java.net.SocketTimeoutException ste) {
+                if (informational.size() > 0) {
+                    ParsedResponse err = new ParsedResponse();
+                    err.parseError = "timed out before final response";
+                    err.rawBytes = informational.toByteArray();
+                    out.add(err);
+                }
                 break;
             } catch (Exception e) {
                 ParsedResponse err = new ParsedResponse();
                 err.parseError = "parse error: " + e.getMessage();
+                err.rawBytes = informational.toByteArray();
                 out.add(err);
                 break;
             }
@@ -1458,7 +1513,8 @@ public class CustomHttpTool implements McpTool {
         return out;
     }
 
-    private ParsedResponse parseSingleResponse(PushbackByteStream in, boolean assumeCloseFraming) throws Exception {
+    private ParsedResponse parseSingleResponse(PushbackByteStream in, boolean assumeCloseFraming,
+            String requestMethod) throws Exception {
         ByteArrayOutputStream raw = new ByteArrayOutputStream();
 
         // Status line.
@@ -1516,7 +1572,11 @@ public class CustomHttpTool implements McpTool {
 
         // Body framing.
         ByteArrayOutputStream body = new ByteArrayOutputStream();
-        if (chunked) {
+        if ("HEAD".equalsIgnoreCase(requestMethod) || pr.statusCode == 204 || pr.statusCode == 304
+                || (pr.statusCode >= 100 && pr.statusCode < 200)) {
+            // These responses end at the header terminator. Any advertised length or
+            // transfer coding describes a representation, not bytes on this connection.
+        } else if (chunked) {
             while (true) {
                 String sizeLine = readLine(in, raw);
                 if (sizeLine == null) break;
@@ -1533,11 +1593,9 @@ public class CustomHttpTool implements McpTool {
                     }
                     break;
                 }
-                // Guard against a hostile/looping chunked stream BEFORE readN pre-allocates:
-                // parseInt(...,16) can yield a negative (overflow), and the cumulative
-                // (body + this chunk) check bounds the total body at 50 MB so a sequence of
+                // Reject negative sizes and bound the cumulative body at 50 MB so a sequence of
                 // individually-sub-cap chunks can't grow the accumulated body past the limit.
-                if (size < 0 || (long) body.size() + size > 50_000_000) {
+                if (size < 0 || (long) body.size() + size > MAX_RESPONSE_BODY_BYTES) {
                     pr.parseError = "chunk size out of bounds: " + sizeStr;
                     break;
                 }
@@ -1547,12 +1605,12 @@ public class CustomHttpTool implements McpTool {
                 readLine(in, raw); // trailing CRLF after chunk
             }
         } else if (contentLength >= 0) {
-            if (contentLength > 0) {
-                byte[] b = readN(in, (int) Math.min(contentLength, Integer.MAX_VALUE), raw);
+            if (contentLength > MAX_RESPONSE_BODY_BYTES) {
+                pr.parseError = "content length out of bounds: " + contentLength;
+            } else if (contentLength > 0) {
+                byte[] b = readN(in, (int) contentLength, raw);
                 if (b != null) body.write(b);
             }
-        } else if (pr.statusCode == 204 || pr.statusCode == 304 || (pr.statusCode >= 100 && pr.statusCode < 200)) {
-            // No body for these statuses by spec.
         } else if (connectionClose
                 || "HTTP/1.0".equalsIgnoreCase(pr.httpVersion)
                 || assumeCloseFraming) {
@@ -1572,7 +1630,7 @@ public class CustomHttpTool implements McpTool {
                     if (b == -1) break;
                     raw.write(b);
                     body.write(b);
-                    if (body.size() > 50_000_000) break; // safety cap
+                    if (body.size() > MAX_RESPONSE_BODY_BYTES) break; // safety cap
                 }
             } catch (java.net.SocketTimeoutException ste) {
                 // Soft EOF — server held the connection open with no further framing.
@@ -1637,12 +1695,16 @@ public class CustomHttpTool implements McpTool {
     }
 
     private byte[] readN(PushbackByteStream s, int n, ByteArrayOutputStream raw) throws Exception {
-        ByteArrayOutputStream out = new ByteArrayOutputStream(n);
-        for (int i = 0; i < n; i++) {
-            int b = s.read();
-            if (b == -1) return out.size() == 0 ? null : out.toByteArray();
-            raw.write(b);
-            out.write(b);
+        if (n < 0 || n > MAX_RESPONSE_BODY_BYTES) {
+            throw new java.io.IOException("body size out of bounds: " + n);
+        }
+        ByteArrayOutputStream out = new ByteArrayOutputStream(Math.min(n, 8192));
+        byte[] buffer = new byte[Math.min(n, 8192)];
+        while (out.size() < n) {
+            int count = s.in.read(buffer, 0, Math.min(buffer.length, n - out.size()));
+            if (count == -1) return out.size() == 0 ? null : out.toByteArray();
+            raw.write(buffer, 0, count);
+            out.write(buffer, 0, count);
         }
         return out.toByteArray();
     }
@@ -1746,7 +1808,17 @@ public class CustomHttpTool implements McpTool {
         return normalizeRequestLineEndings(headers) + "\r\n\r\n" + body;
     }
 
+    /** Prepare a finite-job request without browser header or cookie injection. */
+    HttpRequest prepareJobRequest(String requestStr, Boolean useHttps) throws Exception {
+        return createHttpRequest(requestStr, mapper.createObjectNode(), useHttps, true);
+    }
+
     private HttpRequest createHttpRequest(String requestStr, JsonNode arguments) throws Exception {
+        return createHttpRequest(requestStr, arguments, null, false);
+    }
+
+    private HttpRequest createHttpRequest(String requestStr, JsonNode arguments, Boolean rawUseHttps,
+                                          boolean jobRequest) throws Exception {
         boolean rawRequest = arguments != null && arguments.has("raw_request")
             && arguments.get("raw_request").asBoolean(false);
 
@@ -1755,10 +1827,20 @@ public class CustomHttpTool implements McpTool {
         // verbatim, so binary bodies (multipart uploads, gzip, serialized blobs with
         // 0x0A/0x0D/high bytes) survive byte-for-byte — raw_request's byte-exactness
         // contract. In normal mode we normalize the whole request as before.
-        if (rawRequest) {
+        if (rawRequest || jobRequest) {
             requestStr = normalizeHeadersOnly(requestStr);
         } else {
             requestStr = normalizeRequestLineEndings(requestStr);
+        }
+        // Managed jobs need normal destination/origin-form parsing while preserving
+        // the supplied body and its Content-Length. Existing SEND paths are unchanged.
+        String jobBody = null;
+        if (jobRequest) {
+            int separator = requestStr.indexOf("\r\n\r\n");
+            if (separator >= 0) {
+                jobBody = requestStr.substring(separator + 4);
+                requestStr = requestStr.substring(0, separator + 4);
+            }
         }
         String overrideHost = arguments != null
             ? McpUtils.getTrimmedStringParam(arguments, "target_host")
@@ -1785,7 +1867,7 @@ public class CustomHttpTool implements McpTool {
         }
 
         // Default to HTTPS (secure=true) unless explicitly specified otherwise
-        boolean secure = true;
+        boolean secure = rawUseHttps == null || rawUseHttps;
         boolean schemeSpecified = false;
         boolean http2Requested = false;
         boolean allowH2c = arguments != null && arguments.has("allow_h2c") && arguments.get("allow_h2c").asBoolean(false);
@@ -1901,7 +1983,7 @@ public class CustomHttpTool implements McpTool {
         }
 
         // Port-based protocol detection - only if scheme was NOT explicitly specified
-        if (!schemeSpecified && port != null) {
+        if (!schemeSpecified && port != null && rawUseHttps == null) {
             if (port == 443) {
                 secure = true;
             } else if (port == 80) {
@@ -1935,6 +2017,7 @@ public class CustomHttpTool implements McpTool {
         }
 
         requestStr = String.join("\r\n", Arrays.asList(lines));
+        if (jobBody != null) requestStr += jobBody;
         return HttpRequest.httpRequest(service, requestStr);
     }
 

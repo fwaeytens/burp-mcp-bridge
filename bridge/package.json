@@ -1,18 +1,30 @@
 {
   "name": "burp-mcp-bridge",
-  "version": "2.8.1",
-  "description": "Dual-transport MCP server bridge for Burp Suite Professional supporting both stdio (Claude Code) and HTTP/SSE (OpenAI, Google Gemini) connections. Features self-documentation system, AI discovery tools, enhanced organizer management, advanced session management, native cookie jar integration, proxy history filtering, WebSocket interception, response analysis, and 23 comprehensive security tools focused on Montoya API",
+  "version": "2.9.0",
+  "description": "Dual-transport MCP server bridge for Burp Suite Professional supporting both stdio (Claude Code) and HTTP/SSE (OpenAI, Google Gemini) connections. Features self-documentation system, AI discovery tools, enhanced organizer management, advanced session management, native cookie jar integration, proxy history filtering, WebSocket interception, response analysis, managed HTTP jobs, and 24 registered tools focused on Montoya API",
   "main": "index.js",
   "type": "module",
   "author": "Filip Waeytens <fwaeytens@users.noreply.github.com>",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/fwaeytens/burp-mcp-bridge.git"
+    "url": "git+https://github.com/fwaeytens/burp-mcp-bridge.git",
+    "directory": "bridge"
+  },
+  "homepage": "https://github.com/fwaeytens/burp-mcp-bridge#readme",
+  "bugs": {
+    "url": "https://github.com/fwaeytens/burp-mcp-bridge/issues"
   },
   "bin": {
     "burp-mcp-bridge": "./index.js"
   },
+  "files": [
+    "index.js",
+    "lib/",
+    "scripts/",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "start": "node index.js",
     "start:http": "MCP_TRANSPORT_MODE=http node index.js",
@@ -26,7 +38,6 @@
   "engines": {
     "node": ">=18.14.1"
   },
-  "preferGlobal": true,
   "keywords": [
     "burp-suite",
     "mcp",

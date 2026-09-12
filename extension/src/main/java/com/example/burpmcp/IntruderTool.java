@@ -37,7 +37,7 @@ public class IntruderTool implements McpTool {
         Map<String, Object> annotations = new HashMap<>();
         annotations.put("readOnlyHint", false);
         annotations.put("destructiveHint", false);
-        annotations.put("idempotentHint", true);
+        annotations.put("idempotentHint", false); // Repeated calls create additional UI tabs.
         annotations.put("openWorldHint", false);
         annotations.put("title", "Intruder (UI Only)");
         tool.put("annotations", annotations);
@@ -77,6 +77,7 @@ public class IntruderTool implements McpTool {
         inputSchema.put("required", List.of("action", "url"));
         
         tool.put("inputSchema", inputSchema);
+        tool.put("outputSchema", UtilityOutputSchemas.forTool((String) tool.get("name")));
         return tool;
     }
 

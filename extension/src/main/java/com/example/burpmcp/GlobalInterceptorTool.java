@@ -173,7 +173,7 @@ public class GlobalInterceptorTool implements McpTool {
         // MCP 2025-06-18 annotations
         Map<String, Object> annotations = new HashMap<>();
         annotations.put("readOnlyHint", false);
-        annotations.put("destructiveHint", false);
+        annotations.put("destructiveHint", true);
         annotations.put("idempotentHint", false);
         annotations.put("openWorldHint", true);
         annotations.put("title", "Global Interceptor (All Burp Tools)");
@@ -273,6 +273,7 @@ public class GlobalInterceptorTool implements McpTool {
         inputSchema.put("required", Arrays.asList("action"));
 
         tool.put("inputSchema", inputSchema);
+        tool.put("outputSchema", TrafficOutputSchemas.forTool("burp_global_interceptor"));
         return tool;
     }
     

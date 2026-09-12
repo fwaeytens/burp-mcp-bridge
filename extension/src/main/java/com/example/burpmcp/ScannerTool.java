@@ -112,7 +112,7 @@ public class ScannerTool implements McpTool {
         // MCP 2025-06-18 annotations
         Map<String, Object> annotations = new HashMap<>();
         annotations.put("readOnlyHint", false);
-        annotations.put("destructiveHint", false);
+        annotations.put("destructiveHint", true);
         annotations.put("idempotentHint", false);
         annotations.put("openWorldHint", true);
         annotations.put("title", "Vulnerability Scanner");
@@ -175,7 +175,7 @@ public class ScannerTool implements McpTool {
         // Request for ADD_TO_SCAN
         Map<String, Object> requestProperty = new HashMap<>();
         requestProperty.put("type", "string");
-        requestProperty.put("description", "HTTP request to add to scan. IMPORTANT: include port in Host header (example.com:443 for HTTPS, example.com:80 for HTTP) — without explicit port, parsing falls back to defaults that may not match useHttps.");
+        requestProperty.put("description", "Raw HTTP request for SCAN_SPECIFIC_REQUEST or ADD_TO_SCAN. Supply an explicit useHttps boolean. Include the destination port in Host (example.com:443 or example.com:80) for clarity; when absent, the default port follows useHttps unless port overrides it.");
         properties.put("request", requestProperty);
         
         // Insertion points for ADD_TO_SCAN
@@ -246,7 +246,7 @@ public class ScannerTool implements McpTool {
 
         Map<String, Object> useHttpsProperty = new HashMap<>();
         useHttpsProperty.put("type", "boolean");
-        useHttpsProperty.put("description", "Required for SCAN_SPECIFIC_REQUEST and ADD_TO_SCAN actions. true=HTTPS:443, false=HTTP:80 (port can be overridden via 'port' parameter or Host header). If omitted, parsing falls back to URL/Host header — explicit is safer.");
+        useHttpsProperty.put("description", "Required boolean for SCAN_SPECIFIC_REQUEST and for ADD_TO_SCAN when supplying a raw request. true selects HTTPS and false selects HTTP; the default port is 443 or 80 respectively, unless overridden by port or the Host header. Omission is an error for raw requests, even with an absolute URL or explicit Host port. URL-only ADD_TO_SCAN uses each URL's scheme.");
         properties.put("useHttps", useHttpsProperty);
         autoEnableProperty.put("default", true);
         properties.put("autoEnable", autoEnableProperty);
@@ -833,6 +833,21 @@ public class ScannerTool implements McpTool {
         String scanId = arguments.has("scanId") ? arguments.get("scanId").asText() : null;
         if (scanId == null || scanId.isEmpty()) {
             return createErrorResponse("scanId is required for ADD_TO_SCAN");
+        }
+
+        boolean hasUrls = arguments.has("urls") && arguments.get("urls").isArray()
+            && !arguments.get("urls").isEmpty();
+        boolean hasRequest = arguments.has("request") && arguments.get("request").isTextual()
+            && !arguments.get("request").asText().isBlank();
+        if (!hasUrls && !hasRequest) {
+            return createErrorResponse("ADD_TO_SCAN requires a nonempty urls array or raw request");
+        }
+        // Validate the raw transport choice before a mixed batch adds any URLs.
+        if (arguments.has("request")) {
+            if (!hasRequest) return createErrorResponse("request must be a nonempty string");
+            if (!arguments.has("useHttps") || !arguments.get("useHttps").isBoolean()) {
+                return createErrorResponse("useHttps must be an explicit boolean when adding a raw request");
+            }
         }
 
         Audit audit = activeAudits.get(scanId);
@@ -1578,8 +1593,8 @@ public class ScannerTool implements McpTool {
         }
 
         // Determine useHttps — required, no default
-        if (!arguments.has("useHttps")) {
-            throw new IllegalArgumentException("useHttps is required — set to true for HTTPS or false for HTTP");
+        if (!arguments.has("useHttps") || !arguments.get("useHttps").isBoolean()) {
+            throw new IllegalArgumentException("useHttps must be an explicit boolean — true for HTTPS or false for HTTP");
         }
         boolean secure = arguments.get("useHttps").asBoolean();
 

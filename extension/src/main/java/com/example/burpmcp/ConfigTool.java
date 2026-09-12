@@ -113,6 +113,7 @@ public class ConfigTool implements McpTool {
         inputSchema.put("properties", properties);
         inputSchema.put("required", List.of("action"));
         tool.put("inputSchema", inputSchema);
+        tool.put("outputSchema", UtilityOutputSchemas.forTool((String) tool.get("name")));
 
         return tool;
     }

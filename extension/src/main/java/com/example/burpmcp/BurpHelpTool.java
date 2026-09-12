@@ -96,7 +96,12 @@ public class BurpHelpTool implements McpTool {
         outputProps.put("related_tools", Map.of("type", "array", "description", "Related tool names"));
         outputProps.put("keywords", Map.of("type", "array", "description", "Search keywords"));
         outputProps.put("capabilities", Map.of("type", "array", "description", "Tool capabilities"));
-        outputProps.put("action_requirements", Map.of("type", "object", "description", "Action-specific required parameters"));
+        outputProps.put("action_requirements", Map.of("type", "object", "description", "Action-specific required parameters; names separated by | are alternatives.",
+            "additionalProperties", SchemaHelper.stringArrayProp("Required parameter names or alternatives.")));
+        outputProps.put("conditional_requirements", SchemaHelper.objectArrayProp("Additional fields required only when an action contains specified parameters.", Map.of(
+            "action", SchemaHelper.stringProp("Action to which this requirement applies."),
+            "when_present", SchemaHelper.stringArrayProp("Parameters whose presence triggers the requirement."),
+            "required", SchemaHelper.stringArrayProp("Additional required parameter names."))));
         outputSchema.put("properties", outputProps);
         tool.put("outputSchema", outputSchema);
 
@@ -175,6 +180,7 @@ public class BurpHelpTool implements McpTool {
                 result.put("returns", doc.getReturns());
                 result.put("required_params", getRequiredParams(doc));
                 result.put("action_requirements", getActionRequirements(doc));
+                result.put("conditional_requirements", doc.getConditionalRequirements());
                 break;
 
             case "examples":
@@ -193,6 +199,7 @@ public class BurpHelpTool implements McpTool {
                 result.put("keywords", doc.getKeywords());
                 result.put("capabilities", doc.getCapabilities());
                 result.put("action_requirements", getActionRequirements(doc));
+                result.put("conditional_requirements", doc.getConditionalRequirements());
         }
 
         return toStructuredResponse(result, false);
@@ -430,6 +437,9 @@ public class BurpHelpTool implements McpTool {
         Map<String, List<String>> actionRequirements = getActionRequirements(doc);
         if (!actionRequirements.isEmpty()) {
             quickStart.put("action_requirements", actionRequirements);
+        }
+        if (!doc.getConditionalRequirements().isEmpty()) {
+            quickStart.put("conditional_requirements", doc.getConditionalRequirements());
         }
 
         return quickStart;

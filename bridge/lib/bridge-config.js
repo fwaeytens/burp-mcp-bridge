@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { accessSync, constants as fsConstants, existsSync, readFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -16,7 +17,54 @@ export function getBridgeVersion(packageUrl = new URL('../package.json', import.
   }
 }
 
-export function createBridgeConfig({ env = process.env, bridgeDir = DEFAULT_BRIDGE_DIR } = {}) {
+/** Nearest ancestor that exists, so a not-yet-created directory can still be probed. */
+function nearestExistingDir(dir) {
+  let current = dir;
+  for (;;) {
+    if (existsSync(current)) return current;
+    const parent = dirname(current);
+    if (parent === current) return current;
+    current = parent;
+  }
+}
+
+/** True when certs could be created at this path. */
+export function isWritableDir(dir) {
+  try {
+    accessSync(nearestExistingDir(dir), fsConstants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Global installs (`npm i -g`, `npx`) place the package in a root-owned or cache
+ * directory, so the package-local certs directory is not always writable. An
+ * explicit MCP_CERT_PATH always wins; otherwise fall back to per-user state.
+ */
+export function resolveCertPath({ env, bridgeDir, probe = isWritableDir, platform = process.platform }) {
+  if (env.MCP_CERT_PATH) return env.MCP_CERT_PATH;
+
+  const packageLocal = join(bridgeDir, 'certs');
+  if (probe(packageLocal)) return packageLocal;
+
+  const home = env.HOME || env.USERPROFILE || homedir();
+  const base = platform === 'win32'
+    ? (env.LOCALAPPDATA || join(home, 'AppData', 'Local'))
+    : (env.XDG_STATE_HOME || join(home, '.local', 'state'));
+  const perUser = join(base, 'burp-mcp-bridge', 'certs');
+  if (probe(perUser)) return perUser;
+
+  return join(tmpdir(), 'burp-mcp-bridge', 'certs');
+}
+
+export function createBridgeConfig({
+  env = process.env,
+  bridgeDir = DEFAULT_BRIDGE_DIR,
+  probe = isWritableDir,
+  platform = process.platform
+} = {}) {
   const burpPort = String(toInt(env.BURP_MCP_SERVER_PORT, 8081));
   const burpHost = env.BURP_MCP_SERVER_HOST ?? 'localhost';
   const burpUrl = new URL('http://localhost');
@@ -24,7 +72,7 @@ export function createBridgeConfig({ env = process.env, bridgeDir = DEFAULT_BRID
   burpUrl.port = burpPort;
 
   const useHttps = env.MCP_USE_HTTPS !== 'false';
-  const certPath = env.MCP_CERT_PATH || join(bridgeDir, 'certs');
+  const certPath = resolveCertPath({ env, bridgeDir, probe, platform });
   const bindLoopbackOnly = env.MCP_BIND_LOOPBACK_ONLY !== 'false';
   const requestedHost = env.MCP_HTTP_HOST ?? '127.0.0.1';
   const requestedMode = (env.MCP_TRANSPORT_MODE ?? 'both').toLowerCase();

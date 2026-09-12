@@ -17,6 +17,7 @@ import java.util.Map;
  */
 final class AgentToolMetadata {
     static final String ACTION_REQUIREMENTS_KEY = "x-burp-actionRequirements";
+    static final String CONDITIONAL_REQUIREMENTS_KEY = "x-burp-conditionalRequirements";
 
     private static final Map<String, String> SHORT_DESCRIPTIONS = Map.ofEntries(
         Map.entry("burp_help", "Discover tools, search capabilities, and fetch detailed parameters, examples, and workflows. Use this first when you are unsure which Burp MCP tool fits."),
@@ -27,20 +28,21 @@ final class AgentToolMetadata {
         Map.entry("burp_intruder", "Configure Burp Intruder UI attacks and insertion positions for manual execution. It does not run attacks programmatically."),
         Map.entry("burp_add_issue", "Create custom Burp audit issues with evidence, severity, remediation, and optional proxy-history-derived request/response context."),
         Map.entry("burp_session_management", "Manage tokens, Burp's cookie jar, session validation, and automatic session handling actions."),
-        Map.entry("burp_comparer", "Compare requests, responses, text, or proxy entries, or send data to Burp Comparer UI."),
+        Map.entry("burp_comparer", "Compare text or HTTP messages, fetch fresh responses, or send captured entries to Comparer UI. Read burp_help for action-specific output and comparison modes."),
         Map.entry("burp_collaborator", "Generate Burp Collaborator payloads and poll out-of-band DNS, HTTP, HTTPS, and SMTP interactions."),
         Map.entry("burp_scope", "View, add, remove, check, and analyze Burp target scope, including bulk operations."),
         Map.entry("burp_config", "Read and write Burp project or user options JSON for settings not covered by typed tools."),
         Map.entry("burp_organizer", "Send requests to Organizer and query Organizer items, counts, filters, and status."),
         Map.entry("burp_annotate", "Add notes and highlights across Burp data sources, search annotations, and manage auto-annotation rules."),
         Map.entry("burp_sitemap_analysis", "Analyze Burp Site Map structure, technologies, attack surface, response statistics, and site-wide findings."),
-        Map.entry("burp_bambda", "Apply preset or custom Bambda filters to Burp views and inspect the active filter."),
+        Map.entry("burp_bambda", "Apply preset or custom Bambda filters and list bundled presets. Reading the active filter is unavailable through the API; inspect it in Burp's UI."),
         Map.entry("burp_global_interceptor", "Automatically apply auth, headers, match/replace rules, and rate limits across traffic from all Burp tools."),
-        Map.entry("burp_custom_http", "Primary programmatic HTTP client for single, parallel, and pipelined requests, protocol analysis, and raw request work."),
+        Map.entry("burp_custom_http", "Send immediate single, parallel, or pipelined HTTP requests with proxy, protocol, and byte-level controls. Use burp_http_jobs for managed background batches."),
+        Map.entry("burp_http_jobs", "Run background HTTP batches with progress, paginated results, pause/resume, and cancel. Requires Pro with Montoya 2026.7. Use burp_custom_http for proxy, protocol, or byte-level controls."),
         Map.entry("burp_logs", "Read extension logs, write diagnostic entries, raise Burp events, and clear captured logs."),
         Map.entry("burp_websocket", "Inspect WebSocket proxy history and create, send on, list, or close extension WebSocket connections."),
         Map.entry("burp_websocket_interceptor", "Intercept, inspect, modify, forward, or drop WebSocket frames and manage frame filters and auto-modify rules."),
-        Map.entry("burp_response_analyzer", "Analyze individual HTTP responses for keywords, variations, reflection points, patterns, and anomalies."),
+        Map.entry("burp_response_analyzer", "Analyze responses for keywords, variations, reflections, patterns, and anomalies. Supplying URLs to variations sends fresh HTTP requests."),
         Map.entry("burp_utilities", "Use Burp utilities for encoding, hashing, JSON operations, byte search, number conversion, and opt-in shell execution.")
     );
 
@@ -77,6 +79,11 @@ final class AgentToolMetadata {
         meta.put("burp/help", "Use burp_help with tool='" + toolName + "' for full examples and workflows.");
         if (!actionRequirements.isEmpty()) {
             meta.put("burp/actionRequirements", actionRequirements);
+        }
+        List<Map<String, Object>> conditionalRequirements = conditionalRequirementsFor(toolName);
+        if (!conditionalRequirements.isEmpty()) {
+            inputSchema.put(CONDITIONAL_REQUIREMENTS_KEY, conditionalRequirements);
+            meta.put("burp/conditionalRequirements", conditionalRequirements);
         }
 
         toolInfo.put("outputSchema", normalizeOutputSchema(toolName, toolInfo.get("outputSchema")));
@@ -116,6 +123,14 @@ final class AgentToolMetadata {
 
     static String shortDescriptionFor(String toolName) {
         return SHORT_DESCRIPTIONS.get(toolName);
+    }
+
+    static List<Map<String, Object>> conditionalRequirementsFor(String toolName) {
+        if ("burp_scanner".equals(toolName)) {
+            return List.of(Map.of("action", "ADD_TO_SCAN", "when_present", List.of("request"),
+                "required", List.of("useHttps")));
+        }
+        return List.of();
     }
 
     private static Map<String, Object> normalizeOutputSchema(String toolName, Object outputSchemaObj) {
@@ -213,9 +228,9 @@ final class AgentToolMetadata {
                         "responseInterception", booleanSchema("Whether response interception is enabled."),
                         "webSocketInterception", booleanSchema("Whether WebSocket interception is enabled."),
                         "rateLimitDelay", integerSchema("Rate limit delay in milliseconds."),
-                        "authType", stringSchema("Configured authentication type."),
-                        "authValue", stringSchema("Configured authentication value."),
-                        "authHeader", stringSchema("Configured authentication header.")
+                        "authType", nullableStringSchema("Configured authentication type, or null when authentication is unset."),
+                        "authValue", nullableStringSchema("Configured authentication value, or null when authentication is unset."),
+                        "authHeader", nullableStringSchema("Configured authentication header, or null when unset by imported settings.")
                     ), true)
                 ),
                 false)
@@ -284,7 +299,7 @@ final class AgentToolMetadata {
 
     private static Map<String, Object> ruleExportArraySchema(String description) {
         return arraySchema(description, objectSchema("Exported rule.", linkedMap(
-            "id", stringSchema("Rule ID."),
+            "id", nullableStringSchema("Rule ID, or null when omitted from imported rules."),
             "priority", integerSchema("Rule priority."),
             "config", objectSchema("Rule config.", Map.of(), true)
         ), false));
@@ -390,6 +405,12 @@ final class AgentToolMetadata {
 
     private static Map<String, Object> stringSchema(String description) {
         return schema("string", description);
+    }
+
+    private static Map<String, Object> nullableStringSchema(String description) {
+        Map<String, Object> schema = stringSchema(description);
+        schema.put("type", List.of("string", "null"));
+        return schema;
     }
 
     private static Map<String, Object> integerSchema(String description) {

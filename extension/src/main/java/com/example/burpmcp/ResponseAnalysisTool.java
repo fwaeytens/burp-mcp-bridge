@@ -37,14 +37,15 @@ public class ResponseAnalysisTool implements McpTool {
             "Use this to find dynamic content, identify reflection points for XSS testing, detect security-related keywords, and rank anomalous responses. " +
             "Actions are LOWERCASE: keywords, variations, reflection, pattern, rank_anomalies, all. " +
             "keywords (find security terms), variations (detect dynamic content), reflection (XSS testing), " +
-            "pattern (regex search), rank_anomalies (AI-powered anomaly detection), all (complete analysis).");
+            "pattern (regex search), rank_anomalies (anomaly ranking), all (keywords, variations and reflection). " +
+            "variations and all send fresh GET requests when urls is supplied; otherwise they analyze proxy history.");
 
         // MCP 2025-06-18 annotations
         Map<String, Object> annotations = new HashMap<>();
-        annotations.put("readOnlyHint", true);
+        annotations.put("readOnlyHint", false);
         annotations.put("destructiveHint", false);
-        annotations.put("idempotentHint", true);
-        annotations.put("openWorldHint", false);
+        annotations.put("idempotentHint", false);
+        annotations.put("openWorldHint", true);
         annotations.put("title", "Response Analyzer (Per-Response)");
         tool.put("annotations", annotations);
 
@@ -68,7 +69,7 @@ public class ResponseAnalysisTool implements McpTool {
         
         // For variations analysis
         properties.put("urls", McpUtils.createProperty("array", 
-            "URLs to analyze for response variations (for variations action)"));
+            "URLs to fetch with fresh GET requests for variations or all. Omit to analyze captured proxy history."));
         
         // For reflection analysis  
         properties.put("proxyIds", McpUtils.createProperty("array",
@@ -103,6 +104,7 @@ public class ResponseAnalysisTool implements McpTool {
         inputSchema.put("required", List.of("action"));
 
         tool.put("inputSchema", inputSchema);
+        tool.put("outputSchema", WorkflowOutputSchemas.forTool("burp_response_analyzer"));
         return tool;
     }
 
@@ -124,7 +126,7 @@ public class ResponseAnalysisTool implements McpTool {
             case "all":
                 return performCompleteAnalysis(arguments);
             default:
-                return McpUtils.createErrorResponse("Unknown action: " + action);
+                return errorResponse("Unknown action: " + action);
         }
     }
     
@@ -194,10 +196,10 @@ public class ResponseAnalysisTool implements McpTool {
                     result.append("- ").append(keyword).append("\n");
                 }
             }
-            return McpUtils.createSuccessResponse(result.toString());
+            return textResponse(result.toString());
             
         } catch (Exception e) {
-            return McpUtils.createErrorResponse("Failed to analyze keywords: " + e.getMessage());
+            return errorResponse("Failed to analyze keywords: " + e.getMessage());
         }
     }
     
@@ -246,7 +248,7 @@ public class ResponseAnalysisTool implements McpTool {
             }
             
             if (responses.isEmpty()) {
-                return McpUtils.createErrorResponse("No responses available to analyze");
+                return errorResponse("No responses available to analyze");
             }
             
             // Update analyzer with all responses
@@ -377,10 +379,10 @@ public class ResponseAnalysisTool implements McpTool {
                 result.append("All responses appear to be static/identical.\n");
             }
             
-            return McpUtils.createSuccessResponse(result.toString());
+            return textResponse(result.toString());
             
         } catch (Exception e) {
-            return McpUtils.createErrorResponse("Failed to analyze variations: " + e.getMessage());
+            return errorResponse("Failed to analyze variations: " + e.getMessage());
         }
     }
     
@@ -388,7 +390,7 @@ public class ResponseAnalysisTool implements McpTool {
         try {
             String patternStr = McpUtils.getStringParam(arguments, "pattern", "");
             if (patternStr.isEmpty()) {
-                return McpUtils.createErrorResponse("Pattern is required for pattern analysis");
+                return errorResponse("Pattern is required for pattern analysis");
             }
             
             boolean caseSensitive = McpUtils.getBooleanParam(arguments, "caseSensitive", false);
@@ -400,7 +402,7 @@ public class ResponseAnalysisTool implements McpTool {
                 int flags = caseSensitive ? 0 : Pattern.CASE_INSENSITIVE;
                 pattern = Pattern.compile(patternStr, flags);
             } catch (Exception e) {
-                return McpUtils.createErrorResponse("Invalid regex pattern: " + e.getMessage());
+                return errorResponse("Invalid regex pattern: " + e.getMessage());
             }
             
             ByteUtils byteUtils = api.utilities().byteUtils();
@@ -516,12 +518,12 @@ public class ResponseAnalysisTool implements McpTool {
                 result.append("No matches found for the pattern in the analyzed responses.\n");
             }
             
-            return McpUtils.createSuccessResponse(result.toString());
+            return textResponse(result.toString());
             
         } catch (Exception e) {
             api.logging().logToError("Pattern analysis failed: " + e.getMessage());
             e.printStackTrace();
-            return McpUtils.createErrorResponse("Pattern analysis failed: " + e.getMessage());
+            return errorResponse("Pattern analysis failed: " + e.getMessage());
         }
     }
     
@@ -670,10 +672,10 @@ public class ResponseAnalysisTool implements McpTool {
                 result.append("No reflection points found in the analyzed responses.\n");
             }
             
-            return McpUtils.createSuccessResponse(result.toString());
+            return textResponse(result.toString());
             
         } catch (Exception e) {
-            return McpUtils.createErrorResponse("Failed to analyze reflections: " + e.getMessage());
+            return errorResponse("Failed to analyze reflections: " + e.getMessage());
         }
     }
 
@@ -705,7 +707,7 @@ public class ResponseAnalysisTool implements McpTool {
             try {
                 rankingUtils = api.utilities().rankingUtils();
             } catch (NoSuchMethodError e) {
-                return McpUtils.createErrorResponse("rank_anomalies is not supported in this version of Burp Suite. " +
+                return errorResponse("rank_anomalies is not supported in this version of Burp Suite. " +
                     "This feature requires Burp Suite " + Version.MIN_BURP_VERSION + " or later with rankingUtils() API support.");
             }
 
@@ -730,13 +732,13 @@ public class ResponseAnalysisTool implements McpTool {
             }
 
             if (responses.isEmpty()) {
-                return McpUtils.createErrorResponse("No responses available to analyze. " +
+                return errorResponse("No responses available to analyze. " +
                     "Ensure proxy history contains responses.");
             }
 
             // Rank responses using the ANOMALY algorithm
             RankingAlgorithm algorithm = RankingAlgorithm.ANOMALY;
-            List<RankedHttpRequestResponse> ranked = rankingUtils.rank(responses, algorithm);
+            List<RankedHttpRequestResponse> ranked = new ArrayList<>(rankingUtils.rank(responses, algorithm));
 
             // Sort by rank (higher rank = more anomalous)
             ranked.sort(Comparator.comparingInt(RankedHttpRequestResponse::rank).reversed());
@@ -855,12 +857,12 @@ public class ResponseAnalysisTool implements McpTool {
             result.append("  - Consistent API responses\n\n");
             result.append("**Recommendation:** Focus security testing on high-ranked anomalies first.\n");
 
-            return McpUtils.createSuccessResponse(result.toString());
+            return textResponse(result.toString());
 
         } catch (Exception e) {
             api.logging().logToError("Anomaly ranking failed: " + e.getMessage());
             e.printStackTrace();
-            return McpUtils.createErrorResponse("Failed to rank responses: " + e.getMessage() +
+            return errorResponse("Failed to rank responses: " + e.getMessage() +
                 ". Ensure Burp Suite " + Version.MIN_BURP_VERSION + "+ is installed for RankingUtils support.");
         }
     }
@@ -893,7 +895,7 @@ public class ResponseAnalysisTool implements McpTool {
         Object reflectionResult = analyzeReflection(arguments);
         result.append(extractTextFromResult(reflectionResult));
 
-        return McpUtils.createSuccessResponse(result.toString());
+        return textResponse(result.toString());
     }
     
     /**
@@ -908,8 +910,24 @@ public class ResponseAnalysisTool implements McpTool {
         return result;
     }
 
+    private static Object textResponse(String text) {
+        return Map.of("content", List.of(Map.of("type", "text", "text", text)),
+            "structuredContent", Map.of("text", text));
+    }
+
+    private static Object errorResponse(String message) {
+        @SuppressWarnings("unchecked")
+        Map<String, Object> response = (Map<String, Object>) McpUtils.createJsonResponse(
+            Map.of("error", "analysis_failed", "message", message));
+        response.put("isError", true);
+        return response;
+    }
+
     @SuppressWarnings("unchecked")
     private String extractTextFromResult(Object result) {
+        if (result instanceof Map<?, ?> map && map.containsKey("content")) {
+            return extractTextFromResult(map.get("content"));
+        }
         if (result instanceof List) {
             List<Map<String, Object>> list = (List<Map<String, Object>>) result;
             if (!list.isEmpty() && list.get(0).containsKey("text")) {

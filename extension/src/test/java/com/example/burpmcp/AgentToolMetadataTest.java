@@ -1,5 +1,6 @@
 package com.example.burpmcp;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.Test;
 
 import java.util.LinkedHashMap;
@@ -123,6 +124,59 @@ public class AgentToolMetadataTest {
         assertEquals(Boolean.FALSE, outputSchema.get("additionalProperties"));
         assertEquals("Array item.", genericItems.get("description"));
         assertFalse(genericItems.containsKey("type"));
+    }
+
+    @Test
+    public void exportedAuthenticationCanRoundTripThroughImportSchema() throws Exception {
+        GlobalInterceptorTool tool = new GlobalInterceptorTool(null);
+        ObjectMapper mapper = new ObjectMapper();
+        try {
+            tool.close();
+            assertAuthenticationRoundTrip(tool, mapper, null, null);
+
+            tool.execute(mapper.valueToTree(Map.of(
+                "action", "set_auth", "auth_type", "bearer", "auth_value", "test-token")));
+            assertAuthenticationRoundTrip(tool, mapper, "bearer", "Bearer test-token");
+
+            tool.execute(mapper.valueToTree(Map.of("action", "clear_auth")));
+            assertAuthenticationRoundTrip(tool, mapper, null, null);
+
+            tool.execute(mapper.valueToTree(Map.of("action", "import_rules", "rules_data", Map.of(
+                "settings", Map.of(), "requestRules", List.of(Map.of("priority", 0, "config", Map.of()))))));
+            assertAuthenticationRoundTrip(tool, mapper, null, null);
+        } finally {
+            tool.close();
+        }
+    }
+
+    private void assertAuthenticationRoundTrip(GlobalInterceptorTool tool,
+                                               ObjectMapper mapper,
+                                               String expectedType,
+                                               String expectedValue) throws Exception {
+        Map<String, Object> exported = map(map(tool.execute(
+            mapper.valueToTree(Map.of("action", "export_rules")))).get("structuredContent"));
+        Map<String, Object> settings = map(exported.get("settings"));
+        assertEquals(expectedType, settings.get("authType"));
+        assertEquals(expectedValue, settings.get("authValue"));
+
+        Map<String, Object> toolInfo = AgentToolMetadata.forToolsList(
+            "burp_global_interceptor", tool.getToolInfo());
+        OutputSchemaAssertions.assertMatches(mapper.valueToTree(properties(toolInfo).get("rules_data")), mapper.valueToTree(exported));
+        Map<String, Object> rulesProperties = map(map(properties(toolInfo).get("rules_data")).get("properties"));
+        Map<String, Object> settingSchemas = map(map(rulesProperties.get("settings")).get("properties"));
+        for (String field : List.of("authType", "authValue", "authHeader")) {
+            Object declaredTypes = map(settingSchemas.get(field)).get("type");
+            List<?> allowedTypes = declaredTypes instanceof List<?> types ? types : List.of(declaredTypes);
+            String exportedType = settings.get(field) == null ? "null" : "string";
+            assertTrue("Exported " + field + " must satisfy the import schema", allowedTypes.contains(exportedType));
+        }
+
+        Map<String, Object> imported = map(tool.execute(mapper.valueToTree(Map.of(
+            "action", "import_rules", "rules_data", exported))));
+        assertEquals(Boolean.TRUE, map(imported.get("structuredContent")).get("success"));
+        Map<String, Object> reexported = map(map(tool.execute(
+            mapper.valueToTree(Map.of("action", "export_rules")))).get("structuredContent"));
+        assertEquals(exported, reexported);
     }
 
     private Map<String, Object> toolInfo(String name, List<String> actions) {

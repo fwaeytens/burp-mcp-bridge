@@ -153,7 +153,7 @@ public class CollaboratorTool implements McpTool {
         // MCP 2025-06-18 annotations
         Map<String, Object> annotations = new HashMap<>();
         annotations.put("readOnlyHint", false);
-        annotations.put("destructiveHint", true);   // CLEAR_INTERACTIONS removes data
+        annotations.put("destructiveHint", true);   // RESTORE_CLIENT replaces the active session.
         annotations.put("idempotentHint", false);
         annotations.put("openWorldHint", true);
         annotations.put("title", "Collaborator (OOB)");
@@ -227,6 +227,7 @@ public class CollaboratorTool implements McpTool {
         inputSchema.put("required", List.of("action"));
         
         tool.put("inputSchema", inputSchema);
+        tool.put("outputSchema", UtilityOutputSchemas.forTool((String) tool.get("name")));
         return tool;
     }
 

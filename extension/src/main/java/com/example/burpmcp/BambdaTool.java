@@ -71,7 +71,7 @@ public class BambdaTool implements McpTool {
         bambdas.put("xss_candidates", 
             "if (!requestResponse.hasResponse()) return false; " +
             "return requestResponse.request().hasParameters() && " +
-            "requestResponse.response().mimeType().equals(\"HTML\");");
+            "requestResponse.response().mimeType() == burp.api.montoya.http.message.MimeType.HTML;");
         
         // Authentication Endpoints
         bambdas.put("auth_endpoints", 
@@ -101,17 +101,17 @@ public class BambdaTool implements McpTool {
         Map<String, Object> tool = new HashMap<>();
         tool.put("name", "burp_bambda");
         tool.put("title", "Bambda Filters");
-        tool.put("description", "Create and apply advanced Bambda filters for intelligent traffic filtering using Java code. " +
+        tool.put("description", "Import preset or custom Bambda view filters written in Java. Import success means loaded without native errors; active filter state cannot be verified by this tool. " +
             "Bambdas are powerful filters written in Java that can filter Proxy history, Site map, and Logger. " +
-            "Actions: APPLY_FILTER (use preset or custom), LIST_PRESETS (available filters), CREATE_CUSTOM (write Java filter), GET_ACTIVE_FILTER. " +
+            "Actions: APPLY_FILTER (use preset or custom), LIST_PRESETS (available filters), CREATE_CUSTOM (write Java filter), GET_ACTIVE_FILTER (compatibility action; always returns an unsupported error). " +
             "Presets include: authenticated_requests, api_endpoints, sql_injection_candidates, error_responses, xss_candidates.");
 
         // MCP 2025-06-18 annotations
         Map<String, Object> annotations = new HashMap<>();
         annotations.put("readOnlyHint", false);
-        annotations.put("destructiveHint", false);
+        annotations.put("destructiveHint", true);
         annotations.put("idempotentHint", false);  // CREATE_CUSTOM modifies filter state
-        annotations.put("openWorldHint", false);
+        annotations.put("openWorldHint", true);
         annotations.put("title", "Bambda Filters");
         tool.put("annotations", annotations);
 
@@ -124,17 +124,17 @@ public class BambdaTool implements McpTool {
 
         Map<String, Object> properties = new HashMap<>();
         
-        properties.put("action", McpUtils.createEnumProperty("string", "Bambda action to perform", SUPPORTED_ACTIONS));
+        properties.put("action", McpUtils.createEnumProperty("string", "Import a preset/custom filter or list presets. GET_ACTIVE_FILTER is unsupported and returns isError:true.", SUPPORTED_ACTIONS));
         
-        properties.put("preset", McpUtils.createEnumProperty("string", "Pre-defined Bambda filter", 
+        properties.put("preset", McpUtils.createEnumProperty("string", "Pre-defined HTTP-history filter. Presets use the PROXY_HTTP_HISTORY Java context; other locations may reject them during native compilation.",
             List.of("authenticated_requests", "api_endpoints", "sql_injection_candidates", 
                     "error_responses", "file_uploads", "json_endpoints", "admin_interfaces",
                     "xss_candidates", "auth_endpoints", "interesting_status")));
         
-        properties.put("customScript", McpUtils.createProperty("string", "Custom Bambda script (Java code). Has access to: requestResponse (HttpRequestResponse), request (HttpRequest), response (HttpResponse). Must return boolean. Example: 'return requestResponse.request().url().contains(\"/api\");'."));
+        properties.put("customScript", McpUtils.createProperty("string", "Java filter source returning boolean. Bindings depend on the selected view: HTTP history and Logger use requestResponse, WebSocket history uses message, and Site map uses node. Their available methods differ; use the target view's Bambda editor context. HTTP-history example: 'return requestResponse.request().url().contains(\"/api\");'."));
         properties.put("description", McpUtils.createProperty("string", "Description for custom Bambda"));
         
-        properties.put("location", McpUtils.createEnumProperty("string", "Where to apply the Bambda (default: PROXY_HTTP_HISTORY)",
+        properties.put("location", McpUtils.createEnumProperty("string", "View location recorded in the imported filter (default: PROXY_HTTP_HISTORY). Choose Java source compatible with that view; importing does not confirm activation.",
             List.of("PROXY_HTTP_HISTORY", "PROXY_WS_HISTORY", "SITEMAP", "LOGGER")));
 
         properties.put("verbose", McpUtils.createProperty("boolean",
@@ -144,6 +144,7 @@ public class BambdaTool implements McpTool {
         inputSchema.put("required", List.of("action"));
         
         tool.put("inputSchema", inputSchema);
+        tool.put("outputSchema", WorkflowOutputSchemas.forTool("burp_bambda"));
         
         return tool;
     }
@@ -152,7 +153,7 @@ public class BambdaTool implements McpTool {
     public Object execute(JsonNode arguments) throws Exception {
         McpUtils.ActionResolution actionResolution = McpUtils.resolveAction(arguments, SUPPORTED_ACTIONS);
         if (actionResolution.hasError()) {
-            return McpUtils.createErrorResponse(actionResolution.getErrorMessage());
+            return errorResponse(actionResolution.getErrorMessage());
         }
 
         String action = actionResolution.getAction();
@@ -176,132 +177,69 @@ public class BambdaTool implements McpTool {
             
         } catch (Exception e) {
             api.logging().logToError("Error in Bambda tool: " + McpUtils.sanitizeForLogging(e.getMessage()));
-            return McpUtils.createErrorResponse("Error in Bambda operation: " + e.getMessage());
+            return errorResponse("Error in Bambda operation: " + e.getMessage());
         }
     }
     
     private Object applyFilter(JsonNode arguments, StringBuilder result, boolean verbose) {
-        result.append("🎭 **BAMBDA FILTER APPLICATION**\n\n");
-        
         String preset = McpUtils.getStringParam(arguments, "preset", "");
         String customScript = McpUtils.getStringParam(arguments, "customScript", "");
         String location = McpUtils.getStringParam(arguments, "location", "PROXY_HTTP_HISTORY");
-        
-        if (!preset.isEmpty() && BAMBDA_LIBRARY.containsKey(preset)) {
-            // Apply preset Bambda
-            String scriptCode = BAMBDA_LIBRARY.get(preset);
-            
-            // Create proper YAML format for Bambda import
-            String bambdaYaml = String.format(
-                "id: %s\n" +
-                "name: %s\n" +
-                "function: VIEW_FILTER\n" +
-                "location: %s\n" +
-                "source: |\n  %s",
-                "mcp-" + preset + "-" + System.currentTimeMillis(),
-                "MCP " + preset.replace("_", " "),
-                location,
-                scriptCode.replace("\n", "\n  ")
-            );
-            
-            try {
-                BambdaImportResult importResult = api.bambda().importBambda(bambdaYaml);
-                
-                if (importResult != null) {
-                    // Check the actual status using the Montoya API methods
-                    if (importResult.status() == BambdaImportResult.Status.LOADED_WITHOUT_ERRORS) {
-                        result.append("✅ **Filter Applied Successfully**\n");
-                        result.append("**Type:** ").append(preset).append("\n");
-                        result.append("**Location:** ").append(getLocationDescription(location)).append("\n");
-                        result.append("**Script:** `").append(scriptCode).append("`\n\n");
-                        result.append("📊 **Effect:** ").append(getFilterEffect(location)).append("\n");
-                        result.append("💡 **Tip:** ").append(getLocationTip(location)).append("\n");
-                    } else if (importResult.status() == BambdaImportResult.Status.LOADED_WITH_ERRORS) {
-                        result.append("⚠️ **Filter Applied with Errors**\n");
-                        result.append("**Type:** ").append(preset).append("\n");
-                        List<String> errors = importResult.importErrors();
-                        if (errors != null && !errors.isEmpty()) {
-                            result.append("**Errors:**\n");
-                            for (String error : errors) {
-                                result.append("  • ").append(error).append("\n");
-                            }
-                        }
-                        result.append("\n**Note:** The filter may be partially functional\n");
-                    }
-                } else {
-                    result.append("❌ **Filter Application Failed**\n");
-                    result.append("**Error:** Import returned null (this shouldn't happen)\n");
-                }
-                
-            } catch (Exception e) {
-                result.append("❌ **Error applying filter:** ").append(e.getMessage()).append("\n");
-                result.append("**Possible causes:**\n");
-                result.append("  • Syntax error in the Bambda script\n");
-                result.append("  • Missing imports or undefined variables\n");
-                result.append("  • Invalid Java code\n");
-            }
-            
-        } else if (!customScript.isEmpty()) {
-            // Apply custom Bambda
-            // Create proper YAML format for Bambda import
-            String bambdaYaml = String.format(
-                "id: %s\n" +
-                "name: %s\n" +
-                "function: VIEW_FILTER\n" +
-                "location: %s\n" +
-                "source: |\n  %s",
-                "mcp-custom-" + System.currentTimeMillis(),
-                "MCP Custom Filter",
-                location,
-                customScript.replace("\n", "\n  ")
-            );
-            
-            try {
-                BambdaImportResult importResult = api.bambda().importBambda(bambdaYaml);
-                
-                if (importResult != null) {
-                    // Check the actual status using the Montoya API methods
-                    if (importResult.status() == BambdaImportResult.Status.LOADED_WITHOUT_ERRORS) {
-                        result.append("✅ **Custom Filter Applied Successfully**\n");
-                        result.append("**Location:** ").append(getLocationDescription(location)).append("\n");
-                        result.append("**Script:** `").append(customScript).append("`\n\n");
-                        result.append("📊 **Effect:** ").append(getFilterEffect(location)).append("\n");
-                    } else if (importResult.status() == BambdaImportResult.Status.LOADED_WITH_ERRORS) {
-                        result.append("⚠️ **Custom Filter Applied with Errors**\n");
-                        result.append("**Script:** `").append(customScript).append("`\n\n");
-                        List<String> errors = importResult.importErrors();
-                        if (errors != null && !errors.isEmpty()) {
-                            result.append("**Compilation Errors:**\n");
-                            for (String error : errors) {
-                                result.append("  • ").append(error).append("\n");
-                            }
-                        }
-                        result.append("\n**Note:** Fix the errors above for the filter to work correctly\n");
-                    }
-                } else {
-                    result.append("❌ **Custom Filter Failed**\n");
-                    result.append("**Error:** Import returned null\n");
-                }
-                
-            } catch (Exception e) {
-                result.append("❌ **Error with custom filter:** ").append(e.getMessage()).append("\n");
-                result.append("**Check:** Ensure your script is valid Java code\n");
-            }
-            
-        } else {
-            result.append("❌ **No filter specified**\n");
-            return McpUtils.createErrorResponse("Use 'preset' for pre-defined filters or 'customScript' for custom Java code");
+        if (!preset.isEmpty() && !customScript.isEmpty()) {
+            return errorResponse("Specify either preset or customScript, not both");
         }
+        if (!preset.isEmpty() && !BAMBDA_LIBRARY.containsKey(preset)) {
+            return errorResponse("Unknown Bambda preset: " + preset);
+        }
+        String script = preset.isEmpty() ? customScript : BAMBDA_LIBRARY.get(preset);
+        if (script.isEmpty()) return errorResponse("preset or customScript is required for APPLY_FILTER");
+        Map<String, Object> data = new HashMap<>();
+        if (!preset.isEmpty()) data.put("preset", preset);
+        else data.put("custom", true);
+        return importFilter(script, preset.isEmpty() ? "MCP Custom Filter" : "MCP " + preset,
+            location, data, verbose);
+    }
 
-        if (!verbose) {
-            Map<String, Object> data = new HashMap<>();
-            data.put("success", true);
-            if (!preset.isEmpty()) data.put("preset", preset);
-            if (!customScript.isEmpty()) data.put("custom", true);
-            data.put("location", location);
-            return McpUtils.createJsonResponse(data);
+    private Object importFilter(String script, String name, String location, Map<String, Object> data, boolean verbose) {
+        String nativeLocation = switch (location) {
+            case "PROXY_HTTP_HISTORY", "SITEMAP", "LOGGER" -> location;
+            // Preserve the MCP enum while using Burp's Bambda import identifier.
+            case "PROXY_WS_HISTORY" -> "PROXY_WEBSOCKET";
+            default -> null;
+        };
+        if (nativeLocation == null) {
+            return errorResponse("Unsupported Bambda location: " + location);
         }
-        return McpUtils.createSuccessResponse(result.toString());
+        // JSON string quoting is also valid YAML and keeps names on one scalar line.
+        String quotedName;
+        try { quotedName = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(name); }
+        catch (Exception e) { return errorResponse("Invalid Bambda description"); }
+        String yaml = "id: mcp-" + java.util.UUID.randomUUID() + "\nname: " + quotedName
+            + "\nfunction: VIEW_FILTER\nlocation: " + nativeLocation + "\nsource: |\n  "
+            + script.replace("\r\n", "\n").replace('\r', '\n').replace("\n", "\n  ");
+        data.put("location", location);
+        try {
+            BambdaImportResult imported = api.bambda().importBambda(yaml);
+            boolean success = imported != null && imported.status() == BambdaImportResult.Status.LOADED_WITHOUT_ERRORS;
+            data.put("success", success);
+            data.put("status", imported == null || imported.status() == null ? "NO_RESULT" : imported.status().name());
+            if (imported != null && imported.importErrors() != null && !imported.importErrors().isEmpty()) {
+                data.put("errors", new ArrayList<>(imported.importErrors()));
+            }
+            data.put("message", success ? "Bambda imported without errors; active filter state cannot be inspected by this tool."
+                : "Bambda import failed or reported errors");
+            if (!success) {
+                data.put("error", "bambda_import_failed");
+                return errorResponse(data);
+            }
+        } catch (Exception e) {
+            data.put("success", false);
+            data.put("error", "bambda_import_failed");
+            data.put("message", "Bambda import failed: " + e.getMessage());
+            return errorResponse(data);
+        }
+        if (verbose) return textResponse(data.get("message") + "\nLocation: " + location);
+        return McpUtils.createJsonResponse(data);
     }
 
     private Object listPresets(StringBuilder result, boolean verbose) {
@@ -361,134 +299,41 @@ public class BambdaTool implements McpTool {
         
         result.append("💡 **Usage:** Apply with `action: APPLY_FILTER, preset: <name>`\n");
         
-        return McpUtils.createSuccessResponse(result.toString());
+        return textResponse(result.toString());
     }
     
     private Object createCustom(JsonNode arguments, StringBuilder result, boolean verbose) {
-        result.append("🎭 **CUSTOM BAMBDA CREATION**\n\n");
-        
-        String customScript = McpUtils.getStringParam(arguments, "customScript", "");
+        String script = McpUtils.getStringParam(arguments, "customScript", "");
+        if (script.isEmpty()) return errorResponse("customScript is required for CREATE_CUSTOM");
         String description = McpUtils.getStringParam(arguments, "description", "Custom filter");
         String location = McpUtils.getStringParam(arguments, "location", "PROXY_HTTP_HISTORY");
-        
-        if (customScript.isEmpty()) {
-            result.append("❌ **No custom script provided**\n\n");
-            result.append("📝 **Example Custom Bambdas:**\n\n");
-            
-            result.append("**Find specific header:**\n");
-            result.append("```java\n");
-            result.append("return requestResponse.request().hasHeader(\"X-API-Key\");\n");
-            result.append("```\n\n");
-            
-            result.append("**Complex parameter filtering:**\n");
-            result.append("```java\n");
-            result.append("return requestResponse.request().hasParameters() &&\n");
-            result.append("       requestResponse.request().parameters().stream()\n");
-            result.append("           .anyMatch(p -> p.name().equals(\"action\") && p.value().equals(\"search\"));\n");
-            result.append("```\n\n");
-            
-            result.append("**Response size filtering:**\n");
-            result.append("```java\n");
-            result.append("return requestResponse.response().body().length() > 10000;\n");
-            result.append("```\n\n");
-            
-            result.append("**HTTP version filtering:**\n");
-            result.append("```java\n");
-            result.append("if (!requestResponse.hasResponse()) return false;\n");
-            result.append("return requestResponse.response().httpVersion().equals(\"HTTP/2\");\n");
-            result.append("```\n\n");
-            
-            result.append("**Available objects in Bambda scripts:**\n");
-            result.append("  • `requestResponse` - ProxyHttpRequestResponse object\n");
-            result.append("  • `requestResponse.request()` - The HTTP request\n");
-            result.append("  • `requestResponse.response()` - The HTTP response (may be null)\n");
-            result.append("  • `requestResponse.hasResponse()` - Check if response exists\n");
-            
-        } else {
-            // Create proper YAML format for Bambda import
-            String bambdaYaml = String.format(
-                "id: %s\n" +
-                "name: %s\n" +
-                "function: VIEW_FILTER\n" +
-                "location: %s\n" +
-                "source: |\n  %s",
-                "mcp-" + description.toLowerCase().replace(" ", "-") + "-" + System.currentTimeMillis(),
-                description,
-                location,
-                customScript.replace("\n", "\n  ")
-            );
-            
-            try {
-                BambdaImportResult importResult = api.bambda().importBambda(bambdaYaml);
-                
-                if (importResult != null) {
-                    // Check the actual status using the Montoya API methods
-                    if (importResult.status() == BambdaImportResult.Status.LOADED_WITHOUT_ERRORS) {
-                        result.append("✅ **Custom Bambda Created**\n");
-                        result.append("**Description:** ").append(description).append("\n");
-                        result.append("**Location:** ").append(getLocationDescription(location)).append("\n");
-                        result.append("**Status:** Successfully imported and active\n");
-                    } else if (importResult.status() == BambdaImportResult.Status.LOADED_WITH_ERRORS) {
-                        result.append("⚠️ **Custom Bambda Created with Errors**\n");
-                        result.append("**Description:** ").append(description).append("\n");
-                        List<String> errors = importResult.importErrors();
-                        if (errors != null && !errors.isEmpty()) {
-                            result.append("**Errors to fix:**\n");
-                            for (String error : errors) {
-                                result.append("  • ").append(error).append("\n");
-                            }
-                        }
-                    }
-                } else {
-                    result.append("❌ **Custom Bambda Failed**\n");
-                    result.append("**Error:** Import returned null\n");
-                }
-                
-            } catch (Exception e) {
-                result.append("❌ **Error creating custom Bambda:** ").append(e.getMessage()).append("\n");
-            }
-        }
-
-        if (!verbose) {
-            Map<String, Object> data = new HashMap<>();
-            data.put("success", !customScript.isEmpty());
-            data.put("description", description);
-            data.put("location", location);
-            return McpUtils.createJsonResponse(data);
-        }
-        return McpUtils.createSuccessResponse(result.toString());
+        Map<String, Object> data = new HashMap<>();
+        data.put("description", description);
+        return importFilter(script, description, location, data, verbose);
     }
 
     private Object getActiveFilter(StringBuilder result, boolean verbose) {
-        result.append("🎭 **ACTIVE BAMBDA FILTER**\n\n");
-        
-        // Document the Montoya API limitation
-        result.append("⚠️ **Montoya API Limitation:**\n");
-        result.append("The Bambda interface in the Montoya API only provides:\n");
-        result.append("  • `importBambda(String script)` - To import/apply a Bambda\n\n");
-        
-        result.append("**Not Available via API:**\n");
-        result.append("  • Retrieve currently active Bambda filter\n");
-        result.append("  • List all available Bambdas in library\n");
-        result.append("  • Export Bambda scripts\n");
-        result.append("  • Validate Bambda syntax before import\n\n");
-        
-        result.append("📋 **Manual Workaround:**\n");
-        result.append("1. Go to Proxy → HTTP history\n");
-        result.append("2. Click the filter bar\n");
-        result.append("3. Switch to 'Bambda mode' to see the active script\n");
-        result.append("4. Or go to Extensions → Bambda library to manage your Bambdas\n\n");
-        
-        if (!verbose) {
-            Map<String, Object> data = new HashMap<>();
-            data.put("error", "api_limitation");
-            data.put("message", "Montoya API only provides importBambda(); cannot retrieve active filter via API");
-            data.put("workaround", "Use Burp UI: Proxy > HTTP history > filter bar > Bambda mode");
-            return McpUtils.createJsonResponse(data);
-        }
-        return McpUtils.createSuccessResponse(result.toString());
+        return errorResponse(Map.of("error", "api_limitation", "supported", false,
+            "message", "GET_ACTIVE_FILTER is unsupported: this tool cannot inspect Burp's active Bambda filter.",
+            "workaround", "Use the filter bar in the relevant Burp view to inspect its active filter"));
     }
-    
+
+    private static Object textResponse(String text) {
+        return Map.of("content", List.of(Map.of("type", "text", "text", text)),
+            "structuredContent", Map.of("text", text));
+    }
+
+    private static Object errorResponse(String message) {
+        return errorResponse(Map.of("error", "bambda_error", "message", message));
+    }
+
+    private static Object errorResponse(Map<String, Object> data) {
+        @SuppressWarnings("unchecked")
+        Map<String, Object> result = (Map<String, Object>) McpUtils.createJsonResponse(data);
+        result.put("isError", true);
+        return result;
+    }
+
     private String getLocationDescription(String location) {
         switch (location) {
             case "PROXY_HTTP_HISTORY":

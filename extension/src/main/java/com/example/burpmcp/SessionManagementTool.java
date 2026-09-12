@@ -70,12 +70,12 @@ public class SessionManagementTool implements McpTool {
         tool.put("name", "burp_session_management");
         tool.put("title", "Session Manager");
         tool.put("description", "Advanced session management with Burp's native cookie jar and automatic session handling. " +
-            "Use this to manage cookies, extract tokens, test session validity, and configure automatic session refresh. " +
+            "Use this to manage cookies, extract tokens, test session validity, and apply stored tokens through a session handler. " +
             "Actions: EXTRACT_TOKENS (find session tokens in proxy history), SET_TOKEN/CLEAR_TOKENS/LIST_TOKENS (in-memory token store), " +
-            "TEST_SESSION/FIND_LOGOUT/SESSION_STATUS (verify session validity), " +
+            "TEST_SESSION (send a request with stored tokens), FIND_LOGOUT/SESSION_STATUS (inspect captured traffic and session state), " +
             "COOKIE_JAR_LIST/COOKIE_JAR_SET/COOKIE_JAR_DELETE/COOKIE_JAR_CLEAR (manage Burp's native cookie jar), " +
-            "ENABLE_AUTO_SESSION/DISABLE_AUTO_SESSION/AUTO_SESSION_STATUS (automatic refresh on 401/403), " +
-            "ANALYZE_SESSION_VALIDITY (heuristic analysis of captured traffic). " +
+            "ENABLE_AUTO_SESSION/DISABLE_AUTO_SESSION/AUTO_SESSION_STATUS (register, remove, or inspect a handler that adds stored tokens), " +
+            "ANALYZE_SESSION_VALIDITY (send a request and heuristically assess its response). " +
             "Integrates with Burp's session handling rules.");
 
         // MCP 2025-06-18 annotations
@@ -83,7 +83,7 @@ public class SessionManagementTool implements McpTool {
         annotations.put("readOnlyHint", false);
         annotations.put("destructiveHint", true);  // DELETE/CLEAR actions remove cookies
         annotations.put("idempotentHint", false);
-        annotations.put("openWorldHint", false);
+        annotations.put("openWorldHint", true); // Session testing and validity analysis send HTTP requests.
         annotations.put("title", "Session Manager");
         tool.put("annotations", annotations);
 
@@ -141,7 +141,7 @@ public class SessionManagementTool implements McpTool {
         
         Map<String, Object> autoRefreshProperty = new HashMap<>();
         autoRefreshProperty.put("type", "boolean");
-        autoRefreshProperty.put("description", "Enable automatic token refresh on 401/403 responses");
+        autoRefreshProperty.put("description", "Legacy flag: mark requests lacking authentication and increment the refresh counter. The handler adds stored tokens; it does not perform login or renew expired credentials.");
         autoRefreshProperty.put("default", true);
         properties.put("autoRefresh", autoRefreshProperty);
         
@@ -160,6 +160,7 @@ public class SessionManagementTool implements McpTool {
 
 
         tool.put("inputSchema", inputSchema);
+        tool.put("outputSchema", UtilityOutputSchemas.forTool((String) tool.get("name")));
         return tool;
     }
 
@@ -920,15 +921,12 @@ public class SessionManagementTool implements McpTool {
             result.append("🤖 **ENABLING AUTOMATIC SESSION HANDLING**\n\n");
             result.append("✅ **Auto Session Handler Enabled**\n\n");
             result.append("**Configuration:**\n");
-            result.append("• Auto-refresh on 401/403: ").append(autoRefresh ? "✓" : "✗").append("\n");
-            result.append("• Session validation: Enabled\n");
-            result.append("• Cookie management: Automatic\n\n");
+            result.append("• Mark missing authentication: ").append(autoRefresh ? "✓" : "✗").append("\n\n");
 
             result.append("**Features:**\n");
-            result.append("• Monitors all HTTP requests for session issues\n");
-            result.append("• Automatically refreshes expired sessions\n");
-            result.append("• Updates cookies based on responses\n");
-            result.append("• Adds authentication headers as needed\n\n");
+            result.append("• Adds stored tokens as Cookie and X-Session-Manager headers\n");
+            result.append("• Records processed requests and missing-authentication events\n");
+            result.append("• Login and credential renewal require a separate workflow\n\n");
 
             result.append("💡 **Note:** The handler will process all requests going through Burp.");
 
@@ -1000,12 +998,12 @@ public class SessionManagementTool implements McpTool {
             result.append("✅ **Status:** ACTIVE\n\n");
             result.append("**Statistics:**\n");
             result.append("• Requests processed: ").append(handler.getRequestCount()).append("\n");
-            result.append("• Sessions refreshed: ").append(handler.getRefreshCount()).append("\n");
-            result.append("• Failed authentications: ").append(handler.getFailureCount()).append("\n");
+            result.append("• Missing-authentication events: ").append(handler.getRefreshCount()).append("\n");
+            result.append("• Legacy failure counter (responses are not inspected): ").append(handler.getFailureCount()).append("\n");
             result.append("• Last activity: ").append(handler.getLastActivity()).append("\n\n");
 
             result.append("**Current Configuration:**\n");
-            result.append("• Auto-refresh: ").append(handler.isAutoRefreshEnabled() ? "Enabled" : "Disabled").append("\n");
+            result.append("• Mark missing authentication: ").append(handler.isAutoRefreshEnabled() ? "Enabled" : "Disabled").append("\n");
             result.append("• Handler name: ").append(handler.name()).append("\n");
         } else {
             result.append("❌ **Status:** INACTIVE\n\n");

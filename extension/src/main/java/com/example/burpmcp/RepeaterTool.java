@@ -33,7 +33,7 @@ public class RepeaterTool implements McpTool {
         Map<String, Object> annotations = new HashMap<>();
         annotations.put("readOnlyHint", false);
         annotations.put("destructiveHint", false);
-        annotations.put("idempotentHint", true);
+        annotations.put("idempotentHint", false); // Repeated calls create additional UI tabs.
         annotations.put("openWorldHint", false);
         annotations.put("title", "Repeater (UI Only)");
         tool.put("annotations", annotations);
@@ -65,6 +65,7 @@ public class RepeaterTool implements McpTool {
         inputSchema.put("properties", properties);
         inputSchema.put("required", List.of("action"));
         tool.put("inputSchema", inputSchema);
+        tool.put("outputSchema", UtilityOutputSchemas.forTool((String) tool.get("name")));
         return tool;
     }
 
