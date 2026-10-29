@@ -87,7 +87,7 @@ BURP_MCP_REQUEST_TIMEOUT=60000 \
 node index.js
 ```
 
-## 🚀 **Features (v2.9.0)**
+## 🚀 **Features (v2.10.0)**
 
 ### **🆕 Dual Transport Support**
 - ✅ **Stdio Transport** - For Claude Code and stdio-based MCP clients
@@ -208,7 +208,7 @@ Press **Ctrl+C** to stop the bridge cleanly at any time.
 - ✅ **Initialization Guidance** - Forwards extension `initialize` instructions to MCP clients, with local fallback guidance when unavailable
 - ✅ **Typed Results** - All 24 tool definitions expose domain output schemas for action results and structured error/verbose fallbacks
 - ✅ **Workflow Guidance** - Exposes action requirements, conditional requirements, side-effect annotations, and on-demand documentation via `burp_help`
-- ✅ **Consistency** - Ensures tooling metadata matches Burp MCP Bridge v2.9.0 release
+- ✅ **Consistency** - Ensures tooling metadata matches Burp MCP Bridge v2.10.0 release
 
 ### **Action Contracts**
 
@@ -281,7 +281,7 @@ Limits are 4 active jobs, 50 aggregate concurrency, 1000 requests and a 10 MiB i
 **Solutions:**
 1. ✅ Reload the Burp MCP Bridge extension
 2. ✅ Check Extensions → Errors tab for extension issues
-3. ✅ Verify `burp-mcp-bridge-2.9.0.jar` is properly loaded
+3. ✅ Verify `burp-mcp-bridge-2.10.0.jar` is properly loaded
 4. ✅ Restart Burp Suite if needed
 
 ### **Configuration Issues**
@@ -326,17 +326,18 @@ BURP_MCP_DEBUG=true node index.js
 
 **Example:**
 ```
-[INFO] 2026-01-27T16:54:23.456Z - Burp MCP Bridge v2.9.0 initializing...
+[INFO] 2026-01-27T16:54:23.456Z - Burp MCP Bridge v2.10.0 initializing...
 [INFO] 2025-10-22T16:54:23.457Z - Connecting to Burp extension at: http://localhost:8081
 [DEBUG] 2025-10-22T16:54:23.458Z - Sending request to Burp: ping
 [INFO] 2025-10-22T16:54:23.480Z - ✅ Successfully connected to Burp extension
-[INFO] 2026-01-27T16:54:23.481Z - 🚀 Burp MCP Bridge v2.9.0 started and ready for Claude Code
+[INFO] 2026-01-27T16:54:23.481Z - 🚀 Burp MCP Bridge v2.10.0 started and ready for Claude Code
 ```
 
 ## 🔄 **Version Compatibility**
 
 | Bridge Version | Extension Version | Features |
 |----------------|-------------------|----------|
+| v2.10.0 | v2.10.0 | Proxy history ids are Burp's history numbers (`#`) across `burp_proxy_history` (including iterate `startAt`, now reported as `id`), `burp_annotate`, and `burp_response_analyzer`; they survive deleted entries. Iterate keeps `recent` as its direction (newest first by default). |
 | v2.9.0 | v2.9.0 | 24 tools, including managed background HTTP jobs (requires Professional managed engine, Montoya 2026.7+). Forwarded initialization guidance with fallback; domain output schemas for every tool; corrected scanner TLS requirements, Comparer modes, Bambda import/inspection contracts, and session-handling descriptions. Worker cancellation and shutdown admission fixes; shared synchronous/asynchronous host and rate checks; SSE session routing and browser CORS corrections; HTTP response framing and allocation limits; nullable authentication export/import schemas. |
 | v2.5.1 | v2.5.1 | `burp_custom_http` SEND_REQUEST now writes Set-Cookie into Burp's Cookie Jar and surfaces them as `set_cookies[]` so multi-step lab flows (login → /my-account, CSRF round-trips) carry session forward automatically. Cookie jar reads dedupe by name (no more duplicate `Cookie: session=A; session=B` headers). New `max_body_bytes` param on `burp_custom_http` and `maxBodyBytes` on `burp_proxy_history` action=detail — default 5000 (context-safe), 0 = unlimited; truncation reports `body_truncated_bytes` (`bodyTruncatedBytes` on proxy_history). `burp_collaborator` client secret is now persisted to `~/.config/burp-mcp-bridge/collaborator-secret` so CHECK_INTERACTIONS still sees prior payloads after extension reload; new `RESTORE_CLIENT` action takes a saved `secretKey`; `LIST_PAYLOAD_TYPES` is the preferred name (`LIST_PAYLOADS` kept as deprecated alias — it returns the four built-in formats, NOT a list of issued payloads). `burp_annotate` ANNOTATE_PROXY/TARGET + CLEAR_ANNOTATIONS accept `entryId` (1-based; for PROXY it matches the id `burp_proxy_history` returns; for TARGET it indexes `api.siteMap().requestResponses()` because Montoya exposes no stable sitemap id), honour the `method` filter, and accept `notesMode: "APPEND" \| "REPLACE"`. CLEAR_ANNOTATIONS rejects `entryId` with `source=TARGET` / `source=ALL` to avoid wiping the wrong list. |
 | v2.5.0 | v2.5.0 | `burp_custom_http` new `route_via_proxy` flag: tunnels requests through Burp's local proxy listener (CONNECT + TLS) so they appear in Proxy → HTTP history. Default TRUE for SEND_REQUEST, FALSE for SEND_PARALLEL/SEND_PIPELINED (proxy may serialise parallel work and re-frames pipelined requests). Configurable via proxy_host/proxy_port. |
@@ -484,7 +485,7 @@ Response:
 ```json
 {
   "status": "ok",
-  "version": "2.9.0",
+  "version": "2.10.0",
   "burpConnection": "http://localhost:8081",
   "transports": ["stdio", "http-sse", "streamable-http"]
 }

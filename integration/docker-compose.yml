@@ -1,0 +1,24 @@
+# The mock server the tests point Burp at. Always started.
+#
+# docker-compose.burp.yml adds the bundled Burp Community on top of this file.
+# Leave it out to test a Burp you run yourself: that Burp then reaches the mock
+# server through the loopback port published here.
+
+services:
+  target:
+    build: ./mock-server
+    ports:
+      # Loopback-only, ephemeral host port; the harness discovers it with
+      # `docker compose port target 80`. The bundled Burp does not use it — it
+      # reaches the mock server as http://target over the compose network.
+      - "127.0.0.1::80"
+    healthcheck:
+      # busybox wget ships in the alpine base; `--wait` then means "answering".
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ >/dev/null"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+    networks: [labnet]
+
+networks:
+  labnet:

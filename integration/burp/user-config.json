@@ -1,0 +1,19 @@
+{
+  "user_options": {
+    "extender": {
+      "extensions": [
+        {
+          "errors": "console",
+          "extension_file": "@EXT_JAR@",
+          "extension_type": "java",
+          "loaded": true,
+          "name": "burp-mcp-bridge",
+          "output": "console"
+        }
+      ]
+    },
+    "misc": {
+      "enable_proxy_interception_at_startup": "never"
+    }
+  }
+}

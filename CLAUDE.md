@@ -1,4 +1,4 @@
-# Burp MCP Bridge - Agent Context File (v2.9.0)
+# Burp MCP Bridge - Agent Context File (v2.10.0)
 
 The Node bridge forwards the extension's agent instructions in the MCP `initialize` response, with local fallback guidance when unavailable. All 24 tools expose domain output schemas, action requirements, conditional requirements, and side-effect annotations through `tools/list`. Read action-specific fields and structured errors; use `burp_help` for the full workflow.
 
@@ -343,7 +343,7 @@ await use_mcp_tool("burp-mcp-bridge", "burp_help", {
 
 ## 🛠️ Project Info
 
-- **Version**: 2.9.0
+- **Version**: 2.10.0
 - **Total Tools**: 24 (1 help + 23 security)
 - **Port**: 8081 (Burp extension HTTP server)
 - **Transport**: Dual mode (stdio + HTTP/SSE)

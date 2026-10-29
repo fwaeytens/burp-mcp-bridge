@@ -1,0 +1,16 @@
+{
+  "name": "burp-mcp-bridge-integration",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Integration tests that drive a real Burp Community (in Docker) through the MCP bridge.",
+  "scripts": {
+    "fetch-burp": "bash scripts/fetch-burp-community.sh",
+    "test:integration": "node scripts/run-integration.js",
+    "test:integration:keep": "node scripts/run-integration.js --keep-up",
+    "test:only": "node --test --test-concurrency=1 --test-reporter=spec 'test/*.test.js'"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
