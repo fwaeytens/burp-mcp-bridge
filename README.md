@@ -564,6 +564,27 @@ burp-mcp-bridge/
 
 - [CLAUDE.md](CLAUDE.md) - AI agent context and quick reference
 
+## 🧪 Integration Tests (real Burp)
+
+Unit tests run against fakes of the Montoya API. The opt-in suite in
+[`integration/`](integration/README.md) starts two containers: a real Burp Suite
+Community with the built extension and a virtual X server, and a dummy web
+server for Burp to target. Test scripts on the host stand in for the agent: they
+act as an MCP client, drive that Burp through the bridge over stdio, and check
+the results. It needs Docker and a one-time download of the Community jar:
+
+```bash
+(cd extension && mvn -q package -DskipTests)
+cd integration
+npm run fetch-burp          # once: caches the Community jar (~685 MB)
+npm run test:integration    # build, start, test, tear down
+```
+
+By default it covers the bundled Community edition. To test a Burp you run
+yourself (e.g. Professional) in a fresh project with the extension loaded, pass
+`--burp-api`, `--burp-proxy` and `--edition`; see the
+[integration README](integration/README.md#run).
+
 ## 🤝 Contributing
 
 1. Fork the repository
