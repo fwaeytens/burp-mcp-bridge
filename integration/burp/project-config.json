@@ -1,0 +1,19 @@
+{
+  "project_options": {
+    "connections": {
+      "upstream_proxy": {
+        "servers": []
+      }
+    }
+  },
+  "proxy": {
+    "request_listeners": [
+      {
+        "certificate_mode": "per_host",
+        "listen_mode": "all_interfaces",
+        "listener_port": 8080,
+        "running": true
+      }
+    ]
+  }
+}

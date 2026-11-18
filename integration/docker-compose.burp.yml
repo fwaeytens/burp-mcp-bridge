@@ -1,0 +1,35 @@
+# The bundled Burp Community with the MCP extension loaded. Used together with
+# docker-compose.yml (the mock server); the test runner lives on the host and
+# reaches Burp through the published proxy (8080) and extension API (8081).
+#
+# The two jars are provided by the host via .env (written by the harness),
+# never baked into an image:
+#   BURP_COMMUNITY_JAR  absolute path to burpsuite_community_v*.jar
+#   BURP_EXT_JAR        absolute path to the built extension jar
+
+services:
+  burp:
+    build: ./burp
+    depends_on: [target]
+    # 50% of this limit becomes the JVM heap (-XX:MaxRAMPercentage=50).
+    mem_limit: 3g
+    shm_size: 1g
+    volumes:
+      - ${BURP_COMMUNITY_JAR}:/opt/burp/burpsuite_community.jar:ro
+      - ${BURP_EXT_JAR}:/opt/burp/extension.jar:ro
+    ports:
+      # Loopback-only, and EPHEMERAL host ports: Docker picks a free port on
+      # 127.0.0.1 for each. This makes collisions with any other Burp already on
+      # 8080/8081 structurally impossible. The harness discovers the assigned
+      # ports with `docker compose port burp 8080|8081` — never hardcoded.
+      - "127.0.0.1::8080"
+      - "127.0.0.1::8081"
+    healthcheck:
+      # The extension's JSON-RPC server answering is the real "Burp is ready"
+      # signal; a bare TCP connect to 8081 is enough.
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8081'"]
+      interval: 5s
+      timeout: 3s
+      retries: 40
+      start_period: 30s
+    networks: [labnet]
