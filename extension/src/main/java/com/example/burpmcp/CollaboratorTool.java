@@ -21,12 +21,18 @@ import java.util.List;
 import java.util.ArrayList;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.net.InetAddress;
 
 public class CollaboratorTool implements McpTool {
     private final MontoyaApi api;
-    private CollaboratorClient collaboratorClient;
-    private boolean clientLogged = false;
+    // Swapped by RESTORE_CLIENT while other MCP workers may be mid-operation. Every
+    // operation reads it ONCE into a local and uses only that snapshot, so a concurrent
+    // restore can never split one operation across two Collaborator sessions.
+    private volatile CollaboratorClient collaboratorClient;
+    // Guards "swap the client + persist its secret" so memory and disk cannot disagree.
+    private final Object clientLock = new Object();
+    private final AtomicBoolean clientLogged = new AtomicBoolean(false);
     // Per-secret accumulated interaction history (id -> Interaction), shared across the
     // per-call tool instances. See pollAndAccumulate for why this is needed.
     private static final Map<String, LinkedHashMap<String, Interaction>> interactionCacheBySecret =
@@ -241,13 +247,13 @@ public class CollaboratorTool implements McpTool {
         String action = actionResolution.getAction();
         
         // Log client info on first use
-        if (!clientLogged && collaboratorClient != null) {
-            clientLogged = true;
-            api.logging().logToOutput("[Collaborator] Client active. Server: " + collaboratorClient.server().address());
+        CollaboratorClient client = collaboratorClient;
+        if (client != null && clientLogged.compareAndSet(false, true)) {
+            api.logging().logToOutput("[Collaborator] Client active. Server: " + client.server().address());
         }
 
         // Check if Collaborator is available
-        if (collaboratorClient == null) {
+        if (client == null) {
             Map<String, Object> errorResult = new HashMap<>();
             errorResult.put("type", "text");
             errorResult.put("text", "❌ Burp Collaborator is not available. This feature requires Burp Suite Professional.");
@@ -301,6 +307,7 @@ public class CollaboratorTool implements McpTool {
         String payloadType = arguments.has("payloadType") ? arguments.get("payloadType").asText() : "HOSTNAME";
         int count = arguments.has("count") ? arguments.get("count").asInt() : 1;
         boolean includeServer = arguments.has("includeServerLocation") ? arguments.get("includeServerLocation").asBoolean() : true;
+        CollaboratorClient client = collaboratorClient;
         
         try {
             List<Map<String, String>> payloads = new ArrayList<>();
@@ -310,9 +317,9 @@ public class CollaboratorTool implements McpTool {
                 
                 // Generate payload with or without server location
                 if (includeServer) {
-                    payload = collaboratorClient.generatePayload();
+                    payload = client.generatePayload();
                 } else {
-                    payload = collaboratorClient.generatePayload(PayloadOption.WITHOUT_SERVER_LOCATION);
+                    payload = client.generatePayload(PayloadOption.WITHOUT_SERVER_LOCATION);
                 }
                 
                 Map<String, String> payloadInfo = new HashMap<>();
@@ -579,8 +586,13 @@ public class CollaboratorTool implements McpTool {
             return McpUtils.createErrorResponse("secretKey is required for RESTORE_CLIENT");
         }
         try {
-            this.collaboratorClient = api.collaborator().restoreClient(SecretKey.secretKey(secret));
-            persistSecret(secret);
+            // Restore outside the lock (it may reach the Collaborator server), then swap
+            // and persist together so competing restores leave memory and disk in agreement.
+            CollaboratorClient restored = api.collaborator().restoreClient(SecretKey.secretKey(secret));
+            synchronized (clientLock) {
+                this.collaboratorClient = restored;
+                persistSecret(secret);
+            }
             Map<String, Object> data = new HashMap<>();
             data.put("operation", "RESTORE_CLIENT");
             data.put("success", true);
@@ -650,7 +662,8 @@ public class CollaboratorTool implements McpTool {
     }
 
     private Object getStatus(JsonNode arguments, StringBuilder result) {
-        if (collaboratorClient == null) {
+        CollaboratorClient client = collaboratorClient;
+        if (client == null) {
             if (!McpUtils.isVerbose(arguments)) {
                 Map<String, Object> data = new HashMap<>();
                 data.put("active", false);
@@ -664,7 +677,7 @@ public class CollaboratorTool implements McpTool {
             return McpUtils.createSuccessResponse(result.toString());
         }
 
-        List<Interaction> interactions = pollAndAccumulate(collaboratorClient);
+        List<Interaction> interactions = pollAndAccumulate(client);
         Map<InteractionType, Integer> typeCounts = new HashMap<>();
         for (Interaction interaction : interactions) {
             typeCounts.put(interaction.type(), typeCounts.getOrDefault(interaction.type(), 0) + 1);
@@ -764,6 +777,7 @@ public class CollaboratorTool implements McpTool {
         if (customData.length() > 14) { // Leave room for index
             customData = customData.substring(0, 14);
         }
+        CollaboratorClient client = collaboratorClient;
         
         try {
             List<Map<String, String>> payloads = new ArrayList<>();
@@ -774,7 +788,7 @@ public class CollaboratorTool implements McpTool {
                 if (customDataWithIndex.length() > 16) {
                     customDataWithIndex = customDataWithIndex.substring(0, 16);
                 }
-                CollaboratorPayload payload = collaboratorClient.generatePayload(customDataWithIndex);
+                CollaboratorPayload payload = client.generatePayload(customDataWithIndex);
                 
                 Map<String, String> payloadInfo = new HashMap<>();
                 String payloadString = "";
@@ -842,6 +856,7 @@ public class CollaboratorTool implements McpTool {
         
         String payloadId = arguments.has("payloadId") ? arguments.get("payloadId").asText() : null;
         String interactionType = arguments.has("interactionType") ? arguments.get("interactionType").asText() : "ALL";
+        CollaboratorClient client = collaboratorClient;
         
         try {
             List<Interaction> interactions;
@@ -852,14 +867,14 @@ public class CollaboratorTool implements McpTool {
                 // in-memory with the same filter the server applies — so a prior unfiltered poll
                 // that already drained these interactions can't hide them from this view.
                 InteractionFilter filter = InteractionFilter.interactionPayloadFilter(payloadId);
-                CollaboratorServer server = collaboratorClient.server();
+                CollaboratorServer server = client.server();
                 interactions = new ArrayList<>();
-                for (Interaction ix : pollAndAccumulate(collaboratorClient)) {
+                for (Interaction ix : pollAndAccumulate(client)) {
                     if (filter.matches(server, ix)) interactions.add(ix);
                 }
                 filterDesc = "payloadId=" + payloadId;
             } else {
-                interactions = pollAndAccumulate(collaboratorClient);
+                interactions = pollAndAccumulate(client);
                 filterDesc = interactionType;
             }
 
