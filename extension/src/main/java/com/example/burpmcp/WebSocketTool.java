@@ -244,7 +244,11 @@ public class WebSocketTool implements McpTool {
                     
                     @Override
                     public void onClose() {
-                        // Handle close event if needed
+                        // Server-initiated close: release this connection's state so it
+                        // doesn't leak. remove(key, value) is a no-op if the close action
+                        // already released it.
+                        activeConnections.remove(connectionId, webSocket);
+                        messageHistory.remove(connectionId);
                     }
                 });
                 
@@ -389,6 +393,7 @@ public class WebSocketTool implements McpTool {
         
         String connectionId = arguments.get("connectionId").asText();
         ExtensionWebSocket webSocket = activeConnections.remove(connectionId);
+        messageHistory.remove(connectionId);
         
         if (webSocket == null) {
             return McpUtils.createErrorResponse("Connection not found: " + connectionId);
