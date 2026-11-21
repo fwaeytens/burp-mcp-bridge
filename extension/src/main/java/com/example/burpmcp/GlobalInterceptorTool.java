@@ -91,9 +91,16 @@ public class GlobalInterceptorTool implements McpTool {
     private static final Map<String, String> globalHeaders = new ConcurrentHashMap<>();
     
     // Authentication settings
-    private static String authType = null;
-    private static String authValue = null;
-    private static String authHeader = "Authorization";
+    // Auth settings are published as one immutable snapshot so a reader can never see the
+    // type of one configuration with the header or value of another. type == null means
+    // no authentication is configured.
+    private record AuthConfig(String type, String value, String header) {}
+    private static final AuthConfig NO_AUTH = new AuthConfig(null, null, "Authorization");
+    private static volatile AuthConfig auth = NO_AUTH;
+    // Held while changing auth together with the header it installs in globalHeaders
+    // (set_auth, clear_auth, import_rules, close) and while export_rules snapshots both,
+    // so the two always describe the same configuration.
+    private static final Object authLock = new Object();
     
     // Rate limiting
     private static final AtomicLong rateLimitDelay = new AtomicLong(0); // milliseconds
@@ -136,13 +143,13 @@ public class GlobalInterceptorTool implements McpTool {
         requestRules.clear();
         responseRules.clear();
         webSocketRules.clear();
-        globalHeaders.clear();
+        synchronized (authLock) {
+            globalHeaders.clear();
+            auth = NO_AUTH;
+        }
         timingHistory.clear();
         requestStartTimes.clear();
 
-        authType = null;
-        authValue = null;
-        authHeader = "Authorization";
         requestInterceptionEnabled.set(true);
         responseInterceptionEnabled.set(false);
         webSocketInterceptionEnabled.set(false);
@@ -425,9 +432,10 @@ public class GlobalInterceptorTool implements McpTool {
             data.put("requestRules", requestRules.size());
             data.put("responseRules", responseRules.size());
             data.put("webSocketRules", webSocketRules.size());
-            if (authType != null) {
-                data.put("authType", authType);
-                data.put("authHeader", authHeader);
+            AuthConfig currentAuth = auth;
+            if (currentAuth.type() != null) {
+                data.put("authType", currentAuth.type());
+                data.put("authHeader", currentAuth.header());
             }
             data.put("toolFilter", enabledToolSources.size() < ToolType.values().length ? "custom" : "all");
             Map<String, Long> stats = new HashMap<>();
@@ -498,27 +506,30 @@ public class GlobalInterceptorTool implements McpTool {
                     "Unsupported auth_type: " + type + " (expected bearer, basic, api_key, or custom)");
         }
 
-        // Drop the header installed by a previous set_auth so re-configuring
-        // with a different header name doesn't leave the old one behind.
-        if (authType != null && authHeader != null && !authHeader.equals(newHeader)) {
-            globalHeaders.remove(authHeader);
+        synchronized (authLock) {
+            // Drop the header installed by a previous set_auth so re-configuring
+            // with a different header name doesn't leave the old one behind.
+            AuthConfig previous = auth;
+            if (previous.type() != null && previous.header() != null && !previous.header().equals(newHeader)) {
+                globalHeaders.remove(previous.header());
+            }
+
+            globalHeaders.put(newHeader, newValue);
+            auth = new AuthConfig(newType, newValue, newHeader);
         }
 
-        authType = newType;
-        authHeader = newHeader;
-        authValue = newValue;
-        globalHeaders.put(authHeader, authValue);
-
-        if (!verbose) return McpUtils.createJsonResponse(Map.of("success", true, "authType", authType, "authHeader", authHeader));
+        // Report this call's own configuration, not whatever a concurrent call left behind.
+        if (!verbose) return McpUtils.createJsonResponse(Map.of("success", true, "authType", newType, "authHeader", newHeader));
         return McpUtils.createSuccessResponse(
-            "✅ Authentication configured\nType: " + authType + "\nHeader: " + authHeader);
+            "✅ Authentication configured\nType: " + newType + "\nHeader: " + newHeader);
     }
 
     private Object clearAuthentication(boolean verbose) {
-        if (authHeader != null) globalHeaders.remove(authHeader);
-        authType = null;
-        authValue = null;
-        authHeader = "Authorization";
+        synchronized (authLock) {
+            AuthConfig previous = auth;
+            if (previous.header() != null) globalHeaders.remove(previous.header());
+            auth = NO_AUTH;
+        }
         if (!verbose) return McpUtils.createJsonResponse(Map.of("success", true, "action", "clear_auth"));
         return McpUtils.createSuccessResponse("✅ Authentication cleared");
     }
@@ -1018,8 +1029,12 @@ public class GlobalInterceptorTool implements McpTool {
         }
         exportData.put("webSocketRules", wsRuleList);
         
-        // Export global headers
-        exportData.put("globalHeaders", new HashMap<>(globalHeaders));
+        // Export global headers and the auth settings that describe them as one snapshot
+        AuthConfig exportedAuth;
+        synchronized (authLock) {
+            exportData.put("globalHeaders", new HashMap<>(globalHeaders));
+            exportedAuth = auth;
+        }
         
         // Export settings
         Map<String, Object> settings = new HashMap<>();
@@ -1027,9 +1042,9 @@ public class GlobalInterceptorTool implements McpTool {
         settings.put("responseInterception", responseInterceptionEnabled.get());
         settings.put("webSocketInterception", webSocketInterceptionEnabled.get());
         settings.put("rateLimitDelay", rateLimitDelay.get());
-        settings.put("authType", authType);
-        settings.put("authValue", authValue);
-        settings.put("authHeader", authHeader);
+        settings.put("authType", exportedAuth.type());
+        settings.put("authValue", exportedAuth.value());
+        settings.put("authHeader", exportedAuth.header());
         exportData.put("settings", settings);
         
         if (!verbose) return McpUtils.createJsonResponse(exportData);
@@ -1089,15 +1104,23 @@ public class GlobalInterceptorTool implements McpTool {
                 }
             }
             
-            // Import global headers
+            // Import global headers and settings. The headers and the auth settings that
+            // describe them are replaced together so no other call sees one without the other.
             Map<String, String> headers = (Map<String, String>) rulesData.get("globalHeaders");
-            if (headers != null) {
-                globalHeaders.clear();
-                globalHeaders.putAll(headers);
-            }
-            
-            // Import settings
             Map<String, Object> settings = (Map<String, Object>) rulesData.get("settings");
+            synchronized (authLock) {
+                if (headers != null) {
+                    globalHeaders.clear();
+                    globalHeaders.putAll(headers);
+                }
+                if (settings != null) {
+                    auth = new AuthConfig(
+                        (String) settings.get("authType"),
+                        (String) settings.get("authValue"),
+                        (String) settings.get("authHeader"));
+                }
+            }
+
             if (settings != null) {
                 Boolean reqInt = (Boolean) settings.get("requestInterception");
                 if (reqInt != null) requestInterceptionEnabled.set(reqInt);
@@ -1110,10 +1133,6 @@ public class GlobalInterceptorTool implements McpTool {
                 
                 Object rateLimitObj = settings.get("rateLimitDelay");
                 if (rateLimitObj instanceof Number) rateLimitDelay.set(((Number) rateLimitObj).longValue());
-                
-                authType = (String) settings.get("authType");
-                authValue = (String) settings.get("authValue");
-                authHeader = (String) settings.get("authHeader");
             }
             
             if (!verbose) return McpUtils.createJsonResponse(Map.of("success", true, "action", "import_rules"));
