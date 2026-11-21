@@ -120,11 +120,6 @@ started and cancelled), which is why it must be a fresh one.
 
 ## Known bugs
 
-- **`burp_proxy_history` `iterate` numbering — this test fails.** `startAt` and
-  `entryNumber` are 1-based positions in the filtered list, newest-first by
-  default, not Burp's `#`. Its numbers do not match the `id` used by `list`,
-  `detail`, and `burp_annotate`. This is the same class of bug as commit
-  `d5af19d`. The test stays red until `iterate` is fixed.
 - **`burp_scanner` refusal wording on Community.** `START_SCAN` refuses as it
   should, but says `Failed to start scan: null` rather than "Requires Burp Suite
   Professional": that message is only returned when `api.scanner()` is null,
@@ -138,7 +133,9 @@ started and cancelled), which is why it must be a fresh one.
   the test deletes one through Burp's UI (`burp/delete-history-row.sh`, xdotool
   at calibrated screen coordinates). That proved flaky, so the test is skipped.
   Plan: replace the clicking with a test-only helper extension that drives the
-  Swing components from inside Burp's JVM by label instead of by pixel.
+  Swing components from inside Burp's JVM by label instead of by pixel. Until
+  then the gap case is covered by unit tests with non-contiguous fake ids
+  (`ProxyHistoryIterateTest` for `iterate`).
 
 ## Current behaviour pinned by tests (to be confirmed)
 

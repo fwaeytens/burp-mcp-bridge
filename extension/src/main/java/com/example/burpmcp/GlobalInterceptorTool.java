@@ -471,32 +471,44 @@ public class GlobalInterceptorTool implements McpTool {
             return McpUtils.createErrorResponse("auth_type and auth_value are required");
         }
         
-        authType = type.toLowerCase();
-        authValue = value;
-        
+        String newType = type.toLowerCase();
+        String newHeader;
+        String newValue;
+
         // Set up the authentication header based on type
-        switch (authType) {
+        switch (newType) {
             case "bearer":
-                authHeader = "Authorization";
-                authValue = "Bearer " + value;
+                newHeader = "Authorization";
+                newValue = "Bearer " + value;
                 break;
             case "basic":
-                authHeader = "Authorization";
-                authValue = "Basic " + value;
+                newHeader = "Authorization";
+                newValue = "Basic " + value;
                 break;
             case "api_key":
-                authHeader = customHeader != null ? customHeader : "X-API-Key";
-                authValue = value;
+                newHeader = customHeader != null ? customHeader : "X-API-Key";
+                newValue = value;
                 break;
             case "custom":
-                authHeader = customHeader != null ? customHeader : "Authorization";
-                authValue = value;
+                newHeader = customHeader != null ? customHeader : "Authorization";
+                newValue = value;
                 break;
+            default:
+                return McpUtils.createErrorResponse(
+                    "Unsupported auth_type: " + type + " (expected bearer, basic, api_key, or custom)");
         }
-        
-        // Add to global headers
+
+        // Drop the header installed by a previous set_auth so re-configuring
+        // with a different header name doesn't leave the old one behind.
+        if (authType != null && authHeader != null && !authHeader.equals(newHeader)) {
+            globalHeaders.remove(authHeader);
+        }
+
+        authType = newType;
+        authHeader = newHeader;
+        authValue = newValue;
         globalHeaders.put(authHeader, authValue);
-        
+
         if (!verbose) return McpUtils.createJsonResponse(Map.of("success", true, "authType", authType, "authHeader", authHeader));
         return McpUtils.createSuccessResponse(
             "✅ Authentication configured\nType: " + authType + "\nHeader: " + authHeader);
