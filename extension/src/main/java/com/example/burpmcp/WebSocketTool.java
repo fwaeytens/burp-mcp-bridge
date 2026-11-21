@@ -226,7 +226,9 @@ public class WebSocketTool implements McpTool {
                 // Generate connection ID
                 String connectionId = "ws-" + connectionCounter.incrementAndGet();
                 activeConnections.put(connectionId, webSocket);
-                messageHistory.put(connectionId, new ArrayList<>());
+                // Appended to from Burp's WebSocket callback thread (incoming) and from
+                // MCP worker threads (outgoing), so the list itself must be thread-safe.
+                messageHistory.put(connectionId, Collections.synchronizedList(new ArrayList<>()));
                 
                 // Register message handler to track messages
                 webSocket.registerMessageHandler(new ExtensionWebSocketMessageHandler() {
