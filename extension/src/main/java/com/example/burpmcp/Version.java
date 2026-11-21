@@ -7,9 +7,9 @@ package com.example.burpmcp;
 public class Version {
     
     // Version components
-    public static final String VERSION = "2.9.0";
-    public static final String BUILD_DATE = "2026-09-12";
-    public static final String RELEASE_NAME = "managed HTTP jobs and reliable request cancellation";
+    public static final String VERSION = "2.10.0";
+    public static final String BUILD_DATE = "2026-10-29";
+    public static final String RELEASE_NAME = "proxy history numbers that survive deleted entries";
 
     // Feature tracking
     public static final int TOOL_COUNT = 24; // Total number of registered tools
@@ -56,7 +56,13 @@ public class Version {
      */
     public static String getChangelog() {
         return new StringBuilder()
-               .append("## Version 2.9.0 - managed HTTP jobs and reliable request cancellation (2026-09-12)\n\n" +
+               .append("## Version 2.10.0 - proxy history numbers that survive deleted entries (2026-10-29)\n\n" +
+               "### Proxy history numbering\n" +
+               "- burp_proxy_history list and detail, afterEntry/beforeEntry, burp_annotate entryId, and burp_response_analyzer proxyIds use Burp's history number (the # column) instead of the position in the history list, so they stay correct after entries are deleted.\n" +
+               "- burp_proxy_history iterate: startAt is Burp's # (it was a position in the newest-first list, so startAt=2 returned the second-newest entry), entries report it as `id` (was `entryNumber`), and endAt, nextStartAt, and previousStartAt are # values. `recent` still picks the direction: newest first by default, oldest first with recent=false. A deleted or filtered-out startAt continues at the next entry in that direction.\n\n" +
+               "### Testing\n" +
+               "- Opt-in integration suite (integration/) that drives a real Burp Suite Community in Docker, or a Burp you point it at, through the MCP bridge.\n\n" +
+               "## Version 2.9.0 - managed HTTP jobs and reliable request cancellation (2026-09-12)\n\n" +
                "### Managed HTTP jobs\n" +
                "- Added burp_http_jobs as the 24th tool: START returns a job ID for background HTTP batches; LIST, STATUS, RESULTS, PAUSE, RESUME, and CANCEL manage their lifecycle.\n" +
                "- Uses Burp Professional's managed HTTP engine with bounded concurrency, dispatch delay, optional retries, per-response timeouts, and stable input-index result pagination.\n" +

@@ -55,18 +55,26 @@ test('detail by id returns that entry with full request and response', async () 
   assert.match(d.response.body, new RegExp(`reflected:\\[${m}a\\]`));
 });
 
-// BUG: iterate treats startAt as a 1-based position in the filtered list,
-// reversed newest-first by default (recent=true), and reports that position as
-// `entryNumber`. So its numbers are neither Burp's # nor the `id` that
-// list/detail/annotate use — the same class of bug d5af19d fixed for
-// list/detail. This test fails until iterate is fixed. Compared by URL so it
-// does not prescribe the field name a fix should use.
-test('iterate from startAt=<Burp #> walks the same entries list reports', async () => {
+// iterate's startAt is Burp's #, the same id list/detail/annotate use, and
+// `recent` picks the direction: newest first by default, oldest first with
+// recent=false (fixed in 2.10.0; startAt used to be a position in the
+// newest-first list, reported as `entryNumber`). Compared by URL and id, so
+// both the walk and the numbering are checked. `contains: m` keeps the walk on
+// this file's entries even if other traffic lands in between.
+test('iterate with recent=false walks forward from startAt=<Burp #>', async () => {
   const mine = await historyMatching(client, m);
   const s = await callOk(client, 'burp_proxy_history', {
-    action: 'iterate', startAt: mine[0].id, count: 3
+    action: 'iterate', startAt: mine[0].id, count: 3, recent: false, contains: m
   });
-  assert.deepEqual(s.entries.map((e) => e.url), mine.map((e) => e.url));
+  assert.deepEqual(s.entries.map((e) => [e.id, e.url]), mine.map((e) => [e.id, e.url]));
+});
+
+test('iterate by default walks newest first from startAt=<Burp #>', async () => {
+  const mine = (await historyMatching(client, m)).reverse();
+  const s = await callOk(client, 'burp_proxy_history', {
+    action: 'iterate', startAt: mine[0].id, count: 3, contains: m
+  });
+  assert.deepEqual(s.entries.map((e) => [e.id, e.url]), mine.map((e) => [e.id, e.url]));
 });
 
 test('afterEntry / beforeEntry bound the list by entry id', async () => {
