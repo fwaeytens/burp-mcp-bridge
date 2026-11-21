@@ -2,7 +2,7 @@
 // Burp, make sure the two host-provided jars (Burp Community + the built
 // extension) exist and are wired into .env before compose runs.
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
@@ -36,10 +36,13 @@ function findExtensionJar() {
   }
   const targetDir = join(REPO_DIR, 'extension', 'target');
   if (!existsSync(targetDir)) return null;
+  // Newest build wins. Not a name sort: "2.9.0" sorts after "2.10.0", so a
+  // stale jar left over from an older version would be picked.
   const jar = readdirSync(targetDir)
     .filter((f) => /^burp-mcp-bridge-.*\.jar$/.test(f) && !f.startsWith('original-'))
-    .sort()
-    .pop();
+    .map((f) => ({ f, mtime: statSync(join(targetDir, f)).mtimeMs }))
+    .sort((a, b) => a.mtime - b.mtime)
+    .pop()?.f;
   return jar ? join(targetDir, jar) : null;
 }
 

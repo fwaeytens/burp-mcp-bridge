@@ -399,7 +399,7 @@
           },
           "recent": {
             "default": true,
-            "description": "Sort most recent first",
+            "description": "Most recent first: list's sort order, and iterate's walk direction from startAt",
             "type": "boolean"
           },
           "regex": {
@@ -443,8 +443,7 @@
             "type": "boolean"
           },
           "startAt": {
-            "default": 1,
-            "description": "Starting entry for iterate mode (default: 1)",
+            "description": "Iterate mode: Burp proxy history number (#, the id from list) to start at. Walks in the recent direction: with recent=true (default) from the newest entry at or below it, with recent=false from the oldest entry at or above it. Default: the newest entry (the oldest with recent=false)",
             "type": "integer"
           },
           "statusClass": {
@@ -484,7 +483,7 @@
             "items": {
               "properties": {
                 "id": {
-                  "description": "Original proxy history index",
+                  "description": "Burp proxy history number (the # column)",
                   "type": "integer"
                 },
                 "method": {
@@ -4335,7 +4334,7 @@
             "type": "object"
           },
           "entryId": {
-            "description": "Exact entry id (1-based). For ANNOTATE_PROXY / CLEAR_ANNOTATIONS source=PROXY: same id space as burp_proxy_history returns (proxy-history index + 1). For ANNOTATE_TARGET: index into api.siteMap().requestResponses() + 1 — Burp's Montoya sitemap exposes no stable id, so this is the current in-memory ordering and is NOT interchangeable with the proxy id. For CLEAR_ANNOTATIONS the source param must be PROXY when entryId is given (or omitted, which defaults to PROXY); TARGET+entryId or ALL+entryId are rejected. url/method/pattern filters are ignored when entryId is set.",
+            "description": "Exact entry id (1-based). For ANNOTATE_PROXY / CLEAR_ANNOTATIONS source=PROXY: same id space as burp_proxy_history returns (Burp's proxy history # number). For ANNOTATE_TARGET: index into api.siteMap().requestResponses() + 1 — Burp's Montoya sitemap exposes no stable id, so this is the current in-memory ordering and is NOT interchangeable with the proxy id. For CLEAR_ANNOTATIONS the source param must be PROXY when entryId is given (or omitted, which defaults to PROXY); TARGET+entryId or ALL+entryId are rejected. url/method/pattern filters are ignored when entryId is set.",
             "type": "integer"
           },
           "filePath": {
@@ -10332,5 +10331,5 @@
       "title": "Utilities"
     }
   ],
-  "version": "2.9.0"
+  "version": "2.10.0"
 }
