@@ -1,0 +1,104 @@
+# Release build: pushing a tag v<version> (e.g. v2.10.0) checks that the
+# tag matches the version in extension/pom.xml, bridge/package.json and
+# bridge/package-lock.json (set all three with scripts/set-version.sh), runs the
+# unit and integration tests (ci.yml), and publishes a GitHub release for the
+# tag with one asset, burp-mcp-bridge-<version>.jar.
+#
+# A release is one version-bump commit plus a tag; the maintainer owns the
+# version, and the tag push is the trigger. Tags matching v*-dev.* are left to
+# CI-built pre-releases of unreleased branches and never trigger this workflow.
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+      - '!v*-dev.*'
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: Check tag matches project versions
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Compare versions
+        id: check
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          tag_version=${TAG#v}
+          pom_version=$(mvn -B -q -f extension/pom.xml help:evaluate -Dexpression=project.version -DforceStdout)
+          pkg_version=$(node -p "require('./bridge/package.json').version")
+          lock_version=$(node -p "require('./bridge/package-lock.json').version")
+          echo "tag:                      $tag_version"
+          echo "extension/pom.xml:        $pom_version"
+          echo "bridge/package.json:      $pkg_version"
+          echo "bridge/package-lock.json: $lock_version"
+          for v in "$pom_version" "$pkg_version" "$lock_version"; do
+            if [ "$v" != "$tag_version" ]; then
+              echo "::error::tag $TAG does not match the project versions (pom $pom_version, package.json $pkg_version, package-lock.json $lock_version); set them with scripts/set-version.sh"
+              exit 1
+            fi
+          done
+          echo "version=$tag_version" >> "$GITHUB_OUTPUT"
+
+  test:
+    name: Tests
+    needs: version
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    name: Build and publish the release
+    needs: [version, test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # Tests already ran in the test job.
+      - name: Build the extension jar
+        working-directory: extension
+        run: mvn -B package -DskipTests
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          jar="extension/target/burp-mcp-bridge-${VERSION}.jar"
+          test -f "$jar"
+          unzip -l "$jar" META-INF/MANIFEST.MF > /dev/null
+          # The version the extension reports at runtime (Version.java).
+          built=$(unzip -p "$jar" com/example/burpmcp/version.properties | sed -n 's/^version=//p')
+          if [ "$built" != "$VERSION" ]; then
+            echo "::error::the jar reports version '$built', expected '$VERSION'"
+            exit 1
+          fi
+          # A normal release (not a pre-release), marked latest, so GitHub's
+          # /releases/latest resolves to it.
+          gh release create "$TAG" "$jar" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "$TAG" \
+            --generate-notes \
+            --latest

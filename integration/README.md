@@ -79,6 +79,10 @@ brings the stack up (waiting on the healthchecks), discovers the published
 ports, runs `node --test`, and tears the stack down. By default the suite covers
 the bundled **Community** edition only.
 
+CI (`.github/workflows/ci.yml`) runs the suite this way on pushes to `main`, on
+release tags (via `release.yml`), and on demand (`workflow_dispatch`); pull
+requests get the unit tests only. The Burp Community jar is cached per version.
+
 **Testing a Burp you run yourself** (any edition, e.g. Professional): open a
 **fresh project** (a new temporary project is fine) with the MCP extension
 loaded, proxy listener running, and no upstream proxy rule catching
