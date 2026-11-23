@@ -1,5 +1,6 @@
 # Release build: pushing a tag v<version> (e.g. v2.10.0-abbbe.1) checks that the
-# tag matches the version in extension/pom.xml and bridge/package.json, runs the
+# tag matches the version in extension/pom.xml, bridge/package.json and
+# bridge/package-lock.json (set all three with scripts/set-version.sh), runs the
 # unit and integration tests (ci.yml), and publishes a GitHub release for the
 # tag with one asset, burp-mcp-bridge-<version>.jar.
 #
@@ -41,15 +42,16 @@ jobs:
           pom_version=$(mvn -B -q -f extension/pom.xml help:evaluate -Dexpression=project.version -DforceStdout)
           pkg_version=$(node -p "require('./bridge/package.json').version")
           lock_version=$(node -p "require('./bridge/package-lock.json').version")
-          echo "tag:               $tag_version"
-          echo "extension/pom.xml: $pom_version"
-          echo "bridge/package.json: $pkg_version"
+          echo "tag:                      $tag_version"
+          echo "extension/pom.xml:        $pom_version"
+          echo "bridge/package.json:      $pkg_version"
           echo "bridge/package-lock.json: $lock_version"
-          if [ "$tag_version" != "$pom_version" ] || [ "$tag_version" != "$pkg_version" ] \
-             || [ "$tag_version" != "$lock_version" ]; then
-            echo "::error::tag $TAG does not match the project versions (pom $pom_version, package.json $pkg_version, package-lock.json $lock_version)"
-            exit 1
-          fi
+          for v in "$pom_version" "$pkg_version" "$lock_version"; do
+            if [ "$v" != "$tag_version" ]; then
+              echo "::error::tag $TAG does not match the project versions (pom $pom_version, package.json $pkg_version, package-lock.json $lock_version); set them with scripts/set-version.sh"
+              exit 1
+            fi
+          done
           echo "version=$tag_version" >> "$GITHUB_OUTPUT"
 
   test:
@@ -86,6 +88,12 @@ jobs:
           jar="extension/target/burp-mcp-bridge-${VERSION}.jar"
           test -f "$jar"
           unzip -l "$jar" META-INF/MANIFEST.MF > /dev/null
+          # The version the extension reports at runtime (Version.java).
+          built=$(unzip -p "$jar" com/example/burpmcp/version.properties | sed -n 's/^version=//p')
+          if [ "$built" != "$VERSION" ]; then
+            echo "::error::the jar reports version '$built', expected '$VERSION'"
+            exit 1
+          fi
           # A normal release (not a pre-release), marked latest, so GitHub's
           # /releases/latest resolves to it.
           gh release create "$TAG" "$jar" \

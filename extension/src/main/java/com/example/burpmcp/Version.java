@@ -6,8 +6,9 @@ package com.example.burpmcp;
  */
 public class Version {
     
-    // Version components
-    public static final String VERSION = "2.9.0";
+    // Version components. VERSION comes from <version> in extension/pom.xml,
+    // copied into version.properties by Maven resource filtering at build time.
+    public static final String VERSION = loadVersion();
     public static final String BUILD_DATE = "2026-09-12";
     public static final String RELEASE_NAME = "managed HTTP jobs and reliable request cancellation";
 
@@ -21,6 +22,27 @@ public class Version {
     public static final String MIN_JAVA_VERSION = "17";
     public static final String MONTOYA_API_VERSION = "2026.7";
     
+    /**
+     * Read the build's version. Outside a Maven build (e.g. an IDE compiling
+     * without resource filtering) the placeholder is not replaced, so report
+     * "0.0.0-dev" rather than a misleading number.
+     */
+    private static String loadVersion() {
+        try (java.io.InputStream in = Version.class.getResourceAsStream("version.properties")) {
+            if (in != null) {
+                java.util.Properties props = new java.util.Properties();
+                props.load(in);
+                String v = props.getProperty("version", "").trim();
+                if (!v.isEmpty() && !v.contains("${")) {
+                    return v;
+                }
+            }
+        } catch (java.io.IOException ignored) {
+            // fall through to the dev placeholder
+        }
+        return "0.0.0-dev";
+    }
+
     /**
      * Get complete version information.
      */

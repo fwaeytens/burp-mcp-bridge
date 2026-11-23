@@ -68,6 +68,13 @@
     </dependencies>
 
     <build>
+        <resources>
+            <!-- Filtered so version.properties carries project.version into the jar (Version.java). -->
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>true</filtering>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
