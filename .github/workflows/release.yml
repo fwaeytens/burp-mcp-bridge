@@ -1,4 +1,4 @@
-# Release build: pushing a tag v<version> (e.g. v2.10.0-abbbe.1) checks that the
+# Release build: pushing a tag v<version> (e.g. v2.10.0) checks that the
 # tag matches the version in extension/pom.xml, bridge/package.json and
 # bridge/package-lock.json (set all three with scripts/set-version.sh), runs the
 # unit and integration tests (ci.yml), and publishes a GitHub release for the

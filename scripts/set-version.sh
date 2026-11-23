@@ -3,14 +3,14 @@
 #   extension/pom.xml     the extension (Version.java reads it at build time)
 #   bridge/package.json   the Node bridge (+ bridge/package-lock.json, via npm)
 #
-# Usage: scripts/set-version.sh <version>      e.g. scripts/set-version.sh 2.10.0-abbbe.2
+# Usage: scripts/set-version.sh <version>      e.g. scripts/set-version.sh 2.10.0
 #
 # A release is then: commit "Release <version>", tag v<version>, push the tag.
 # .github/workflows/release.yml refuses a tag that does not match both files.
 set -euo pipefail
 
 if [ $# -ne 1 ]; then
-  echo "usage: $0 <version>   (e.g. 2.10.0-abbbe.2, no leading v)" >&2
+  echo "usage: $0 <version>   (e.g. 2.10.0, no leading v)" >&2
   exit 2
 fi
 version=$1
