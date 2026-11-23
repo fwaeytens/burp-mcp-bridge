@@ -1,0 +1,120 @@
+# Unit tests on every push and pull request. The Docker integration suite
+# (integration/README.md: real Burp Community + the built extension) runs on
+# pushes to main, on demand, and when release.yml calls this workflow for a
+# release tag -- not on every PR.
+name: CI
+
+on:
+  push:
+    # Branches only: release tags are tested by release.yml, which calls this
+    # workflow, so a tag push must not start a second, independent run.
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: Unit tests (Java + Node)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Java unit tests
+        working-directory: extension
+        run: mvn -B test
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: bridge/package-lock.json
+
+      - name: Node unit tests
+        working-directory: bridge
+        run: |
+          npm ci
+          npm test
+
+  integration:
+    name: Integration tests (Burp Community in Docker)
+    needs: unit
+    # In a workflow_call run, github.event_name and github.ref are the caller's:
+    # release.yml runs on a tag push, so refs/tags/v* selects it here.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' &&
+        (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Build the extension jar
+        working-directory: extension
+        run: mvn -B -q package -DskipTests
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: bridge/package-lock.json
+
+      # The tests spawn bridge/index.js as their MCP server.
+      - name: Install the bridge
+        working-directory: bridge
+        run: npm ci
+
+      # The Burp Community jar (~685 MB) is cached by its version, read from the
+      # download's Content-Disposition filename, so a new Burp release is fetched
+      # once and then reused.
+      - name: Resolve the Burp Community version
+        id: burp
+        run: |
+          jar=$(curl -fsIL --retry 3 'https://portswigger.net/burp/releases/download?product=community&type=Jar' \
+            | tr -d '\r' | sed -n 's/.*filename=\(burpsuite_community_v[^;]*\.jar\).*/\1/p' | head -1)
+          if [ -z "$jar" ]; then echo "::error::could not read the Burp Community jar name"; exit 1; fi
+          echo "jar=$jar" >> "$GITHUB_OUTPUT"
+          echo "Burp Community: $jar"
+
+      # restore/save are split so the jar is cached even when the tests fail.
+      - name: Restore the Burp Community jar
+        id: burp-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.cache/burp-mcp-bridge
+          key: burp-community-${{ steps.burp.outputs.jar }}
+
+      - name: Download the Burp Community jar
+        if: steps.burp-cache.outputs.cache-hit != 'true'
+        working-directory: integration
+        run: npm run fetch-burp
+
+      - name: Check the cached jar is the resolved version
+        run: test -f ~/.cache/burp-mcp-bridge/'${{ steps.burp.outputs.jar }}'
+
+      - name: Save the Burp Community jar
+        if: steps.burp-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.cache/burp-mcp-bridge
+          key: burp-community-${{ steps.burp.outputs.jar }}
+
+      - name: Integration tests
+        working-directory: integration
+        run: npm run test:integration
